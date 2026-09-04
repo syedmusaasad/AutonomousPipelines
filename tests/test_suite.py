@@ -943,15 +943,32 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     text = trial.trial_plan("implementer", "gemini-3.1-pro-preview", tasks, "score clarity 0-10", Path("/w"), reg)
     pl = planmod.parse_text(text, Path("/w/plan.md"))
     seat = roles_mod.seat("implementer", reg)
-    assert pl.by_number(1).model == seat["model_q"] and pl.by_number(2).model == "llmgateway-devpass/gemini-3.1-pro-preview"
+    cand_q = "llmgateway-devpass/gemini-3.1-pro-preview"
+    # Phases 1 and 2 are task1-arm-A and task1-arm-B; models assigned randomly to arms
+    arm_models = {pl.by_number(1).model, pl.by_number(2).model}
+    assert arm_models == {seat["model_q"], cand_q}, f"arm models {arm_models} != expected pair"
     assert pl.by_number(3).after == [1] and pl.by_number(4).after == [2]
     scorer = pl.by_number(5)
     fam = roles_mod.family_of(reg["roles"][scorer.role]["model"], reg)
     assert fam not in (seat["family"], "google") and scorer.after == [1, 2, 3, 4] and scorer.exits
     assert pl.decisions and "nominated; trial decides" in pl.decisions[0]
+    # Blinding: scorer phase brief must not name models or reveal arm identities
+    scorer_text = text.split(f"## Phase {scorer.number}:")[1]
+    assert "incumbent" not in scorer_text, "scorer phase reveals 'incumbent'"
+    assert "candidate" not in scorer_text, "scorer phase reveals 'candidate'"
+    assert seat["model_q"].split("/")[-1] not in scorer_text, "scorer phase reveals incumbent model name"
+    assert "gemini-3.1-pro-preview" not in scorer_text, "scorer phase reveals candidate model name"
+    # Arm mapping is in a DECISION line but NOT in the scorer section
+    arm_map = trial.extract_arm_map(text)
+    assert set(arm_map.keys()) == {"A", "B"} and set(arm_map.values()) == {"incumbent", "candidate"}
     with Estate() as E:
         (E.work / "trial").mkdir()
-        (E.work / "trial" / "scores.json").write_text(json.dumps({"t1": {"incumbent": 6, "candidate": 8}, "t2": {"incumbent": 7, "candidate": 8}}))
+        # Scores use A/B keys; decide() translates via mapping.json
+        inc_arm = [k for k, v in arm_map.items() if v == "incumbent"][0]
+        cand_arm = [k for k, v in arm_map.items() if v == "candidate"][0]
+        scores = {"t1": {inc_arm: 6, cand_arm: 8}, "t2": {inc_arm: 7, cand_arm: 8}}
+        (E.work / "trial" / "scores.json").write_text(json.dumps(scores))
+        (E.work / "trial" / "mapping.json").write_text(json.dumps(arm_map))
         st = {"dispatches": {
             "a": {"model": "inc", "outcome": "ok", "tokens": {"total": 1000}, "wall_s": 100},
             "b": {"model": "cand", "outcome": "ok", "tokens": {"total": 1050}, "wall_s": 105},

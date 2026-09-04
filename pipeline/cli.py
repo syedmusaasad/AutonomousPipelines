@@ -158,6 +158,11 @@ def cmd_trial(a):
     tdir.mkdir(parents=True, exist_ok=True)
     text = trial.trial_plan(a.role, a.model, tasks, Path(a.rubric).read_text(), tdir, reg)
     (tdir / "plan.md").write_text(text)
+    # Write mapping.json so decide() can translate A/B scores back to incumbent/candidate
+    arm_map = trial.extract_arm_map(text)
+    trial_out = tdir / "trial"
+    trial_out.mkdir(exist_ok=True)
+    (trial_out / "mapping.json").write_text(json.dumps(arm_map))
     row = engine.launch(tdir / "plan.md")
     print(f"trial launched {row['run']}; when done: pipeline trial-apply {row['run']} {a.role} {a.model}")
     return 0
