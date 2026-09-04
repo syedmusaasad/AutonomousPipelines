@@ -1,0 +1,3 @@
+1. **planning (4/10)**: For tasks 1 and 2, verify `plan.md` has a clear dependency structure (step 2 depends on step 1), includes a clear gate/check before each irreversible step (like data migration, DNS switch, decommissioning), and completes the work in the fewest logical phases.
+2. **context (3/10)**: For the Large Context Debugging task, verify `$OUT/answer.txt` contains the correct specific model name, proving it successfully retrieved the deep fact from the journal excerpt and plan files.
+3. **clarity (3/10)**: For the Status Report task, verify the first sentence of `$OUT/report.txt` states the outcome, an explicit waiting-on-you list is present (or explicitly empty), there is no preamble, and the total length is under 50 words.

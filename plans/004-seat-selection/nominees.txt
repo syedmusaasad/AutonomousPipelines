@@ -1,0 +1,13 @@
+# Operator-named nominees (DECISION seat-selection). Format: role model
+# These enter the trials with equal standing to the rule-generated candidates.
+interactive claude-fable-5-1
+implementer gpt-5.6-luna
+researcher claude-opus-4-8
+fast-worker gpt-5.6-luna
+document-writer gpt-5.6-terra
+reviewer gpt-5.6-sol
+reviewer deepseek-v4-pro
+reviewer claude-opus-5
+frontend-worker claude-sonnet-5
+lane-worker gpt-5.6-luna
+interactive glm-5.3

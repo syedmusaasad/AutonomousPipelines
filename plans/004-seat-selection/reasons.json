@@ -1,0 +1,32 @@
+{
+  "gpt-5.6-sol": [
+    "operator nominee"
+  ],
+  "deepseek-v4-pro": [
+    "operator nominee"
+  ],
+  "claude-opus-5": [
+    "operator nominee"
+  ],
+  "claude-sonnet-5": [
+    "incumbent (reviewer-a)"
+  ],
+  "gpt-5.3-codex": [
+    "incumbent (reviewer-b)"
+  ],
+  "gemini-3.1-pro-preview": [
+    "incumbent (reviewer-c)"
+  ],
+  "gpt-oss-120b": [
+    "cheapest in 3 cheapest families"
+  ],
+  "deepseek-v4-flash": [
+    "cheapest in 3 cheapest families"
+  ],
+  "glm-5.3-flash": [
+    "cheapest in 3 cheapest families"
+  ],
+  "minimax-m3": [
+    "fastest overall"
+  ]
+}
