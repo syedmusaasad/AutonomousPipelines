@@ -1,5 +1,5 @@
 {
- "min_tests": 69,
+ "min_tests": 71,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
@@ -51,6 +51,7 @@
   "run_launches_detached_and_registers_to_conversation",
   "runs_registry_keys_to_conversation_and_scopes_custody",
   "select_band_keeps_faster_drops_much_worse",
+  "select_never_returns_premium_arm_even_when_it_scores_best",
   "select_returns_best_in_band_non_premium_quota_fallback",
   "select_reviewers_enforces_distinct_families",
   "sentry_never_restarts_config_mismatch_or_review_blocking",
@@ -68,6 +69,7 @@
   "trial_apply_writes_effort",
   "trial_apply_writes_quota_fallback_from_selection",
   "trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decision",
+  "validate_rejects_premium_model_or_fallback_anywhere",
   "worker_contract_names_every_clause",
   "worker_failure_also_retries"
  ]

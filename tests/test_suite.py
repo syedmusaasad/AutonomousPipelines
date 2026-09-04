@@ -195,6 +195,65 @@ def registry_models_table_and_quota_fallback_never_premium():
 
 
 @test
+def validate_rejects_premium_model_or_fallback_anywhere():
+    """DECISION no-premium-seats: validate() rejects a registry where ANY role's model,
+    fallback or quota_fallback is a model tagged premium in reg["models"]; the error
+    names the role and field. Not just quota_fallback (already covered above) — model
+    and fallback too."""
+    import copy
+    reg = roles_mod.load()
+    premium_model = next(m for m, i in reg["models"].items() if i["premium"] is True)
+    other_premium = next(m for m, i in reg["models"].items() if i["premium"] is True and m != premium_model)
+
+    bad = copy.deepcopy(reg)
+    bad["roles"]["implementer"]["model"] = premium_model
+    try:
+        roles_mod.validate(bad)
+    except roles_mod.RegistryError as e:
+        assert "implementer" in str(e) and "model" in str(e)
+    else:
+        raise AssertionError("premium primary model accepted")
+
+    bad = copy.deepcopy(reg)
+    # give fallback a distinct premium family so the family check doesn't fire first
+    bad["roles"]["implementer"]["fallback"] = other_premium
+    try:
+        roles_mod.validate(bad)
+    except roles_mod.RegistryError as e:
+        assert "implementer" in str(e) and "fallback" in str(e)
+    else:
+        raise AssertionError("premium fallback accepted")
+
+    # the registry on disk has no premium seat anywhere: model, fallback, quota_fallback
+    prem = {m for m, i in reg["models"].items() if i["premium"] is True}
+    for name, r in reg["roles"].items():
+        for field in ("model", "fallback", "quota_fallback"):
+            fmodel, _ = roles_mod._split_arm(r[field])
+            assert fmodel not in prem, f"{name}.{field} = {r[field]!r} is premium-tier"
+    assert reg["roles"]["interactive"]["model"] == "glm-5.3"
+
+
+@test
+def select_never_returns_premium_arm_even_when_it_scores_best():
+    """select() never returns a premium arm as `chosen`, even when it has the best
+    quality, wall and cost of all arms on offer."""
+    reg = {"models": {
+        "premZ": {"premium": True}, "stdY": {"premium": False}, "stdX": {"premium": False},
+    }}
+    arms = {
+        "premZ": {"quality": 10.0, "wall_s": 1.0, "cost": 0.01},  # dominates on every axis
+        "stdY": {"quality": 9.0, "wall_s": 5.0, "cost": 0.05},
+        "stdX": {"quality": 8.7, "wall_s": 6.0, "cost": 0.06},
+    }
+    result = trial.select(arms, 1.5, reg=reg)
+    assert result["chosen"] != "premZ"
+    assert result["chosen"] == "stdY"
+    assert all(m != "premZ" for m in result["band_kept"])
+    assert all(m != "premZ" for m in result["ranking"])
+    assert result["reasons"]["premZ"]["reason"] == "excluded: premium"
+
+
+@test
 def rendered_agents_deny_external_channels_and_questions():
     reg = roles_mod.load()
     for name, text in roles_mod.rendered_agents(reg).items():
@@ -1254,26 +1313,37 @@ def select_band_keeps_faster_drops_much_worse():
 
 @test
 def select_returns_best_in_band_non_premium_quota_fallback():
-    """select(reg=...) also names the best (wall then cost) in-band arm that is not
-    tagged premium; None when reg is absent or every in-band arm is premium."""
+    """DECISION no-premium-seats: select(reg=...) excludes premium arms BEFORE banding —
+    a premium arm can never be chosen even when it scores best. It still shows up in
+    `reasons`, marked excluded: premium. `quota_fallback` is the next-best in-band
+    non-premium arm; None (well, absent) when reg is absent, and select() raises when
+    every arm is premium."""
     reg = {"models": {
         "provA": {"premium": True}, "provB": {"premium": False}, "provC": {"premium": False},
     }}
     arms = {
-        "provA": {"quality": 8.0, "wall_s": 5.0, "cost": 0.5},   # best, but premium
+        "provA": {"quality": 8.0, "wall_s": 5.0, "cost": 0.5},   # best quality, but premium
         "provB": {"quality": 7.0, "wall_s": 10.0, "cost": 0.3},  # in band, standard, slower
         "provC": {"quality": 6.8, "wall_s": 8.0, "cost": 0.2},   # in band, standard, faster than B
     }
     result = trial.select(arms, 1.5, reg=reg)
-    assert result["chosen"] == "provA"  # premium can still be chosen outright
-    assert result["quota_fallback"] == "provC"  # fastest in-band arm that isn't premium
-    # without reg, quota_fallback is absent/None
+    assert result["chosen"] == "provC"  # premium excluded before banding; fastest standard arm wins
+    assert "provA" not in result["band_kept"]
+    assert result["reasons"]["provA"]["excluded"] is True
+    assert result["reasons"]["provA"]["reason"] == "excluded: premium"
+    assert result["quota_fallback"] == "provB"  # next-best in-band non-premium arm after chosen
+    # without reg, no premium filtering happens; premium arm can win, quota_fallback absent
     result_no_reg = trial.select(arms, 1.5)
+    assert result_no_reg["chosen"] == "provA"
     assert result_no_reg.get("quota_fallback") is None
-    # every in-band arm premium -> None
+    # every arm premium -> nothing eligible to select
     reg_all_premium = {"models": {"provA": {"premium": True}, "provB": {"premium": True}, "provC": {"premium": True}}}
-    result_all = trial.select(arms, 1.5, reg=reg_all_premium)
-    assert result_all["quota_fallback"] is None
+    try:
+        trial.select(arms, 1.5, reg=reg_all_premium)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("select should refuse when every arm is premium")
 
 
 @test

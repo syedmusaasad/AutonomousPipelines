@@ -33,8 +33,8 @@
   "roles": {
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
-      "model": "claude-fable-5-1",
-      "fallback": "glm-5.3",
+      "model": "glm-5.3",
+      "fallback": "claude-sonnet-5",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -53,6 +53,18 @@
           "fallback": "glm-5.3",
           "at": "2026-09-04T19:10:00+00:00",
           "why": "DECISION interactive-fallback: operator chose glm-5.3 as the manual standard-tier fallback for the interactive seat when the premium allowance is hit; to be revisited by trial-report interactive"
+        },
+        {
+          "from": {
+            "model": "claude-fable-5-1",
+            "fallback": "glm-5.3"
+          },
+          "to": {
+            "model": "glm-5.3",
+            "fallback": "claude-sonnet-5"
+          },
+          "at": "2026-09-04T21:00:00+00:00",
+          "why": "DECISION no-premium-seats: the registry never seats a premium model in any field, including interactive; glm-5.3 (the operator's stated preference) becomes the interim primary until trial-report interactive names the measured best standard-tier arm."
         }
       ],
       "quota_fallback": "claude-haiku-4-5@high"

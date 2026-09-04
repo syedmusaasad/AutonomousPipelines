@@ -170,9 +170,14 @@ def select(arms: dict, band: float, reg: dict = None) -> dict:
 
     arms: {model: {"quality": mean, "wall_s": mean per dispatch, "cost": mean per dispatch}}
     band: the quality tolerance band (e.g. 1.5 for standard)
-    reg: registry dict (optional). When given, also computes "quota_fallback": the
-    best (wall then cost) in-band arm whose model is not tagged premium in
-    reg["models"], or None if every in-band arm is premium (or reg is absent).
+    reg: registry dict (optional). When given, arms whose model is tagged premium in
+    reg["models"] are excluded BEFORE banding — a premium arm can never be chosen, no
+    matter how it scores. Best-quality (the band's ceiling) is computed over the
+    non-premium arms only. Premium arms that were scored still appear in `reasons`,
+    marked "excluded: premium" so the report can show them. `quota_fallback` is the
+    best (wall then cost) in-band non-premium arm other than `chosen` (or `chosen`
+    itself if it is the only in-band non-premium arm); None when reg is absent or
+    every arm is premium.
 
     Returns:
         {"chosen": model, "band_kept": [models], "ranking": [models in order],
@@ -181,17 +186,34 @@ def select(arms: dict, band: float, reg: dict = None) -> dict:
     if not arms:
         raise ValueError("arms must be non-empty")
 
-    best_quality = max(v["quality"] for v in arms.values())
+    if reg is not None:
+        premium_arms = {m for m in arms if roles_mod.is_premium(_arm_model(m), reg)}
+    else:
+        premium_arms = set()
+
+    eligible = {m: v for m, v in arms.items() if m not in premium_arms}
+    if not eligible:
+        raise ValueError("every arm is premium-tier; no eligible arm to select")
+
+    best_quality = max(v["quality"] for v in eligible.values())
     threshold = best_quality - band
 
-    band_kept = [m for m, v in arms.items() if v["quality"] >= threshold]
+    band_kept = [m for m, v in eligible.items() if v["quality"] >= threshold]
     # Sort band members by wall_s then cost
     ranking = sorted(band_kept, key=lambda m: (arms[m]["wall_s"], arms[m]["cost"]))
     chosen = ranking[0]
 
     reasons = {}
     for m, v in arms.items():
-        if v["quality"] < threshold:
+        if m in premium_arms:
+            reasons[m] = {
+                "excluded": True,
+                "reason": "excluded: premium",
+                "quality": v["quality"],
+                "wall_s": v["wall_s"],
+                "cost": v["cost"],
+            }
+        elif v["quality"] < threshold:
             reasons[m] = {
                 "excluded": True,
                 "reason": f"quality {v['quality']:.3f} below threshold {threshold:.3f} (best={best_quality:.3f}, band={band})",
@@ -212,9 +234,11 @@ def select(arms: dict, band: float, reg: dict = None) -> dict:
     quota_fallback = None
     if reg is not None:
         for m in ranking:
-            if not roles_mod.is_premium(_arm_model(m), reg):
+            if m != chosen:
                 quota_fallback = m
                 break
+        else:
+            quota_fallback = chosen if ranking else None
 
     return {
         "chosen": chosen,
@@ -231,18 +255,23 @@ def _arm_model(arm: str) -> str:
     return arm.rsplit("@", 1)[0] if "@" in arm else arm
 
 
-def select_reviewers(arms_by_model: dict, band: float, families: dict) -> list:
+def select_reviewers(arms_by_model: dict, band: float, families: dict, reg: dict = None) -> list:
     """Select the best set of three reviewers on three distinct families.
 
     arms_by_model: {model: {"quality": mean, "wall_s": mean, "cost": mean}}
     band: quality tolerance band
     families: {model: family_string}
+    reg: registry dict (optional). When given, arms whose model is tagged premium in
+    reg["models"] are excluded BEFORE banding — a premium arm can never be seated as
+    a reviewer, no matter how it scores.
 
     Strategy: maximise count within band, then minimise summed wall_s, then summed cost.
     All three must be on distinct families.
 
     Returns: list of 3 model names.
     """
+    if reg is not None:
+        arms_by_model = {m: v for m, v in arms_by_model.items() if not roles_mod.is_premium(_arm_model(m), reg)}
     if len(arms_by_model) < 3:
         raise ValueError(f"need at least 3 arms, got {len(arms_by_model)}")
 
@@ -457,6 +486,11 @@ def apply(role: str, arm: str, verdict: dict, registry_path: Path = None) -> Non
     path = registry_path or roles_mod.REGISTRY
     reg = json.loads(path.read_text())
     model_q = roles_mod.qualified(model, reg)
+
+    if roles_mod.is_premium(model, reg):
+        raise roles_mod.RegistryError(
+            f"apply refuses premium-tier arm {arm!r} (DECISION no-premium-seats)"
+        )
 
     # Match chosen: could be "model_q@effort", "model_q", or "model"
     def chosen_matches(chosen_val: str, mq: str, m: str, ef) -> bool:

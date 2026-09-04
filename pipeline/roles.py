@@ -69,9 +69,12 @@ def validate(reg: dict) -> None:
                 raise RegistryError(f"role {name}: reviewers must be sealed")
             if r["tools"].get("edit"):
                 raise RegistryError(f"role {name}: sealed reviewers get no edit grant")
-        qf_model, _ = _split_arm(r["quota_fallback"])
-        if is_premium(qf_model, reg):
-            raise RegistryError(f"role {name}: quota_fallback {r['quota_fallback']} is premium-tier")
+        # DECISION no-premium-seats: no role may seat a premium-tier model anywhere
+        # (primary, fallback or quota_fallback) — premium arms are excluded outright.
+        for field in ("model", "fallback", "quota_fallback"):
+            field_model, _ = _split_arm(r[field])
+            if is_premium(field_model, reg):
+                raise RegistryError(f"role {name}: {field} {r[field]} is premium-tier")
     fams = {family_of(roles[x]["model"], reg) for x in REVIEWERS}
     if len(fams) < 2:
         raise RegistryError("reviewers must span at least two model families")
