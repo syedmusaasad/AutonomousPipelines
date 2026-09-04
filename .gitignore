@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 /BENCHMARKS.md.tmp
+.approve-*
+.gate-*
+NOTES.md
