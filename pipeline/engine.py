@@ -240,6 +240,8 @@ class Engine:
         models = [s["model_q"], s["fallback_q"]]
         if ph.model and role == ph.role:
             models = [roles_mod.qualified(ph.model, self.reg)]  # pinned (trials): no fallback, that would taint the arm
+        # Determine effort: ph.effort overrides the seat's effort when set (for trial arms and EFFORT: directive)
+        effort = ph.effort if (ph.effort is not None and role == ph.role) else None
         last = None
         for i, model in enumerate(models):
             def on_start(pid, transcript, model=model):
@@ -247,7 +249,8 @@ class Engine:
                                    transcript=str(transcript), attempt=attempt, lane=lane, item=item,
                                    fallback=(i > 0))
             res = dsp.run_dispatch(brief=brief, role=role, cwd=cwd or plan.workdir, out_dir=out_dir / f"try-{i}",
-                                   timeout=timeout or ph.timeout, env=env, model=model, on_start=on_start, reg=self.reg)
+                                   timeout=timeout or ph.timeout, env=env, model=model, effort=effort,
+                                   on_start=on_start, reg=self.reg)
             self.journal.write("dispatch.end", id=did, phase=ph.key, role=role, **res.as_row())
             last = res
             if res.outcome == "ok":

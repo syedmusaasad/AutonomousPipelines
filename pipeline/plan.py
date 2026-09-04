@@ -12,6 +12,7 @@ does not run.
     GATE: <sentinel-path>          (gate phases) the file the operator must write
     ATTEMPTS: <n>                  worker attempts before the phase burns (default 2)
     MODEL: <provider/model>        pin the model (trials only; seats otherwise come from the registry)
+    EFFORT: low|medium|high        override the seat's effort/reasoning variant for this phase
 
 Everything else under a phase heading is the brief: task facts handed to the worker.
 Free text before the first heading is the plan preamble (shared context). The
@@ -24,7 +25,7 @@ from pathlib import Path
 
 HEADING = re.compile(r"^##\s*Phase\s+(\d+)\s*:\s*(.+?)\s*\((\w[\w-]*)\)\s*$")
 DIRECTIVE = re.compile(r"^([A-Z]+):\s*(.*?)\s*$")
-KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL"}
+KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL", "EFFORT"}
 
 DEFAULT_TIMEOUT = 1800
 DEFAULT_ATTEMPTS = 2
@@ -53,6 +54,7 @@ class Phase:
     gate: str = None
     attempts: int = DEFAULT_ATTEMPTS
     model: str = None
+    effort: str = None
     line: int = 0
 
     @property
@@ -178,6 +180,10 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
         if not val:
             raise PlanError(f"line {lineno}: MODEL wants provider/model")
         ph.model = val
+    elif key == "EFFORT":
+        if val not in ("low", "medium", "high"):
+            raise PlanError(f"line {lineno}: EFFORT must be low|medium|high, got {val!r}")
+        ph.effort = val
 
 
 def _int(val, lineno, key, minimum):

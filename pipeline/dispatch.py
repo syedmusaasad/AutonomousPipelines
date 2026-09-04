@@ -69,12 +69,13 @@ class DispatchResult:
 
 
 def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: int, env: dict = None,
-                 model: str = None, on_start=None, reg: dict = None) -> DispatchResult:
+                 model: str = None, effort: str = None, on_start=None, reg: dict = None) -> DispatchResult:
     """Blocking: runs one worker to completion (or timeout). `on_start(pid, transcript)`
     is called right after spawn so the caller can journal dispatch.start."""
     reg = reg or roles_mod.load()
     s = roles_mod.seat(role, reg)
     model = model or s["model_q"]
+    effective_effort = effort if effort is not None else s["effort"]
     out_dir.mkdir(parents=True, exist_ok=True)
     transcript = out_dir / "transcript.jsonl"
     brief_path = out_dir / "brief.md"
@@ -84,7 +85,7 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     }, indent=1))
 
     argv = [worker_bin(), "run", "--format", "json", "--agent", s["agent"], "--model", model,
-            "--variant", s["effort"], "--dir", str(cwd), "--auto"]
+            "--variant", effective_effort, "--dir", str(cwd), "--auto"]
     full_env = dict(os.environ)
     full_env.update(env or {})
     full_env["PIPELINE_ROLE"] = role

@@ -1,5 +1,5 @@
 {
- "min_tests": 57,
+ "min_tests": 61,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
@@ -9,7 +9,9 @@
   "cross_review_two_families_blocking_stops",
   "dispatch_transcript_parsing_sums_tokens",
   "drift_guard_detects_hand_edits",
+  "effort_parses_and_rejects_bad_values",
   "engine_lock_prevents_double_engines",
+  "engine_passes_effort_to_worker",
   "engine_pins_model_without_fallback_for_trial_arms",
   "engine_refuses_to_continue_a_deliberate_stop_until_cleared",
   "engine_resumes_idempotently_from_journal",
@@ -28,6 +30,7 @@
   "launch_detached_survives_parent_death",
   "liveness_is_process_plus_transcript_never_journal",
   "no_bypass_flags_anywhere",
+  "parse_arm_splits_model_and_effort",
   "plan_default_is_strict_sequence",
   "plan_gate_default_sentinel",
   "plan_is_append_aware",
@@ -55,6 +58,7 @@
   "surface_scorer_metrics",
   "surface_scoring_and_one_rewrite_with_specifics",
   "timeout_kills_worker_and_counts_as_attempt",
+  "trial_apply_writes_effort",
   "trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decision",
   "worker_contract_names_every_clause",
   "worker_failure_also_retries"

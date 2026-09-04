@@ -1,6 +1,6 @@
 """Model seat changes happen ONLY through staged head-to-head trials with rubrics.
 
-`pipeline trial <role> <model>...  --tasks tasks.md --rubric rubric.md`
+`pipeline trial <role> <model@effort>...  --tasks tasks.md --rubric rubric.md`
   1. Parses tasks.md (one task per `## ` heading) and runs each task for each arm
      (incumbent + all candidates), blinded as A, B, C...; the mapping {A,B,...} ->
      {incumbent,candidate,...} is chosen randomly and saved to `trial/mapping.json`
@@ -11,7 +11,11 @@
   3. Writes a verdict file via decide() + select(). The selection rule: keep arms
      whose mean rubric score is within the role's quality band of the best arm,
      then rank by wall clock, then cost. apply() changes the registry only when
-     the verdict's chosen model is the one being applied.
+     the verdict's chosen arm is the one being applied.
+
+Arms are `model@effort` strings (e.g. `gpt-5.6-luna@low`). The effort part is
+optional; if absent it defaults to the role's registry effort. `parse_arm(s)`
+splits the string into `(model, effort)` with that default behaviour.
 
 Vendor benchmarks nominate candidates; the trial decides."""
 
@@ -27,6 +31,23 @@ TOLERANCE = 0.10  # legacy: 10% regression on wall or tokens is the most a quali
 BANDS = {"critical": 0.5, "standard": 1.5, "tolerant": 2.5}
 
 _ARM_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def parse_arm(s: str, role: str = None, reg: dict = None) -> tuple:
+    """Split an arm string 'model@effort' into (model, effort).
+
+    If no '@' is present, effort defaults to the role's registry effort (if
+    role and reg are provided), otherwise None.
+    """
+    if "@" in s:
+        model, effort = s.rsplit("@", 1)
+        return model, effort
+    # No effort specified: use the role's registry effort if available
+    if role is not None and reg is not None:
+        effort = reg.get("roles", {}).get(role, {}).get("effort")
+    else:
+        effort = None
+    return s, effort
 
 
 def parse_tasks(text: str) -> list:
@@ -45,37 +66,50 @@ def parse_tasks(text: str) -> list:
 
 def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, reg: dict, repeats: dict = None) -> str:
     """A trial is itself a plan: arms (incumbent + all candidates), blinded as A, B, C...;
-    each task x arm x repeat is one phase with MODEL: pinned; mapping.json saved in the
+    each task x arm x repeat is one phase with MODEL: and EFFORT: pinned; mapping.json saved in the
     trial dir; a single scorer phase on a family not used by any arm.
 
-    candidates: a single model string (legacy) or a list of model strings.
+    candidates: a single arm string (model or model@effort) or a list of arm strings.
     repeats: {arm_label: n} or None (defaults to 1 per arm).
     """
     if isinstance(candidates, str):
         candidates = [candidates]
 
     seat = roles_mod.seat(role, reg)
-    # Build arms: incumbent first, then candidates
-    arm_models = [seat["model_q"]] + [roles_mod.qualified(c, reg) for c in candidates]
-    # shuffle arm assignment randomly
-    arm_labels = list(_ARM_LABELS[:len(arm_models)])
-    indices = list(range(len(arm_models)))
-    random.shuffle(indices)
-    shuffled_models = [arm_models[i] for i in indices]
+    incumbent_effort = seat["effort"]
 
-    # arm_map: label -> model_q; identity_map: label -> "incumbent"|"candidate-N"
-    arm_map = {}  # label -> model_q
+    # Parse each candidate arm string into (model, effort)
+    # Incumbent arm uses the seat's model and effort
+    incumbent_arm_str = f"{seat['model_q']}@{incumbent_effort}"
+    # Build arm_models as list of (model_q, effort) tuples
+    arm_list = [(seat["model_q"], incumbent_effort)]  # incumbent
+    for c in candidates:
+        cmodel, ceffort = parse_arm(c, role=role, reg=reg)
+        cmodel_q = roles_mod.qualified(cmodel, reg)
+        if ceffort is None:
+            ceffort = incumbent_effort
+        arm_list.append((cmodel_q, ceffort))
+
+    # shuffle arm assignment randomly
+    arm_labels = list(_ARM_LABELS[:len(arm_list)])
+    indices = list(range(len(arm_list)))
+    random.shuffle(indices)
+    shuffled_arms = [arm_list[i] for i in indices]
+
+    # arm_map: label -> "model_q@effort"; identity_map: label -> "incumbent"|"candidate-N"
+    arm_map = {}  # label -> "model_q@effort"
     identity_map = {}  # label -> identity
-    for label, model_q in zip(arm_labels, shuffled_models):
-        arm_map[label] = model_q
-        if model_q == seat["model_q"]:
+    for label, (model_q, effort) in zip(arm_labels, shuffled_arms):
+        arm_map[label] = f"{model_q}@{effort}"
+        if model_q == seat["model_q"] and effort == incumbent_effort:
             identity_map[label] = "incumbent"
         else:
-            idx = arm_models.index(model_q)  # index in original arm_models (1-based among candidates)
-            identity_map[label] = f"candidate-{idx}"
+            # find original index in arm_list (1-based among candidates)
+            orig_idx = next(i for i, (mq, ef) in enumerate(arm_list) if mq == model_q and ef == effort)
+            identity_map[label] = f"candidate-{orig_idx}"
 
     # Find scorer: reviewer on a family not used by any arm
-    arm_families = {roles_mod.family_of(m, reg) for m in arm_map.values()}
+    arm_families = {roles_mod.family_of(mq, reg) for mq, _ in shuffled_arms}
     scorer = next(
         r for r in roles_mod.REVIEWERS
         if roles_mod.family_of(reg["roles"][r]["model"], reg) not in arm_families
@@ -106,9 +140,11 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
                 else:
                     after_clause = f"AFTER: {n - len(arm_labels)}"
                 rep_suffix = f" rep{rep + 1}" if rep_count > 1 else ""
+                model_q, effort = arm_map[label].rsplit("@", 1)
                 phase_lines = [
                     f"## Phase {n}: task{i}-arm-{label}{rep_suffix} ({role})",
-                    f"MODEL: {arm_map[label]}",
+                    f"MODEL: {model_q}",
+                    f"EFFORT: {effort}",
                 ]
                 if after_clause:
                     phase_lines.append(after_clause)
@@ -229,9 +265,9 @@ def select_reviewers(arms_by_model: dict, band: float, families: dict) -> list:
 def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, candidate_q: str = None, role: str = None, reg: dict = None) -> dict:
     """Three axes from measured numbers: quality (rubric scores), wall, cost.
 
-    Multi-arm mode: reads trial/mapping.json (arm -> model_q), computes per-arm
+    Multi-arm mode: reads trial/mapping.json (arm -> "model_q@effort"), computes per-arm
     quality/wall/cost means, calls select() with the role's band, returns a verdict
-    with "chosen" = the winning model.
+    with "chosen" = the winning arm string (model_q@effort).
 
     Legacy 2-arm mode (incumbent_q + candidate_q provided): behaves like the old
     decide() but also sets "chosen" based on the band selection.
@@ -240,7 +276,7 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
     """
     mapping_path = trial_dir / "trial" / "mapping.json"
     if mapping_path.exists():
-        arm_map = json.loads(mapping_path.read_text())  # label -> model_q
+        arm_map = json.loads(mapping_path.read_text())  # label -> "model_q@effort" or model_q (legacy)
     else:
         arm_map = _infer_mapping(trial_dir)
 
@@ -248,7 +284,7 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
     scores = json.loads(scores_path.read_text())
 
     # Build per-arm quality, wall, cost, tokens from dispatches
-    # arm_map: label -> model_q
+    # arm_map: label -> "model_q@effort" (new) or model_q (legacy)
     # scores: {task: {label: score}}
     arm_quality: dict = {label: [] for label in arm_map}
     arm_wall: dict = {label: [] for label in arm_map}
@@ -262,7 +298,13 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
                 arm_quality[label].append(score)
 
     # Collect wall/cost/tokens per arm from dispatches
-    model_to_label = {v: k for k, v in arm_map.items()}
+    # The arm_map value may be "model_q@effort" or just "model_q" (legacy)
+    # Match dispatches by model (stripping @effort suffix if present)
+    def arm_model(arm_val: str) -> str:
+        """Extract just the model part from an arm string (strip @effort if present)."""
+        return arm_val.rsplit("@", 1)[0] if "@" in arm_val else arm_val
+
+    model_to_label = {arm_model(v): k for k, v in arm_map.items()}
     for d in journal_state.get("dispatches", {}).values():
         model = d.get("model")
         label = model_to_label.get(model)
@@ -274,11 +316,10 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
     def mean(lst):
         return sum(lst) / len(lst) if lst else 0.0
 
-    # Build arms dict: {model_q: {quality, wall_s, cost}}
-    arms_by_model = {}
-    label_to_model = arm_map  # label -> model_q
-    for label, model_q in label_to_model.items():
-        arms_by_model[model_q] = {
+    # Build arms dict keyed by the full arm string (model_q@effort or model_q for legacy)
+    arms_by_arm = {}
+    for label, arm_val in arm_map.items():
+        arms_by_arm[arm_val] = {
             "quality": mean(arm_quality[label]),
             "wall_s": mean(arm_wall[label]),
             "cost": mean(arm_cost[label]),
@@ -295,26 +336,26 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
         band = BANDS["standard"]
 
     # Run selection
-    arms_for_select = {m: {"quality": v["quality"], "wall_s": v["wall_s"], "cost": v["cost"]}
-                       for m, v in arms_by_model.items()}
+    arms_for_select = {a: {"quality": v["quality"], "wall_s": v["wall_s"], "cost": v["cost"]}
+                       for a, v in arms_by_arm.items()}
     sel = select(arms_for_select, band)
 
     # Legacy compatibility: 2-arm mode with incumbent_q / candidate_q
-    # Map "decision" to "candidate"|"incumbent" for backward compat
-    chosen_model = sel["chosen"]
+    # In legacy mode, arm_map values are plain model_q strings (no @effort)
+    chosen_arm = sel["chosen"]
     if incumbent_q is not None:
-        decision = "candidate" if chosen_model != incumbent_q else "incumbent"
+        decision = "candidate" if chosen_arm != incumbent_q else "incumbent"
     else:
-        decision = chosen_model  # full model name
+        decision = chosen_arm  # full arm string
 
     # Build token/wall aggregates per identity for legacy compat
-    tok = {"total": int(sum(v["tokens"] for v in arms_by_model.values()))}
-    wall = {"total": sum(v["wall_s"] for v in arms_by_model.values())}
+    tok = {"total": int(sum(v["tokens"] for v in arms_by_arm.values()))}
+    wall = {"total": sum(v["wall_s"] for v in arms_by_arm.values())}
 
     # Legacy per-identity aggregates
     if incumbent_q is not None and candidate_q is not None:
-        inc_label = [l for l, m in arm_map.items() if m == incumbent_q]
-        cand_label = [l for l, m in arm_map.items() if m == candidate_q]
+        inc_label = [l for l, v in arm_map.items() if arm_model(v) == incumbent_q or v == incumbent_q]
+        cand_label = [l for l, v in arm_map.items() if arm_model(v) == candidate_q or v == candidate_q]
         q_legacy = {
             "incumbent": mean(arm_quality[inc_label[0]]) if inc_label else 0,
             "candidate": mean(arm_quality[cand_label[0]]) if cand_label else 0,
@@ -341,7 +382,7 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
             reasons.append(f"wall regressed >{TOLERANCE:.0%} ({wall_legacy['candidate']:.0f}s vs {wall_legacy['incumbent']:.0f}s)")
         # Override decision for legacy test compat
         decision = "candidate" if not reasons else "incumbent"
-        chosen_model = candidate_q if decision == "candidate" else incumbent_q
+        chosen_arm = candidate_q if decision == "candidate" else incumbent_q
     else:
         reasons = []
         q_legacy = None
@@ -349,12 +390,12 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
         wall_legacy = None
 
     return {
-        "chosen": chosen_model,
+        "chosen": chosen_arm,
         "decision": decision,
-        "quality": q_legacy if q_legacy is not None else {m: v["quality"] for m, v in arms_by_model.items()},
-        "tokens": tok_legacy if tok_legacy is not None else {m: v["tokens"] for m, v in arms_by_model.items()},
-        "wall_s": wall_legacy if wall_legacy is not None else {m: v["wall_s"] for m, v in arms_by_model.items()},
-        "arms": arms_by_model,
+        "quality": q_legacy if q_legacy is not None else {a: v["quality"] for a, v in arms_by_arm.items()},
+        "tokens": tok_legacy if tok_legacy is not None else {a: v["tokens"] for a, v in arms_by_arm.items()},
+        "wall_s": wall_legacy if wall_legacy is not None else {a: v["wall_s"] for a, v in arms_by_arm.items()},
+        "arms": arms_by_arm,
         "selection": sel,
         "reasons": reasons,
         "decided_at": now_iso(),
@@ -381,19 +422,44 @@ def _infer_mapping(trial_dir: Path) -> dict:
     return {"A": "incumbent", "B": "candidate"}
 
 
-def apply(role: str, model: str, verdict: dict, registry_path: Path = None) -> None:
-    """Change the seat only when the trial verdict's chosen model matches the model arg.
-    Fallback family must still differ; the registry validator enforces it."""
+def apply(role: str, arm: str, verdict: dict, registry_path: Path = None) -> None:
+    """Change the seat only when the trial verdict's chosen arm matches the arm arg.
+
+    arm may be 'model' or 'model@effort'. If effort is present it is written to the
+    registry alongside the model. Fallback family must still differ; the registry
+    validator enforces it.
+    """
     chosen = verdict.get("chosen")
-    # Normalize: qualify the model if needed
+    # Parse model and effort from the arm string
+    if "@" in arm:
+        model, effort = arm.rsplit("@", 1)
+    else:
+        model, effort = arm, None
+
     path = registry_path or roles_mod.REGISTRY
     reg = json.loads(path.read_text())
     model_q = roles_mod.qualified(model, reg)
-    if chosen != model_q and chosen != model:
+
+    # Match chosen: could be "model_q@effort", "model_q", or "model"
+    def chosen_matches(chosen_val: str, mq: str, m: str, ef) -> bool:
+        if chosen_val == mq or chosen_val == m:
+            return True
+        # Also match "model_q@effort" or "model@effort"
+        if ef is not None:
+            if chosen_val == f"{mq}@{ef}" or chosen_val == f"{m}@{ef}":
+                return True
+        return False
+
+    if not chosen_matches(chosen, model_q, model, effort):
         raise roles_mod.RegistryError(
-            f"trial chose {chosen!r}, not {model!r}; refusing to apply"
+            f"trial chose {chosen!r}, not {arm!r}; refusing to apply"
         )
     reg["roles"][role]["model"] = model
-    reg["roles"][role].setdefault("history", []).append({"model": model, "at": now_iso(), "trial": verdict})
+    if effort is not None:
+        reg["roles"][role]["effort"] = effort
+    history_entry = {"model": model, "at": now_iso(), "trial": verdict}
+    if effort is not None:
+        history_entry["effort"] = effort
+    reg["roles"][role].setdefault("history", []).append(history_entry)
     roles_mod.validate(reg)
     path.write_text(json.dumps(reg, indent=2) + "\n")

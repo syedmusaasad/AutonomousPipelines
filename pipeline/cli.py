@@ -156,13 +156,14 @@ def cmd_trial(a):
     if not tasks:
         print("no tasks (use '## name' headings)", file=sys.stderr)
         return 2
-    candidates = a.model  # list of model strings
-    slug = "_".join(m.replace("/", "_") for m in candidates)
+    candidates = a.model  # list of arm strings (model or model@effort)
+    # Use bare model name (without @effort) for the directory slug
+    slug = "_".join(trial.parse_arm(m)[0].replace("/", "_") for m in candidates)
     tdir = Path(a.cwd).resolve() / f"trial-{a.role}-{slug}"
     tdir.mkdir(parents=True, exist_ok=True)
     text = trial.trial_plan(a.role, candidates, tasks, Path(a.rubric).read_text(), tdir, reg)
     (tdir / "plan.md").write_text(text)
-    # Write mapping.json so decide() can translate arm labels back to models
+    # Write mapping.json so decide() can translate arm labels back to arm strings
     arm_map = trial.extract_arm_map(text)
     trial_out = tdir / "trial"
     trial_out.mkdir(exist_ok=True)
@@ -187,17 +188,25 @@ def cmd_trial_apply(a):
     print(json.dumps(verdict, indent=1))
     chosen = verdict.get("chosen")
     if not chosen:
-        print("no chosen model in verdict", file=sys.stderr)
+        print("no chosen arm in verdict", file=sys.stderr)
         return 1
+    # chosen may be "model_q@effort" or just "model_q"
+    if "@" in chosen:
+        chosen_model_q, chosen_effort = chosen.rsplit("@", 1)
+    else:
+        chosen_model_q, chosen_effort = chosen, None
     # Strip provider prefix for storage
-    chosen_bare = chosen.split("/", 1)[-1] if "/" in chosen else chosen
+    chosen_bare = chosen_model_q.split("/", 1)[-1] if "/" in chosen_model_q else chosen_model_q
+    # Reconstruct arm string for apply
+    apply_arm = f"{chosen_bare}@{chosen_effort}" if chosen_effort else chosen_bare
     try:
-        trial.apply(a.role, chosen_bare, verdict)
+        trial.apply(a.role, apply_arm, verdict)
     except roles_mod.RegistryError as e:
         print(f"not applied: {e}")
         return 1
     roles_mod.write_agents()
-    print(f"applied: {a.role} -> {chosen_bare}; agents re-rendered")
+    effort_note = f" effort={chosen_effort}" if chosen_effort else ""
+    print(f"applied: {a.role} -> {chosen_bare}{effort_note}; agents re-rendered")
     return 0
 
 
@@ -219,13 +228,18 @@ def cmd_trial_report(a):
         return 1
 
     # Print table header
-    print(f"{'model':<45} {'family':<12} {'quality':>8} {'wall_s':>8} {'cost':>8} {'in_band':>8} {'chosen':>7}")
-    print("-" * 110)
-    for model, v in sorted(arms.items(), key=lambda kv: -kv[1].get("quality", 0)):
-        family = roles_mod.family_of(model, reg)
-        in_band = "yes" if model in band_kept else "no"
-        is_chosen = "***" if model == chosen else ""
-        print(f"{model:<45} {family:<12} {v.get('quality', 0):>8.3f} {v.get('wall_s', 0):>8.1f} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
+    print(f"{'arm':<52} {'model':<40} {'effort':<8} {'family':<12} {'quality':>8} {'wall_s':>8} {'cost':>8} {'in_band':>8} {'chosen':>7}")
+    print("-" * 165)
+    for arm_str, v in sorted(arms.items(), key=lambda kv: -kv[1].get("quality", 0)):
+        # arm_str is "model_q@effort" or just "model_q"
+        if "@" in arm_str:
+            arm_model_q, arm_effort = arm_str.rsplit("@", 1)
+        else:
+            arm_model_q, arm_effort = arm_str, ""
+        family = roles_mod.family_of(arm_model_q, reg)
+        in_band = "yes" if arm_str in band_kept else "no"
+        is_chosen = "***" if arm_str == chosen else ""
+        print(f"{arm_str:<52} {arm_model_q:<40} {arm_effort:<8} {family:<12} {v.get('quality', 0):>8.3f} {v.get('wall_s', 0):>8.1f} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
     print()
     print(f"Chosen: {chosen}")
     return 0

@@ -975,6 +975,8 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     # Phases 1 and 2 are task1-arm-A and task1-arm-B; models assigned randomly to arms
     arm_models = {pl.by_number(1).model, pl.by_number(2).model}
     assert arm_models == {seat["model_q"], cand_q}, f"arm models {arm_models} != expected pair"
+    # Phases should also have EFFORT: pinned
+    assert pl.by_number(1).effort is not None, "arm phase should have EFFORT pinned"
     assert pl.by_number(3).after == [1] and pl.by_number(4).after == [2]
     scorer = pl.by_number(5)
     fam = roles_mod.family_of(reg["roles"][scorer.role]["model"], reg)
@@ -986,15 +988,17 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     assert "candidate" not in scorer_text, "scorer phase reveals 'candidate'"
     assert seat["model_q"].split("/")[-1] not in scorer_text, "scorer phase reveals incumbent model name"
     assert "gemini-3.1-pro-preview" not in scorer_text, "scorer phase reveals candidate model name"
-    # Arm mapping is in a DECISION line with label -> model_q
+    # Arm mapping is in a DECISION line with label -> "model_q@effort"
     arm_map = trial.extract_arm_map(text)
     assert set(arm_map.keys()) == {"A", "B"}
-    assert set(arm_map.values()) == {seat["model_q"], cand_q}, f"arm_map values {arm_map.values()} unexpected"
+    # arm_map values are "model_q@effort" strings; check models are present
+    arm_map_models = {v.rsplit("@", 1)[0] if "@" in v else v for v in arm_map.values()}
+    assert arm_map_models == {seat["model_q"], cand_q}, f"arm_map models {arm_map_models} unexpected"
     with Estate() as E:
         (E.work / "trial").mkdir()
         # Scores use A/B keys; decide() translates via mapping.json
-        # Use fake model names "inc" and "cand" for dispatch testing
-        fake_map = {k: ("inc" if v == seat["model_q"] else "cand") for k, v in arm_map.items()}
+        # Use fake model names "inc" and "cand" for dispatch testing (legacy plain-model mapping)
+        fake_map = {k: ("inc" if v.rsplit("@", 1)[0] == seat["model_q"] else "cand") for k, v in arm_map.items()}
         inc_arm = [k for k, v in fake_map.items() if v == "inc"][0]
         cand_arm = [k for k, v in fake_map.items() if v == "cand"][0]
         scores = {"t1": {inc_arm: 6, cand_arm: 8}, "t2": {inc_arm: 7, cand_arm: 8}}
@@ -1193,6 +1197,89 @@ def registry_bands_present():
     assert roles["fast-worker"]["band"] == "tolerant"
     assert roles["reviewer-a"]["band"] == "critical"
     assert roles["frontend-worker"]["band"] == "standard"
+
+
+@test
+def effort_parses_and_rejects_bad_values():
+    """EFFORT: low|medium|high is accepted; anything else raises PlanError."""
+    for good in ("low", "medium", "high"):
+        pl = planmod.parse_text(f"## Phase 1: a (implementer)\nEFFORT: {good}\n")
+        assert pl.by_number(1).effort == good, f"expected effort={good!r}"
+    # Bad value
+    try:
+        planmod.parse_text("## Phase 1: a (implementer)\nEFFORT: max\n")
+    except planmod.PlanError:
+        pass
+    else:
+        raise AssertionError("EFFORT: max should have raised PlanError")
+    # Absent effort defaults to None
+    pl2 = planmod.parse_text("## Phase 1: a (implementer)\n")
+    assert pl2.by_number(1).effort is None
+
+
+@test
+def engine_passes_effort_to_worker():
+    """When EFFORT: is set, the engine passes --variant with that value to the worker."""
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
+EFFORT: low
+FAKE: touch effort_test
+""")
+        assert st["closed"] == "done", r.stderr
+        calls = E.fake_calls()
+        assert calls[0]["variant"] == "low", f"expected variant=low, got {calls[0].get('variant')}"
+
+
+@test
+def parse_arm_splits_model_and_effort():
+    """parse_arm('model@effort') -> ('model', 'effort'); bare model -> (model, None or reg effort)."""
+    assert trial.parse_arm("gpt-5.6-luna@low") == ("gpt-5.6-luna", "low")
+    assert trial.parse_arm("gpt-5.6-luna@medium") == ("gpt-5.6-luna", "medium")
+    assert trial.parse_arm("gpt-5.6-luna@high") == ("gpt-5.6-luna", "high")
+    # With provider prefix
+    assert trial.parse_arm("provider/gpt-5.6-luna@low") == ("provider/gpt-5.6-luna", "low")
+    # Bare model without effort: no role/reg -> effort is None
+    model, effort = trial.parse_arm("gpt-5.6-luna")
+    assert model == "gpt-5.6-luna" and effort is None
+
+
+@test
+def trial_apply_writes_effort():
+    """apply() writes both model and effort to the registry when the arm includes @effort."""
+    import shutil
+    reg = roles_mod.load()
+    regp = Path("/tmp/devpass-code/test_registry.json")
+    regp.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(roles_mod.REGISTRY, regp)
+    # Build a fake verdict with chosen = "llmgateway-devpass/gemini-3.1-pro-preview@low"
+    chosen_arm = "llmgateway-devpass/gemini-3.1-pro-preview@low"
+    verdict = {
+        "chosen": chosen_arm,
+        "decision": "candidate",
+        "reasons": [],
+        "decided_at": "now",
+        "tolerance": 0.1,
+        "band": 1.5,
+        "arms": {},
+        "selection": {},
+        "quality": {},
+        "tokens": {},
+        "wall_s": {},
+    }
+    trial.apply("implementer", "gemini-3.1-pro-preview@low", verdict, registry_path=regp)
+    after = json.loads(regp.read_text())
+    assert after["roles"]["implementer"]["model"] == "gemini-3.1-pro-preview"
+    assert after["roles"]["implementer"]["effort"] == "low"
+    h = after["roles"]["implementer"]["history"][-1]
+    assert h["model"] == "gemini-3.1-pro-preview" and h.get("effort") == "low"
+    # apply refuses mismatched arm
+    verdict2 = {**verdict, "chosen": "llmgateway-devpass/gemini-3.1-pro-preview@high"}
+    try:
+        trial.apply("implementer", "gemini-3.1-pro-preview@low", verdict2, registry_path=regp)
+    except roles_mod.RegistryError:
+        pass
+    else:
+        raise AssertionError("apply should refuse mismatched arm")
 
 
 @test
