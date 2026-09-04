@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# CI in miniature. Gates only ratchet: this hook has no bypass flag, and the suite's
+# ledger refuses to shrink. Generated agent files are regenerated and diffed so
+# hand-edits fail loudly.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+bin/pipeline check-agents
+python3 tests/run.py
