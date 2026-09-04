@@ -1,0 +1,12 @@
+{
+  "surface": "commit-message",
+  "rules": "Commit bodies and PR descriptions. First line is the change, imperative mood, under 72 chars. Body says what changed and why, not how hard it was. No exclamation marks, no filler.",
+  "min_words": 3,
+  "max_avg_sentence_words": 20,
+  "max_sentence_words": 40,
+  "max_passive_ratio": 0.3,
+  "max_hedge_per_100_words": 0.5,
+  "max_exclamations": 0,
+  "forbidden": ["various changes", "misc fixes", "wip", "stuff", "some", "minor tweaks", "update code", "fix bug", "changes"],
+  "preamble_openers": ["This commit", "This PR", "In this commit", "In this PR"]
+}

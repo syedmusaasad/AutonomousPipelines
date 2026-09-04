@@ -1,0 +1,3 @@
+__pycache__/
+*.pyc
+/BENCHMARKS.md.tmp

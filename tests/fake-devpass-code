@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Fake devpass-code worker for the characterization suite.
+
+Accepts the same argv as `devpass-code run --format json --agent X --model M ...`,
+reads the brief on stdin, and behaves according to `FAKE:` lines found in the brief
+(or the FAKE_DEFAULT env). Emits a devpass-code-shaped JSON event stream to stdout.
+
+FAKE directives (in the brief task text):
+  FAKE: touch <path>            create file (relative to --dir); $ITEM/$LANE_OUT/$REVIEW_OUT expanded
+  FAKE: write <path> <<text>>   write text (single line, \\n escapes)
+  FAKE: append <path> <<text>>
+  FAKE: exit <code>             exit with this code after emitting events
+  FAKE: sleep <seconds>
+  FAKE: hang                    sleep forever without writing to stdout (stall)
+  FAKE: fail-on-model <substr>  exit 1 immediately if --model contains substr
+  FAKE: fail-unless-retry       exit 1 unless the brief contains 'Previous attempt failed'
+  FAKE: verdict <V>             write $REVIEW_OUT/review.md with VERDICT: V
+  FAKE: verdict-by-agent a=V b=V c=V   verdict depends on which reviewer agent
+  FAKE: touch-if-retry <path>   create file only on retry
+  FAKE: record                  append argv+env facts to $FAKE_LOG
+  FAKE: fix-surface <path>      overwrite path with register-passing text (rewrite path)
+"""
+
+import json
+import os
+import re
+import sys
+import time
+
+
+def emit(t, part):
+    print(json.dumps({"type": t, "timestamp": int(time.time() * 1000), "sessionID": "ses_fake", "part": part}), flush=True)
+
+
+def main():
+    argv = sys.argv[1:]
+    args = {}
+    for i, a in enumerate(argv):
+        if a.startswith("--") and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+            args[a[2:]] = argv[i + 1]
+    cwd = args.get("dir", os.getcwd())
+    model = args.get("model", "")
+    agent = args.get("agent", "")
+    brief = sys.stdin.read()
+    is_retry = "Previous attempt failed" in brief
+    env = os.environ
+
+    def expand(s):
+        for k in ("ITEM", "LANE_OUT", "LANE", "REVIEW_OUT"):
+            s = s.replace("$" + k, env.get(k, ""))
+        return s
+
+    def path(p):
+        p = expand(p)
+        return p if os.path.isabs(p) else os.path.join(cwd, p)
+
+    log = env.get("FAKE_LOG")
+    if log:
+        with open(log, "a") as f:
+            f.write(json.dumps({"agent": agent, "model": model, "variant": args.get("variant"), "cwd": cwd,
+                                "ITEM": env.get("ITEM"), "LANE": env.get("LANE"), "LANE_OUT": env.get("LANE_OUT"),
+                                "REVIEW_OUT": env.get("REVIEW_OUT"), "retry": is_retry, "brief_len": len(brief),
+                                "brief": brief, "auto": "--auto" in argv}) + "\n")
+
+    emit("step_start", {"type": "step-start"})
+    directives = re.findall(r"^\s*(?:- )?FAKE:\s*(.+?)\s*$", brief, flags=re.M)
+    default = env.get("FAKE_DEFAULT")
+    if default and not directives:
+        directives = default.split(";")
+    code = 0
+    text_out = "done"
+    for d in directives:
+        parts = d.split(None, 1)
+        cmd = parts[0]
+        rest = parts[1] if len(parts) > 1 else ""
+        if cmd == "touch":
+            p = path(rest)
+            os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+            open(p, "a").close()
+        elif cmd in ("write", "append"):
+            m = re.match(r"(\S+)\s+<<(.*)>>$", rest)
+            p = path(m.group(1))
+            os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+            with open(p, "a" if cmd == "append" else "w") as f:
+                f.write(expand(m.group(2)).replace("\\n", "\n") + "\n")
+        elif cmd == "exit":
+            code = int(rest)
+        elif cmd == "sleep":
+            time.sleep(float(rest))
+        elif cmd == "hang":
+            time.sleep(3600)
+        elif cmd == "fail-on-model":
+            if rest in model:
+                emit("text", {"type": "text", "text": f"model {model} refused"})
+                sys.exit(1)
+        elif cmd == "fail-unless-retry":
+            if not is_retry:
+                code = 1
+                text_out = "first attempt fails on purpose"
+        elif cmd == "touch-if-retry":
+            if is_retry:
+                p = path(rest)
+                os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+                open(p, "a").close()
+        elif cmd == "verdict":
+            out = env.get("REVIEW_OUT")
+            if out:
+                os.makedirs(out, exist_ok=True)
+                open(os.path.join(out, "review.md"), "w").write(f"VERDICT: {rest}\n\n## Findings\n- none\n\n## Rationale\nfake\n")
+                text_out = f"VERDICT: {rest}"
+        elif cmd == "verdict-by-agent":
+            mp = dict(kv.split("=") for kv in rest.split())
+            key = agent.rsplit("-", 1)[-1]
+            v = mp.get(key, "PASS")
+            out = env.get("REVIEW_OUT")
+            if out:
+                os.makedirs(out, exist_ok=True)
+                open(os.path.join(out, "review.md"), "w").write(f"VERDICT: {v}\n\n## Findings\n- none\n\n## Rationale\nfake by {agent}\n")
+                text_out = f"VERDICT: {v}"
+        elif cmd == "fix-surface":
+            if "SURFACE scoring failed" in brief:
+                p = path(rest)
+                good = ("The pipeline lands verified work from plans. Each phase names one role and one set of EXIT predicates. "
+                        "The engine runs the predicates after the worker stops. A failing predicate blocks completion. "
+                        "The journal records every dispatch with its model, wall clock, and tokens. Status reads the journal. "
+                        "Liveness comes from the process table and the transcript mtime. The sentry relights dead engines up to three times. "
+                        "Deliberate stops wait for the operator. Run `pipeline status` to see work in flight.\n")
+                open(p, "w").write(good)
+        elif cmd == "record":
+            pass
+    emit("text", {"type": "text", "text": text_out})
+    emit("step_finish", {"type": "step-finish", "reason": "stop", "tokens": {"total": 1234, "input": 1000, "output": 200, "reasoning": 34, "cache": {"write": 0, "read": 0}}, "cost": 0.0123})
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    main()

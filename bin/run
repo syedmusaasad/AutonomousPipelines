@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# run <dir>/plan.md  -> detached engine. Never runs work in the foreground.
+set -euo pipefail
+exec "$(dirname "$(readlink -f "$0")")/pipeline" run "$@"

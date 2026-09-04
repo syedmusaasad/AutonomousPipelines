@@ -1,0 +1,13 @@
+[Unit]
+Description=Pipeline sentry: relights dead engines, recovers stalled phases
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.system/bin/pipeline sentry
+Restart=always
+RestartSec=30
+Environment=PIPELINE_HOME_POINTER=%h/.system/estate
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,191 @@
+{
+  "_comment": "Role -> model seat. Every seat has a fallback on a DIFFERENT family. Model changes happen only through `pipeline trial` (staged head-to-head with a rubric); vendor benchmarks nominate, never decide. `pipeline render-agents` regenerates the devpass-code agent files from this registry and CI diffs them (drift guard).",
+  "families": {
+    "anthropic": [
+      "claude-"
+    ],
+    "openai": [
+      "gpt-",
+      "o1",
+      "o3",
+      "o4"
+    ],
+    "google": [
+      "gemini-"
+    ],
+    "deepseek": [
+      "deepseek-"
+    ],
+    "xai": [
+      "grok-"
+    ],
+    "moonshot": [
+      "kimi-"
+    ],
+    "zai": [
+      "glm-"
+    ],
+    "alibaba": [
+      "qwen"
+    ]
+  },
+  "provider": "llmgateway-devpass",
+  "roles": {
+    "interactive": {
+      "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
+      "model": "claude-fable-5-1",
+      "fallback": "gpt-5.5",
+      "effort": "high",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": true,
+        "webfetch": true,
+        "task": false
+      },
+      "external_post": false
+    },
+    "implementer": {
+      "purpose": "Code changes with tests, exact ceremony (commit subject, verification grep).",
+      "model": "claude-sonnet-4-6",
+      "fallback": "gpt-5.4",
+      "effort": "high",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": true,
+        "webfetch": false,
+        "task": false
+      },
+      "external_post": false
+    },
+    "fast-worker": {
+      "purpose": "Small, well-specified, cheap: a fetch, a one-line fix, a file rename.",
+      "model": "claude-haiku-4-5",
+      "fallback": "gemini-3.5-flash",
+      "effort": "low",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": true,
+        "webfetch": true,
+        "task": false
+      },
+      "external_post": false
+    },
+    "lane-worker": {
+      "purpose": "One item of a fan-out; writes only under $LANE_OUT.",
+      "model": "claude-haiku-4-5",
+      "fallback": "deepseek-v4-flash",
+      "effort": "medium",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": true,
+        "webfetch": true,
+        "task": false
+      },
+      "external_post": false
+    },
+    "researcher": {
+      "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
+      "model": "gemini-3.1-pro-preview",
+      "fallback": "claude-sonnet-4-6",
+      "effort": "medium",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": true,
+        "webfetch": true,
+        "task": false
+      },
+      "external_post": false
+    },
+    "document-writer": {
+      "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
+      "model": "claude-sonnet-4-6",
+      "fallback": "gpt-5.5",
+      "effort": "medium",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": true,
+        "webfetch": false,
+        "task": false
+      },
+      "external_post": false
+    },
+    "reviewer-a": {
+      "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",
+      "model": "claude-opus-4-6",
+      "fallback": "deepseek-v4-pro",
+      "effort": "high",
+      "sealed": true,
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": false,
+        "webfetch": false,
+        "task": false
+      },
+      "external_post": false
+    },
+    "reviewer-b": {
+      "purpose": "Sealed reviewer, family B (must differ from reviewer-a for REVIEW: cross).",
+      "model": "gpt-5.5",
+      "fallback": "grok-4-6",
+      "effort": "high",
+      "sealed": true,
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": false,
+        "webfetch": false,
+        "task": false
+      },
+      "external_post": false
+    },
+    "reviewer-c": {
+      "purpose": "Sealed reviewer, family C. Substitutes when A or B is unavailable so cross-review still spans two families.",
+      "model": "gemini-3.1-pro-preview",
+      "fallback": "kimi-k3",
+      "effort": "high",
+      "sealed": true,
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": false,
+        "webfetch": false,
+        "task": false
+      },
+      "external_post": false
+    }
+  }
+}

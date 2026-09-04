@@ -1,0 +1,12 @@
+{
+  "surface": "operator-doc",
+  "rules": "Operator-facing documentation (README, runbooks, status notes). First sentence states the outcome or the point. Concrete paths, commands, and numbers. No preamble, no marketing adjectives, no exclamation marks, no hedging. Short sentences, active voice.",
+  "min_words": 40,
+  "max_avg_sentence_words": 22,
+  "max_sentence_words": 45,
+  "max_passive_ratio": 0.2,
+  "max_hedge_per_100_words": 0.8,
+  "max_exclamations": 0,
+  "forbidden": ["seamlessly", "cutting-edge", "state-of-the-art", "robust and scalable", "leverage", "delve", "in today's", "game-changing", "revolutionary", "best-in-class", "powerful", "effortlessly", "simply", "just", "easily", "please note", "it is worth noting", "in this document", "we will explore"],
+  "preamble_openers": ["In this document", "This document", "Welcome", "In this guide", "This guide", "Introduction", "Overview", "In this section", "Here we", "We will"]
+}

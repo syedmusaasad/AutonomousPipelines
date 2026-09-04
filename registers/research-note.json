@@ -1,0 +1,12 @@
+{
+  "surface": "research-note",
+  "rules": "Findings documents. First sentence is the answer. Every claim carries a source (path:line, URL, or command output). Open questions at the end, labelled. No hedging beyond the labelled open-questions section.",
+  "min_words": 60,
+  "max_avg_sentence_words": 24,
+  "max_sentence_words": 50,
+  "max_passive_ratio": 0.25,
+  "max_hedge_per_100_words": 1.0,
+  "max_exclamations": 0,
+  "forbidden": ["it is important to note", "as we all know", "obviously", "clearly", "of course", "needless to say", "delve", "leverage"],
+  "preamble_openers": ["In this document", "This document", "In this note", "This note", "Introduction", "Overview", "We will"]
+}
