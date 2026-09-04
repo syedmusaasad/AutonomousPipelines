@@ -10,8 +10,9 @@
   stop <run>                    write a deliberate-stop receipt and SIGTERM the engine
   render-agents / check-agents  regenerate generated config / drift guard
   bench                         emit BENCHMARKS.md text
-  trial <role> <model> --tasks F --rubric F    stage a head-to-head
-  trial-apply <trial-run> <role> <model>       apply a won trial to the registry
+  trial <role> <model>...  --tasks F --rubric F    stage a head-to-head (several candidates)
+  trial-apply <trial-run> <role>                   apply the verdict's chosen model (numbers decide)
+  trial-report <run>                               print arms table (model, quality, wall, cost, chosen)
   sentry [--once]               the sentry daemon (or one tick)
   suite                         run the characterization suite and log it
   validate <plan.md>            parse and validate a plan
@@ -46,8 +47,9 @@ def main(argv=None) -> int:
     p = sub.add_parser("stop"); p.add_argument("run"); p.add_argument("--reason", default="operator")
     sub.add_parser("render-agents"); sub.add_parser("check-agents")
     sub.add_parser("bench")
-    p = sub.add_parser("trial"); p.add_argument("role"); p.add_argument("model"); p.add_argument("--tasks", required=True); p.add_argument("--rubric", required=True); p.add_argument("-C", "--cwd", default=os.getcwd())
-    p = sub.add_parser("trial-apply"); p.add_argument("run"); p.add_argument("role"); p.add_argument("model")
+    p = sub.add_parser("trial"); p.add_argument("role"); p.add_argument("model", nargs="+"); p.add_argument("--tasks", required=True); p.add_argument("--rubric", required=True); p.add_argument("-C", "--cwd", default=os.getcwd())
+    p = sub.add_parser("trial-apply"); p.add_argument("run"); p.add_argument("role")
+    p = sub.add_parser("trial-report"); p.add_argument("run")
     p = sub.add_parser("sentry"); p.add_argument("--once", action="store_true")
     sub.add_parser("suite")
     p = sub.add_parser("validate"); p.add_argument("plan")
@@ -154,17 +156,19 @@ def cmd_trial(a):
     if not tasks:
         print("no tasks (use '## name' headings)", file=sys.stderr)
         return 2
-    tdir = Path(a.cwd).resolve() / f"trial-{a.role}-{a.model.replace('/', '_')}"
+    candidates = a.model  # list of model strings
+    slug = "_".join(m.replace("/", "_") for m in candidates)
+    tdir = Path(a.cwd).resolve() / f"trial-{a.role}-{slug}"
     tdir.mkdir(parents=True, exist_ok=True)
-    text = trial.trial_plan(a.role, a.model, tasks, Path(a.rubric).read_text(), tdir, reg)
+    text = trial.trial_plan(a.role, candidates, tasks, Path(a.rubric).read_text(), tdir, reg)
     (tdir / "plan.md").write_text(text)
-    # Write mapping.json so decide() can translate A/B scores back to incumbent/candidate
+    # Write mapping.json so decide() can translate arm labels back to models
     arm_map = trial.extract_arm_map(text)
     trial_out = tdir / "trial"
     trial_out.mkdir(exist_ok=True)
     (trial_out / "mapping.json").write_text(json.dumps(arm_map))
     row = engine.launch(tdir / "plan.md")
-    print(f"trial launched {row['run']}; when done: pipeline trial-apply {row['run']} {a.role} {a.model}")
+    print(f"trial launched {row['run']}; when done: pipeline trial-apply {row['run']} {a.role}")
     return 0
 
 
@@ -177,16 +181,53 @@ def cmd_trial_apply(a):
         print(f"trial run {a.run} is not done ({st['closed']}); refusing", file=sys.stderr)
         return 2
     tdir = Path(st["cwd"])
-    verdict = trial.decide(tdir, st, incumbent_q=roles_mod.seat(a.role, reg)["model_q"], candidate_q=roles_mod.qualified(a.model, reg))
+    seat = roles_mod.seat(a.role, reg)
+    verdict = trial.decide(tdir, st, role=a.role, reg=reg)
     (tdir / "trial" / "verdict.json").write_text(json.dumps(verdict, indent=1))
     print(json.dumps(verdict, indent=1))
+    chosen = verdict.get("chosen")
+    if not chosen:
+        print("no chosen model in verdict", file=sys.stderr)
+        return 1
+    # Strip provider prefix for storage
+    chosen_bare = chosen.split("/", 1)[-1] if "/" in chosen else chosen
     try:
-        trial.apply(a.role, a.model, verdict)
+        trial.apply(a.role, chosen_bare, verdict)
     except roles_mod.RegistryError as e:
         print(f"not applied: {e}")
         return 1
     roles_mod.write_agents()
-    print(f"applied: {a.role} -> {a.model}; agents re-rendered")
+    print(f"applied: {a.role} -> {chosen_bare}; agents re-rendered")
+    return 0
+
+
+def cmd_trial_report(a):
+    from . import trial
+    reg = roles_mod.load()
+    j = Journal(a.run)
+    st = j.state()
+    tdir = Path(st.get("cwd", "."))
+    verdict_path = tdir / "trial" / "verdict.json"
+    if verdict_path.exists():
+        verdict = json.loads(verdict_path.read_text())
+        arms = verdict.get("arms", {})
+        chosen = verdict.get("chosen")
+        sel = verdict.get("selection", {})
+        band_kept = set(sel.get("band_kept", []))
+    else:
+        print(f"no verdict.json found at {verdict_path}", file=sys.stderr)
+        return 1
+
+    # Print table header
+    print(f"{'model':<45} {'family':<12} {'quality':>8} {'wall_s':>8} {'cost':>8} {'in_band':>8} {'chosen':>7}")
+    print("-" * 110)
+    for model, v in sorted(arms.items(), key=lambda kv: -kv[1].get("quality", 0)):
+        family = roles_mod.family_of(model, reg)
+        in_band = "yes" if model in band_kept else "no"
+        is_chosen = "***" if model == chosen else ""
+        print(f"{model:<45} {family:<12} {v.get('quality', 0):>8.3f} {v.get('wall_s', 0):>8.1f} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
+    print()
+    print(f"Chosen: {chosen}")
     return 0
 
 

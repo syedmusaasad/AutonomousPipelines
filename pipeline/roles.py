@@ -10,7 +10,7 @@ from . import paths
 
 REGISTRY = paths.roles_dir() / "registry.json"
 REVIEWERS = ("reviewer-a", "reviewer-b", "reviewer-c")
-DISPATCHABLE = ("implementer", "fast-worker", "lane-worker", "researcher", "document-writer") + REVIEWERS
+DISPATCHABLE = ("implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker") + REVIEWERS
 AGENT_PREFIX = "pl-"
 
 EXTERNAL_CHANNEL_PATTERNS = (
@@ -43,7 +43,7 @@ def family_of(model: str, reg: dict) -> str:
 
 def validate(reg: dict) -> None:
     roles = reg.get("roles", {})
-    required = {"interactive", "implementer", "fast-worker", "lane-worker", "researcher", "document-writer", *REVIEWERS}
+    required = {"interactive", "implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker", *REVIEWERS}
     missing = required - set(roles)
     if missing:
         raise RegistryError(f"registry missing roles: {sorted(missing)}")

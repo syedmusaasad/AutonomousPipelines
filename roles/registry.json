@@ -36,6 +36,7 @@
       "model": "claude-fable-5-1",
       "fallback": "gpt-5.5",
       "effort": "high",
+      "band": "standard",
       "tools": {
         "read": true,
         "glob": true,
@@ -53,6 +54,7 @@
       "model": "claude-sonnet-4-6",
       "fallback": "gpt-5.4",
       "effort": "high",
+      "band": "standard",
       "tools": {
         "read": true,
         "glob": true,
@@ -70,6 +72,7 @@
       "model": "claude-haiku-4-5",
       "fallback": "gemini-3.5-flash",
       "effort": "low",
+      "band": "tolerant",
       "tools": {
         "read": true,
         "glob": true,
@@ -87,6 +90,7 @@
       "model": "claude-haiku-4-5",
       "fallback": "deepseek-v4-flash",
       "effort": "medium",
+      "band": "tolerant",
       "tools": {
         "read": true,
         "glob": true,
@@ -104,6 +108,7 @@
       "model": "gemini-3.1-pro-preview",
       "fallback": "claude-sonnet-4-6",
       "effort": "medium",
+      "band": "critical",
       "tools": {
         "read": true,
         "glob": true,
@@ -121,6 +126,25 @@
       "model": "claude-sonnet-4-6",
       "fallback": "gpt-5.5",
       "effort": "medium",
+      "band": "standard",
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": true,
+        "webfetch": false,
+        "task": false
+      },
+      "external_post": false
+    },
+    "frontend-worker": {
+      "purpose": "Browser-facing work: HTML/CSS/JS/TS components and their tests.",
+      "model": "claude-sonnet-5",
+      "fallback": "gemini-3.1-pro-preview",
+      "effort": "high",
+      "band": "standard",
       "tools": {
         "read": true,
         "glob": true,
@@ -138,6 +162,7 @@
       "model": "claude-opus-4-6",
       "fallback": "deepseek-v4-pro",
       "effort": "high",
+      "band": "critical",
       "sealed": true,
       "tools": {
         "read": true,
@@ -156,6 +181,7 @@
       "model": "gpt-5.5",
       "fallback": "grok-4-6",
       "effort": "high",
+      "band": "critical",
       "sealed": true,
       "tools": {
         "read": true,
@@ -174,6 +200,7 @@
       "model": "gemini-3.1-pro-preview",
       "fallback": "kimi-k3",
       "effort": "high",
+      "band": "critical",
       "sealed": true,
       "tools": {
         "read": true,

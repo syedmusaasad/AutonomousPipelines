@@ -968,7 +968,7 @@ def bench_is_generated_from_journal_with_regeneration_commands():
 def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decision():
     reg = roles_mod.load()
     tasks = trial.parse_tasks("## t1\ndo one\n## t2\ndo two\n")
-    text = trial.trial_plan("implementer", "gemini-3.1-pro-preview", tasks, "score clarity 0-10", Path("/w"), reg)
+    text = trial.trial_plan("implementer", ["gemini-3.1-pro-preview"], tasks, "score clarity 0-10", Path("/w"), reg)
     pl = planmod.parse_text(text, Path("/w/plan.md"))
     seat = roles_mod.seat("implementer", reg)
     cand_q = "llmgateway-devpass/gemini-3.1-pro-preview"
@@ -986,20 +986,23 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     assert "candidate" not in scorer_text, "scorer phase reveals 'candidate'"
     assert seat["model_q"].split("/")[-1] not in scorer_text, "scorer phase reveals incumbent model name"
     assert "gemini-3.1-pro-preview" not in scorer_text, "scorer phase reveals candidate model name"
-    # Arm mapping is in a DECISION line but NOT in the scorer section
+    # Arm mapping is in a DECISION line with label -> model_q
     arm_map = trial.extract_arm_map(text)
-    assert set(arm_map.keys()) == {"A", "B"} and set(arm_map.values()) == {"incumbent", "candidate"}
+    assert set(arm_map.keys()) == {"A", "B"}
+    assert set(arm_map.values()) == {seat["model_q"], cand_q}, f"arm_map values {arm_map.values()} unexpected"
     with Estate() as E:
         (E.work / "trial").mkdir()
         # Scores use A/B keys; decide() translates via mapping.json
-        inc_arm = [k for k, v in arm_map.items() if v == "incumbent"][0]
-        cand_arm = [k for k, v in arm_map.items() if v == "candidate"][0]
+        # Use fake model names "inc" and "cand" for dispatch testing
+        fake_map = {k: ("inc" if v == seat["model_q"] else "cand") for k, v in arm_map.items()}
+        inc_arm = [k for k, v in fake_map.items() if v == "inc"][0]
+        cand_arm = [k for k, v in fake_map.items() if v == "cand"][0]
         scores = {"t1": {inc_arm: 6, cand_arm: 8}, "t2": {inc_arm: 7, cand_arm: 8}}
         (E.work / "trial" / "scores.json").write_text(json.dumps(scores))
-        (E.work / "trial" / "mapping.json").write_text(json.dumps(arm_map))
+        (E.work / "trial" / "mapping.json").write_text(json.dumps(fake_map))
         st = {"dispatches": {
-            "a": {"model": "inc", "outcome": "ok", "tokens": {"total": 1000}, "wall_s": 100},
-            "b": {"model": "cand", "outcome": "ok", "tokens": {"total": 1050}, "wall_s": 105},
+            "a": {"model": "inc", "outcome": "ok", "tokens": {"total": 1000}, "wall_s": 100, "cost": 0.05},
+            "b": {"model": "cand", "outcome": "ok", "tokens": {"total": 1050}, "wall_s": 105, "cost": 0.06},
         }}
         v = trial.decide(E.work, st, incumbent_q="inc", candidate_q="cand")
         assert v["decision"] == "candidate" and v["reasons"] == []
@@ -1018,7 +1021,7 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
         else:
             raise AssertionError("applied a lost trial")
         assert regp.read_text() == before
-        v["decision"], v["reasons"] = "candidate", []
+        v["decision"], v["reasons"], v["chosen"] = "candidate", [], "llmgateway-devpass/gemini-3.1-pro-preview"
         trial.apply("implementer", "gemini-3.1-pro-preview", v, registry_path=regp)
         assert json.loads(regp.read_text())["roles"]["implementer"]["model"] == "gemini-3.1-pro-preview"
 
@@ -1082,6 +1085,114 @@ def no_bypass_flags_anywhere():
     src = "".join(p.read_text() for p in (REPO / "pipeline").glob("*.py")) + (REPO / "bootstrap.sh").read_text() + "".join(p.read_text() for p in (REPO / "bin").iterdir())
     for flag in ("--skip-exit", "--no-verify", "--force", "skip_exit", "SKIP_EXIT", "PIPELINE_SKIP", "--bypass", "--no-review", "--no-gate"):
         assert flag not in src, flag
+
+
+@test
+def select_band_keeps_faster_drops_much_worse():
+    """Band rule: keeps arms within band of best, ranks by wall then cost; ties broken correctly."""
+    arms = {
+        "best": {"quality": 8.0, "wall_s": 20.0, "cost": 1.0},
+        "faster_in_band": {"quality": 7.0, "wall_s": 10.0, "cost": 0.5},  # within 1.5 of 8.0, faster
+        "too_bad": {"quality": 5.0, "wall_s": 5.0, "cost": 0.2},  # 3.0 below best, outside 1.5 band
+    }
+    result = trial.select(arms, 1.5)
+    assert result["chosen"] == "faster_in_band", f"expected faster_in_band, got {result['chosen']}"
+    assert set(result["band_kept"]) == {"best", "faster_in_band"}
+    assert "too_bad" not in result["band_kept"]
+    assert result["reasons"]["too_bad"]["excluded"] is True
+    assert result["reasons"]["faster_in_band"]["excluded"] is False
+
+    # Ties in wall broken by cost
+    arms2 = {
+        "a": {"quality": 9.0, "wall_s": 10.0, "cost": 2.0},
+        "b": {"quality": 9.0, "wall_s": 10.0, "cost": 1.0},  # same wall, lower cost
+        "c": {"quality": 9.0, "wall_s": 5.0, "cost": 3.0},   # faster wall, wins
+    }
+    result2 = trial.select(arms2, 1.5)
+    assert result2["chosen"] == "c"
+    assert result2["ranking"][0] == "c"
+    assert result2["ranking"][1] == "b"  # wall tied with a, but lower cost
+    assert result2["ranking"][2] == "a"
+
+    # All numbers present in reasons
+    for m in arms:
+        assert "quality" in result["reasons"][m]
+        assert "wall_s" in result["reasons"][m]
+        assert "cost" in result["reasons"][m]
+
+
+@test
+def select_reviewers_enforces_distinct_families():
+    """select_reviewers must return 3 models on 3 distinct families; maximise in-band."""
+    arms = {
+        "claude-a": {"quality": 8.0, "wall_s": 10.0, "cost": 0.5},
+        "gpt-b": {"quality": 7.5, "wall_s": 5.0, "cost": 0.3},
+        "gemini-c": {"quality": 7.0, "wall_s": 8.0, "cost": 0.4},
+        "deepseek-d": {"quality": 3.0, "wall_s": 3.0, "cost": 0.2},  # out of band
+        "another-gpt": {"quality": 7.8, "wall_s": 4.0, "cost": 0.3},  # openai family, can't pair with gpt-b
+    }
+    families = {
+        "claude-a": "anthropic",
+        "gpt-b": "openai",
+        "gemini-c": "google",
+        "deepseek-d": "deepseek",
+        "another-gpt": "openai",  # same family as gpt-b -> can't be in same triple
+    }
+    result = trial.select_reviewers(arms, 1.5, families)
+    assert len(result) == 3
+    fam_set = {families[m] for m in result}
+    assert len(fam_set) == 3, f"not 3 distinct families: {fam_set} for {result}"
+    # All 3 in-band candidates should be selected (claude, gpt-b or another-gpt, gemini)
+    in_band_result = [m for m in result if arms[m]["quality"] >= 8.0 - 1.5]
+    assert len(in_band_result) >= 2, f"expected at least 2 in-band in result, got {in_band_result}"
+    # deepseek-d must not appear since there's a better triple that avoids it
+    assert "deepseek-d" not in result, "should avoid out-of-band deepseek-d when better triple available"
+
+    # With only 3 models on 3 distinct families, must return all 3
+    arms3 = {
+        "m1": {"quality": 7.0, "wall_s": 10.0, "cost": 0.5},
+        "m2": {"quality": 6.0, "wall_s": 5.0, "cost": 0.3},
+        "m3": {"quality": 5.0, "wall_s": 8.0, "cost": 0.4},
+    }
+    fam3 = {"m1": "anthropic", "m2": "openai", "m3": "google"}
+    r3 = trial.select_reviewers(arms3, 1.5, fam3)
+    assert set(r3) == {"m1", "m2", "m3"}
+
+    # Fewer than 3 distinct families raises
+    arms_bad = {"m1": {"quality": 7.0, "wall_s": 10.0, "cost": 0.5},
+                "m2": {"quality": 6.0, "wall_s": 5.0, "cost": 0.3},
+                "m3": {"quality": 5.0, "wall_s": 8.0, "cost": 0.4}}
+    fam_bad = {"m1": "anthropic", "m2": "anthropic", "m3": "anthropic"}
+    try:
+        trial.select_reviewers(arms_bad, 1.5, fam_bad)
+        raise AssertionError("should have raised ValueError for no distinct-family triple")
+    except ValueError:
+        pass
+
+
+@test
+def registry_bands_present():
+    """Every role has a band field; bands are the expected values per role type."""
+    reg = roles_mod.load()
+    roles = reg["roles"]
+    critical_roles = {"reviewer-a", "reviewer-b", "reviewer-c", "researcher"}
+    standard_roles = {"implementer", "document-writer", "interactive", "frontend-worker"}
+    tolerant_roles = {"fast-worker", "lane-worker"}
+    for role_name, role_def in roles.items():
+        assert "band" in role_def, f"role {role_name} missing band field"
+        band = role_def["band"]
+        assert band in trial.BANDS, f"role {role_name} has unknown band {band!r}"
+        if role_name in critical_roles:
+            assert band == "critical", f"expected critical for {role_name}, got {band}"
+        elif role_name in standard_roles:
+            assert band == "standard", f"expected standard for {role_name}, got {band}"
+        elif role_name in tolerant_roles:
+            assert band == "tolerant", f"expected tolerant for {role_name}, got {band}"
+    # Specific spot-checks from the spec
+    assert roles["implementer"]["band"] == "standard"
+    assert roles["fast-worker"]["band"] == "tolerant"
+    assert roles["reviewer-a"]["band"] == "critical"
+    assert roles["frontend-worker"]["band"] == "standard"
 
 
 @test
