@@ -80,7 +80,7 @@ def derive_state(rows: list) -> dict:
                 # phases get a fresh attempt budget (judgment was applied)
                 st["open"], st["closed"], st["stopped"] = True, None, None
                 for p in st["phases"].values():
-                    if p.get("status") == "failed":
+                    if p.get("status") in ("failed", "running"):
                         p["attempts"] = 0
         elif ev == "run.close":
             st["open"] = False

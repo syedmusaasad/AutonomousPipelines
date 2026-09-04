@@ -671,6 +671,34 @@ EXIT: test -f later
 
 
 @test
+def interrupted_attempt_is_not_charged_against_budget():
+    with Estate() as E:
+        p = E.plan("## Phase 1: a (fast-worker)\nATTEMPTS: 1\nEXIT: test -f a\nFAKE: touch a\n")
+        rid = "interrupted1"
+        (E.estate / "runs" / rid).mkdir(parents=True)
+        (E.estate / "runs" / rid / "plan.path").write_text(str(p))
+        j = jmod.Journal(rid)
+        # an engine died right after phase.start: no dispatch, no verdict
+        j.write("run.open", plan=str(p), cwd=str(p.parent), conversation="ses", pid=999999)
+        j.write("phase.start", phase="1", role="fast-worker", attempt=1)
+        r = E.engine_fg(rid, p)
+        st = j.state()
+        assert st["closed"] == "done", r.stderr  # ATTEMPTS: 1 still had its one real attempt
+        assert len(E.fake_calls()) == 1
+        # and after a deliberate stop is cleared, a phase left running gets a fresh budget too
+        rid2 = "interrupted2"
+        (E.estate / "runs" / rid2).mkdir(parents=True)
+        (E.estate / "runs" / rid2 / "plan.path").write_text(str(p))
+        j2 = jmod.Journal(rid2)
+        j2.write("run.open", plan=str(p), cwd=str(p.parent), conversation="ses", pid=999999)
+        j2.write("phase.start", phase="1", role="fast-worker", attempt=1)
+        j2.write("run.stop", reason="plan_invalid", detail="x")
+        j2.write("run.close", outcome="stopped")
+        j2.write("run.resume", pid=None, cleared=True, by="operator")
+        assert j2.state()["phases"]["1"]["attempts"] == 0
+
+
+@test
 def engine_lock_prevents_double_engines():
     with Estate() as E:
         p = E.plan("## Phase 1: a (fast-worker)\nFAKE: sleep 1.5\n")

@@ -1,5 +1,5 @@
 {
- "min_tests": 53,
+ "min_tests": 54,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
@@ -20,6 +20,7 @@
   "fs_probe_reports_outage",
   "gate_rejection_is_deliberate_stop",
   "gate_waits_for_sentinel_and_records_waiting",
+  "interrupted_attempt_is_not_charged_against_budget",
   "journal_state_derivation",
   "journal_tolerates_torn_tail",
   "lane_failure_retries_only_failed_lanes",

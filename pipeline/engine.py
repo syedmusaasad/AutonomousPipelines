@@ -194,7 +194,10 @@ class Engine:
         if ph.is_gate:
             return self._run_gate(plan, ph)
         st = self.journal.state().get("phases", {}).get(ph.key, {})
-        prior_attempts = st.get("attempts", 0) if st.get("status") in ("failed", "running") else 0
+        # Only attempts that actually FAILED count against the budget. A phase left
+        # "running" by a dead engine or an aborted run never got its verdict; it is
+        # re-run as the same attempt number, not charged twice.
+        prior_attempts = st.get("attempts", 0) if st.get("status") == "failed" else max(0, st.get("attempts", 0) - 1) if st.get("status") == "running" else 0
         failure_text = st.get("last_reason")
         for attempt in range(prior_attempts + 1, ph.attempts + 1):
             self.journal.write("phase.start", phase=ph.key, role=ph.role, attempt=attempt, name=ph.name)
