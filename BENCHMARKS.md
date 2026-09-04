@@ -5,49 +5,53 @@ Every number below is measured; none is asserted. Regenerate: `pipeline bench > 
 
 ## Runs
 
-- runs recorded: 2
-- done: 2; stopped: 0; open: 0
+- runs recorded: 4
+- done: 4; stopped: 0; open: 0
 - median run wall clock (closed runs): 55.0 s
 - relights by sentry: 0; stall recoveries: 0
 
 ## Dispatch outcomes
 
-- dispatches: 3
-- ok: 3 (100.0%)
+- dispatches: 8
+- ok: 8 (100.0%)
 - machine failures (failed/timeout): 0 (0.0%)
 - host-outage stalls (outage/stalled/killed), separated from machine failures: 0 (0.0%)
 - ok rate excluding host stalls: 100.0%
 
 ## Wall clock
 
-- median dispatch wall: 18.1 s
-- p90 dispatch wall: 71.8 s
+- median dispatch wall: 44.9 s
+- p90 dispatch wall: 73.1 s
 
 ## Tokens
 
-- total tokens: 77821
-- tokens per dispatch (median): 14851.0
-- tokens per landed outcome (total tokens / done phases): 25940
-- cost total: 0.3255
+- total tokens: 171880
+- tokens per dispatch (median): 16878.0
+- tokens per landed outcome (total tokens / done phases): 28647
+- cost total: 0.9489
 
 ### Tokens by role
 
 | role | dispatches | tokens | ok rate |
 |---|---|---|---|
 | document-writer | 1 | 50034 | 100.0% |
-| fast-worker | 1 | 12936 | 100.0% |
-| implementer | 1 | 14851 | 100.0% |
+| fast-worker | 2 | 24492 | 100.0% |
+| implementer | 3 | 56619 | 100.0% |
+| reviewer-a | 1 | 27344 | 100.0% |
+| reviewer-b | 1 | 13391 | 100.0% |
 
 ### Tokens by model
 
 | model | dispatches | tokens | ok rate |
 |---|---|---|---|
-| llmgateway-devpass/claude-haiku-4-5 | 1 | 12936 | 100.0% |
-| llmgateway-devpass/claude-sonnet-4-6 | 2 | 64885 | 100.0% |
+| llmgateway-devpass/claude-haiku-4-5 | 2 | 24492 | 100.0% |
+| llmgateway-devpass/claude-opus-4-6 | 1 | 27344 | 100.0% |
+| llmgateway-devpass/claude-sonnet-4-6 | 4 | 106653 | 100.0% |
+| llmgateway-devpass/gpt-5.5 | 1 | 13391 | 100.0% |
 
 ## Phases
 
-- phases seen: 3; done: 3; failed/burned: 0
+- phases seen: 6; done: 6; failed/burned: 0
 - first-attempt landing rate: 100.0%
 
 ## Surface register
@@ -57,17 +61,17 @@ Every number below is measured; none is asserted. Regenerate: `pipeline bench > 
 
 ## Cross review
 
-- verdicts: 0
-- PASS: 0
+- verdicts: 2
+- PASS: 2
 - CONCERNS: 0
 - BLOCKING: 0
 - UNAVAILABLE: 0
 
 ## Characterization suite (last run)
 
-- when: 2026-09-04T04:59:29+00:00
+- when: 2026-09-04T05:02:38+00:00
 - tests: 53 passed: 53 failed: 0
-- wall: 25.9 s
+- wall: 27.2 s
 - ratchet: 53 tests vs ledger floor 53
 - regenerate: `pipeline suite`
 
