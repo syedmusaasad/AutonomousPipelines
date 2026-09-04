@@ -19,6 +19,8 @@ FAKE directives (in the brief task text):
   FAKE: touch-if-retry <path>   create file only on retry
   FAKE: record                  append argv+env facts to $FAKE_LOG
   FAKE: fix-surface <path>      overwrite path with register-passing text (rewrite path)
+  FAKE: quota                   emit the DevPass premium-tier 402 error event; exit 1
+  FAKE: quota-on-model <substr> same as `quota`, but only when --model contains substr
 """
 
 import json
@@ -30,6 +32,15 @@ import time
 
 def emit(t, part):
     print(json.dumps({"type": t, "timestamp": int(time.time() * 1000), "sessionID": "ses_fake", "part": part}), flush=True)
+
+
+def emit_quota_error():
+    emit("error", {"error": {"name": "APIError", "data": {
+        "message": "You\u2019ve used your weekly allowance for premium-tier models on the max "
+                   "plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade "
+                   "for a higher allowance, or use any standard model now. Resets in 6 days and 12 hours.",
+        "statusCode": 402, "isRetryable": False,
+    }}})
 
 
 def main():
@@ -93,6 +104,10 @@ def main():
             if rest in model:
                 emit("text", {"type": "text", "text": f"model {model} refused"})
                 sys.exit(1)
+        elif cmd == "quota-on-model":
+            if rest in model:
+                emit_quota_error()
+                sys.exit(1)
         elif cmd == "fail-unless-retry":
             if not is_retry:
                 code = 1
@@ -128,6 +143,9 @@ def main():
                 open(p, "w").write(good)
         elif cmd == "record":
             pass
+        elif cmd == "quota":
+            emit_quota_error()
+            sys.exit(1)
     emit("text", {"type": "text", "text": text_out})
     emit("step_finish", {"type": "step-finish", "reason": "stop", "tokens": {"total": 1234, "input": 1000, "output": 200, "reasoning": 34, "cache": {"write": 0, "read": 0}}, "cost": 0.0123})
     sys.exit(code)

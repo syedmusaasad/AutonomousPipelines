@@ -34,7 +34,7 @@
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
       "model": "claude-fable-5-1",
-      "fallback": "gpt-5.5",
+      "fallback": "glm-5.3",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -47,12 +47,20 @@
         "webfetch": true,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "history": [
+        {
+          "fallback": "glm-5.3",
+          "at": "2026-09-04T19:10:00+00:00",
+          "why": "DECISION interactive-fallback: operator chose glm-5.3 as the manual standard-tier fallback for the interactive seat when the premium allowance is hit; to be revisited by trial-report interactive"
+        }
+      ],
+      "quota_fallback": "claude-haiku-4-5@high"
     },
     "implementer": {
       "purpose": "Code changes with tests, exact ceremony (commit subject, verification grep).",
-      "model": "claude-sonnet-4-6",
-      "fallback": "gpt-5.4",
+      "model": "claude-sonnet-5",
+      "fallback": "gpt-5.6-luna",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -65,7 +73,22 @@
         "webfetch": false,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "history": [
+        {
+          "from": {
+            "model": "claude-sonnet-4-6",
+            "fallback": "gpt-5.4"
+          },
+          "to": {
+            "model": "claude-sonnet-5",
+            "fallback": "gpt-5.6-luna"
+          },
+          "at": "2026-09-04T20:20:00+00:00",
+          "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        }
+      ],
+      "quota_fallback": "claude-haiku-4-5@high"
     },
     "fast-worker": {
       "purpose": "Small, well-specified, cheap: a fetch, a one-line fix, a file rename.",
@@ -83,7 +106,8 @@
         "webfetch": true,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "quota_fallback": "claude-haiku-4-5@low"
     },
     "lane-worker": {
       "purpose": "One item of a fan-out; writes only under $LANE_OUT.",
@@ -101,12 +125,13 @@
         "webfetch": true,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "quota_fallback": "claude-haiku-4-5@medium"
     },
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
       "model": "gemini-3.1-pro-preview",
-      "fallback": "claude-sonnet-4-6",
+      "fallback": "claude-sonnet-5",
       "effort": "medium",
       "band": "critical",
       "tools": {
@@ -119,12 +144,27 @@
         "webfetch": true,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "history": [
+        {
+          "from": {
+            "model": "gemini-3.1-pro-preview",
+            "fallback": "claude-sonnet-4-6"
+          },
+          "to": {
+            "model": "gemini-3.1-pro-preview",
+            "fallback": "claude-sonnet-5"
+          },
+          "at": "2026-09-04T20:20:00+00:00",
+          "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        }
+      ],
+      "quota_fallback": "gemini-3.8-flash@medium"
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
-      "model": "claude-sonnet-4-6",
-      "fallback": "gpt-5.5",
+      "model": "claude-sonnet-5",
+      "fallback": "gpt-5.6-luna",
       "effort": "medium",
       "band": "standard",
       "tools": {
@@ -137,7 +177,22 @@
         "webfetch": false,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "history": [
+        {
+          "from": {
+            "model": "claude-sonnet-4-6",
+            "fallback": "gpt-5.5"
+          },
+          "to": {
+            "model": "claude-sonnet-5",
+            "fallback": "gpt-5.6-luna"
+          },
+          "at": "2026-09-04T20:20:00+00:00",
+          "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        }
+      ],
+      "quota_fallback": "claude-haiku-4-5@medium"
     },
     "frontend-worker": {
       "purpose": "Browser-facing work: HTML/CSS/JS/TS components and their tests.",
@@ -155,11 +210,12 @@
         "webfetch": false,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "quota_fallback": "claude-haiku-4-5@high"
     },
     "reviewer-a": {
       "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",
-      "model": "claude-opus-4-6",
+      "model": "claude-sonnet-5",
       "fallback": "deepseek-v4-pro",
       "effort": "high",
       "band": "critical",
@@ -174,11 +230,26 @@
         "webfetch": false,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "history": [
+        {
+          "from": {
+            "model": "claude-opus-4-6",
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "model": "claude-sonnet-5",
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-09-04T20:20:00+00:00",
+          "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        }
+      ],
+      "quota_fallback": "claude-haiku-4-5@high"
     },
     "reviewer-b": {
       "purpose": "Sealed reviewer, family B (must differ from reviewer-a for REVIEW: cross).",
-      "model": "gpt-5.5",
+      "model": "gpt-5.3-codex",
       "fallback": "grok-4-6",
       "effort": "high",
       "band": "critical",
@@ -193,7 +264,22 @@
         "webfetch": false,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "history": [
+        {
+          "from": {
+            "model": "gpt-5.5",
+            "fallback": "grok-4-6"
+          },
+          "to": {
+            "model": "gpt-5.3-codex",
+            "fallback": "grok-4-6"
+          },
+          "at": "2026-09-04T20:20:00+00:00",
+          "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        }
+      ],
+      "quota_fallback": "gpt-oss-120b@high"
     },
     "reviewer-c": {
       "purpose": "Sealed reviewer, family C. Substitutes when A or B is unavailable so cross-review still spans two families.",
@@ -212,7 +298,118 @@
         "webfetch": false,
         "task": false
       },
-      "external_post": false
+      "external_post": false,
+      "quota_fallback": "gemini-3.8-flash@high"
+    }
+  },
+  "models": {
+    "claude-fable-5": {
+      "premium": true
+    },
+    "claude-fable-5-1": {
+      "premium": true
+    },
+    "claude-opus-4-6": {
+      "premium": true
+    },
+    "claude-opus-4-7": {
+      "premium": true
+    },
+    "claude-opus-4-8": {
+      "premium": true
+    },
+    "claude-opus-5": {
+      "premium": true
+    },
+    "claude-sonnet-4-5": {
+      "premium": true
+    },
+    "claude-sonnet-4-6": {
+      "premium": true
+    },
+    "gpt-5.4": {
+      "premium": true
+    },
+    "gpt-5.5": {
+      "premium": true
+    },
+    "gpt-5.6-sol": {
+      "premium": true
+    },
+    "kimi-k3-fast": {
+      "premium": true
+    },
+    "claude-haiku-4-5": {
+      "premium": false
+    },
+    "claude-sonnet-5": {
+      "premium": false
+    },
+    "deepseek-v4-flash": {
+      "premium": false
+    },
+    "deepseek-v4-pro": {
+      "premium": false
+    },
+    "gemini-3.1-pro-preview": {
+      "premium": false
+    },
+    "gemini-3.7-flash": {
+      "premium": false
+    },
+    "gemini-3.8-flash": {
+      "premium": false
+    },
+    "glm-5.3": {
+      "premium": false
+    },
+    "glm-5.3-flash": {
+      "premium": false
+    },
+    "gpt-5.3-codex": {
+      "premium": false
+    },
+    "gpt-5.4-mini": {
+      "premium": false
+    },
+    "gpt-5.4-nano": {
+      "premium": false
+    },
+    "gpt-5.6-luna": {
+      "premium": false
+    },
+    "gpt-5.6-terra": {
+      "premium": false
+    },
+    "gpt-oss-120b": {
+      "premium": false
+    },
+    "grok-4-5": {
+      "premium": false
+    },
+    "grok-4-6": {
+      "premium": false
+    },
+    "grok-build-0-1": {
+      "premium": false
+    },
+    "kimi-k3": {
+      "premium": false
+    },
+    "mimo-v2.5-pro": {
+      "premium": false
+    },
+    "minimax-m3": {
+      "premium": false
+    },
+    "muse-spark-1.3": {
+      "premium": false
+    },
+    "muse-spark-1.3-contributor": {
+      "premium": false
+    },
+    "seed-1-8-251228": {
+      "premium": false
     }
   }
 }

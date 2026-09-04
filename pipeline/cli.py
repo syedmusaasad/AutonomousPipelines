@@ -223,13 +223,14 @@ def cmd_trial_report(a):
         chosen = verdict.get("chosen")
         sel = verdict.get("selection", {})
         band_kept = set(sel.get("band_kept", []))
+        quota_fallback = sel.get("quota_fallback")
     else:
         print(f"no verdict.json found at {verdict_path}", file=sys.stderr)
         return 1
 
     # Print table header
-    print(f"{'arm':<52} {'model':<40} {'effort':<8} {'family':<12} {'quality':>8} {'wall_s':>8} {'cost':>8} {'in_band':>8} {'chosen':>7}")
-    print("-" * 165)
+    print(f"{'arm':<52} {'model':<40} {'effort':<8} {'family':<12} {'premium':>7} {'quality':>8} {'wall_s':>8} {'cost':>8} {'in_band':>8} {'chosen':>7}")
+    print("-" * 175)
     for arm_str, v in sorted(arms.items(), key=lambda kv: -kv[1].get("quality", 0)):
         # arm_str is "model_q@effort" or just "model_q"
         if "@" in arm_str:
@@ -237,10 +238,12 @@ def cmd_trial_report(a):
         else:
             arm_model_q, arm_effort = arm_str, ""
         family = roles_mod.family_of(arm_model_q, reg)
+        premium = "yes" if roles_mod.is_premium(arm_model_q, reg) else "no"
         in_band = "yes" if arm_str in band_kept else "no"
         is_chosen = "***" if arm_str == chosen else ""
-        print(f"{arm_str:<52} {arm_model_q:<40} {arm_effort:<8} {family:<12} {v.get('quality', 0):>8.3f} {v.get('wall_s', 0):>8.1f} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
+        print(f"{arm_str:<52} {arm_model_q:<40} {arm_effort:<8} {family:<12} {premium:>7} {v.get('quality', 0):>8.3f} {v.get('wall_s', 0):>8.1f} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
     print()
+    print(f"Quota fallback (best in-band non-premium arm): {quota_fallback}")
     print(f"Chosen: {chosen}")
     return 0
 

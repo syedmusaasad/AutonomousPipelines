@@ -237,31 +237,47 @@ class Engine:
         role = role or ph.role
         did = new_id("d")
         s = roles_mod.seat(role, self.reg)
-        models = [s["model_q"], s["fallback_q"]]
-        if ph.model and role == ph.role:
-            models = [roles_mod.qualified(ph.model, self.reg)]  # pinned (trials): no fallback, that would taint the arm
+        pinned = bool(ph.model and role == ph.role)
         # Determine effort: ph.effort overrides the seat's effort when set (for trial arms and EFFORT: directive)
-        effort = ph.effort if (ph.effort is not None and role == ph.role) else None
-        last = None
-        for i, model in enumerate(models):
+        effort_override = ph.effort if (ph.effort is not None and role == ph.role) else None
+
+        def run_one(model: str, eff, *, try_idx: int, family_fallback: bool, quota_fallback: bool) -> dsp.DispatchResult:
             def on_start(pid, transcript, model=model):
                 self.journal.write("dispatch.start", id=did, phase=ph.key, role=role, model=model, pid=pid,
                                    transcript=str(transcript), attempt=attempt, lane=lane, item=item,
-                                   fallback=(i > 0))
-            res = dsp.run_dispatch(brief=brief, role=role, cwd=cwd or plan.workdir, out_dir=out_dir / f"try-{i}",
-                                   timeout=timeout or ph.timeout, env=env, model=model, effort=effort,
+                                   fallback=family_fallback, quota_fallback=quota_fallback)
+            res = dsp.run_dispatch(brief=brief, role=role, cwd=cwd or plan.workdir, out_dir=out_dir / f"try-{try_idx}",
+                                   timeout=timeout or ph.timeout, env=env, model=model, effort=eff,
                                    on_start=on_start, reg=self.reg)
             self.journal.write("dispatch.end", id=did, phase=ph.key, role=role, **res.as_row())
-            last = res
-            if res.outcome == "ok":
+            return res
+
+        if pinned:
+            # MODEL: pinned (trials): no fallback at all, quota or otherwise -- either
+            # would taint the arm being measured.
+            model = roles_mod.qualified(ph.model, self.reg)
+            return run_one(model, effort_override, try_idx=0, family_fallback=False, quota_fallback=False)
+
+        res = run_one(s["model_q"], effort_override, try_idx=0, family_fallback=False, quota_fallback=False)
+        if res.outcome == "ok":
+            return res
+        if res.outcome == "quota":
+            # The premium-tier weekly allowance is exhausted, not the model's or the
+            # task's fault: fall to the seat's quota_fallback (never the family fallback,
+            # and this alone never burns a phase attempt -- if it succeeds we're done).
+            qf_model_q = s.get("quota_fallback_model_q")
+            if not qf_model_q:
                 return res
-            if res.outcome in ("timeout", "outage", "killed"):
-                break  # the task's or the host's problem, not the model's; don't burn the fallback
-            if res.tokens.get("total", 0) > 0 and res.pid is not None:
-                break  # the model ran and the task failed: that is a retry, not a seat change
-            # the seat never completed a step (launch failure, provider error): fallback family once
-            log(f"dispatch {did} on {model} never completed a step ({res.error}); trying fallback")
-        return last
+            qf_effort = effort_override or s.get("quota_fallback_effort")
+            log(f"dispatch {did} on {s['model_q']} hit premium-tier quota; trying quota_fallback {qf_model_q}")
+            return run_one(qf_model_q, qf_effort, try_idx=1, family_fallback=False, quota_fallback=True)
+        if res.outcome in ("timeout", "outage", "killed"):
+            return res  # the task's or the host's problem, not the model's; don't burn the fallback
+        if res.tokens.get("total", 0) > 0 and res.pid is not None:
+            return res  # the model ran and the task failed: that is a retry, not a seat change
+        # the seat never completed a step (launch failure, provider error): fallback family once
+        log(f"dispatch {did} on {s['model_q']} never completed a step ({res.error}); trying fallback")
+        return run_one(s["fallback_q"], effort_override, try_idx=1, family_fallback=True, quota_fallback=False)
 
     def _run_single(self, plan, ph, attempt, failure_text):
         pdir = self._phase_dir(ph) / f"attempt-{attempt}"

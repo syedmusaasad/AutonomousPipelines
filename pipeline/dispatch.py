@@ -10,6 +10,7 @@ PIPELINE_WORKER_BIN overrides the binary (the suite uses a fake)."""
 
 import json
 import os
+import re
 import signal
 import subprocess
 import time
@@ -19,6 +20,21 @@ from . import roles as roles_mod
 from .util import now_iso, now_ts
 
 DEFAULT_BIN = "devpass-code"
+
+QUOTA_SIGNATURE_WORDS = ("premium-tier", "allowance")
+
+
+def is_quota_error(text: str) -> bool:
+    """True when text carries the DevPass weekly premium-tier quota signature: an
+    HTTP 402 statusCode alongside "premium-tier" or "allowance" in the message.
+    Scans raw transcript text (JSON events, possibly on separate lines/fields), so
+    this does not require the 402 and the wording to be in the same JSON string."""
+    if not text:
+        return False
+    if not re.search(r'"statusCode"\s*:\s*402\b', text):
+        return False
+    lower = text.lower()
+    return any(w in lower for w in QUOTA_SIGNATURE_WORDS)
 
 
 def worker_bin() -> str:
@@ -48,7 +64,7 @@ def build_brief(*, task: str, role: str, cwd: Path, exits: list = (), extras: di
 
 class DispatchResult:
     def __init__(self, **kw):
-        self.outcome = kw.get("outcome")  # ok | failed | timeout | killed | outage
+        self.outcome = kw.get("outcome")  # ok | failed | timeout | killed | outage | quota
         self.exit_code = kw.get("exit_code")
         self.wall_s = kw.get("wall_s", 0.0)
         self.tokens = kw.get("tokens", {"input": 0, "output": 0, "reasoning": 0, "total": 0})
@@ -124,7 +140,12 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     result.session_id = parsed["session_id"]
     result.final_text = parsed["final_text"]
     if result.outcome is None:
-        if result.exit_code == 0:
+        if parsed["quota"] and parsed["steps"] == 0:
+            # DevPass weekly premium-tier allowance exhausted (402): the seat never got
+            # to work, so this is neither the model's fault nor a machine failure.
+            result.outcome = "quota"
+            result.error = f"premium-tier quota (402); tail: {parsed['tail'][-600:]}"
+        elif result.exit_code == 0:
             result.outcome = "ok"
         elif result.exit_code is not None and result.exit_code < 0:
             # killed by signal (sentry stall recovery, OOM, host): not the seat's fault
@@ -157,11 +178,12 @@ def parse_transcript(path: Path) -> dict:
     cost = 0.0
     session_id = None
     texts = []
+    steps = 0
     tail = ""
     try:
         raw = path.read_text(errors="replace")
     except OSError:
-        return {"tokens": tokens, "cost": cost, "session_id": None, "final_text": "", "tail": ""}
+        return {"tokens": tokens, "cost": cost, "session_id": None, "final_text": "", "tail": "", "steps": 0, "quota": False}
     tail = raw[-2000:]
     for line in raw.splitlines():
         line = line.strip()
@@ -175,6 +197,7 @@ def parse_transcript(path: Path) -> dict:
         part = ev.get("part") or {}
         t = ev.get("type")
         if t == "step_finish":
+            steps += 1
             tk = part.get("tokens") or {}
             tokens["input"] += int(tk.get("input", 0) or 0)
             tokens["output"] += int(tk.get("output", 0) or 0)
@@ -184,4 +207,5 @@ def parse_transcript(path: Path) -> dict:
             texts.append(part.get("text", ""))
     tokens["total"] = tokens["input"] + tokens["output"] + tokens["reasoning"]
     final_text = texts[-1] if texts else ""
-    return {"tokens": tokens, "cost": cost, "session_id": session_id, "final_text": final_text, "tail": tail}
+    return {"tokens": tokens, "cost": cost, "session_id": session_id, "final_text": final_text, "tail": tail,
+            "steps": steps, "quota": is_quota_error(raw)}

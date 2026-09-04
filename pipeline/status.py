@@ -2,6 +2,7 @@
 mtime, never the journal's own claim."""
 
 import os
+import re
 import time
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from .journal import Journal, run_ids
 from .util import liveness, mtime_or_none, pid_alive, read_json
 
 STALL_AFTER_S = int(os.environ.get("PIPELINE_STALL_S", "900"))
+
+RESET_HINT_RE = re.compile(r"Resets? in [^.\"\\]+", re.IGNORECASE)
 
 
 def run_report(run_id: str) -> dict:
@@ -40,6 +43,19 @@ def run_report(run_id: str) -> dict:
     waiting = [f"phase {k}: write sentinel {p['waiting_on']}" for k, p in phases.items() if p.get("status") == "waiting"]
     if st.get("stopped") and st["closed"]:
         waiting.append(f"deliberate stop [{st['stopped']}]: {(st.get('stop_detail') or '')[:200]}  (resume with `pipeline resume {run_id}` after judging)")
+    # dispatch.end rows, not the collapsed per-id state: a quota hit followed by a
+    # successful quota_fallback retry reuses the dispatch id, so the derived state's
+    # single "outcome" per id would lose the quota event.
+    quota_rows = [r for r in j.rows() if r.get("event") == "dispatch.end" and r.get("outcome") == "quota"]
+    if quota_rows:
+        models = sorted({r.get("model") for r in quota_rows if r.get("model")})
+        reset = None
+        for r in quota_rows:
+            m = RESET_HINT_RE.search(r.get("error") or "")
+            if m:
+                reset = m.group(0)
+                break
+        waiting.append(f"premium allowance hit on {', '.join(models)}; resets {reset or 'unknown'}")
     return {
         "run": run_id, "verdict": verdict, "plan": st.get("plan"), "conversation": st.get("conversation"),
         "engine_pid": st.get("engine_pid"), "engine_alive": engine_alive, "stopped_receipt": stopped_receipt,

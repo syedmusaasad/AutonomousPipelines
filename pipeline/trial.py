@@ -165,14 +165,18 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
     return "\n".join(lines)
 
 
-def select(arms: dict, band: float) -> dict:
+def select(arms: dict, band: float, reg: dict = None) -> dict:
     """Select the best model from a set of arms using the band-then-wall-then-cost rule.
 
     arms: {model: {"quality": mean, "wall_s": mean per dispatch, "cost": mean per dispatch}}
     band: the quality tolerance band (e.g. 1.5 for standard)
+    reg: registry dict (optional). When given, also computes "quota_fallback": the
+    best (wall then cost) in-band arm whose model is not tagged premium in
+    reg["models"], or None if every in-band arm is premium (or reg is absent).
 
     Returns:
-        {"chosen": model, "band_kept": [models], "ranking": [models in order], "reasons": {model: {...}}}
+        {"chosen": model, "band_kept": [models], "ranking": [models in order],
+         "reasons": {model: {...}}, "quota_fallback": model or None}
     """
     if not arms:
         raise ValueError("arms must be non-empty")
@@ -205,12 +209,26 @@ def select(arms: dict, band: float) -> dict:
                 "rank": ranking.index(m) + 1,
             }
 
+    quota_fallback = None
+    if reg is not None:
+        for m in ranking:
+            if not roles_mod.is_premium(_arm_model(m), reg):
+                quota_fallback = m
+                break
+
     return {
         "chosen": chosen,
         "band_kept": band_kept,
         "ranking": ranking,
         "reasons": reasons,
+        "quota_fallback": quota_fallback,
     }
+
+
+def _arm_model(arm: str) -> str:
+    """Strip an optional '@effort' suffix from an arm string, leaving 'model' or
+    'provider/model'."""
+    return arm.rsplit("@", 1)[0] if "@" in arm else arm
 
 
 def select_reviewers(arms_by_model: dict, band: float, families: dict) -> list:
@@ -338,7 +356,7 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
     # Run selection
     arms_for_select = {a: {"quality": v["quality"], "wall_s": v["wall_s"], "cost": v["cost"]}
                        for a, v in arms_by_arm.items()}
-    sel = select(arms_for_select, band)
+    sel = select(arms_for_select, band, reg=reg)
 
     # Legacy compatibility: 2-arm mode with incumbent_q / candidate_q
     # In legacy mode, arm_map values are plain model_q strings (no @effort)
@@ -457,9 +475,16 @@ def apply(role: str, arm: str, verdict: dict, registry_path: Path = None) -> Non
     reg["roles"][role]["model"] = model
     if effort is not None:
         reg["roles"][role]["effort"] = effort
+    qf = (verdict.get("selection") or {}).get("quota_fallback")
+    if qf:
+        qf_model, qf_effort = parse_arm(qf)
+        qf_model_bare = qf_model.split("/", 1)[-1] if "/" in qf_model else qf_model
+        reg["roles"][role]["quota_fallback"] = f"{qf_model_bare}@{qf_effort}" if qf_effort else qf_model_bare
     history_entry = {"model": model, "at": now_iso(), "trial": verdict}
     if effort is not None:
         history_entry["effort"] = effort
+    if qf:
+        history_entry["quota_fallback"] = reg["roles"][role]["quota_fallback"]
     reg["roles"][role].setdefault("history", []).append(history_entry)
     roles_mod.validate(reg)
     path.write_text(json.dumps(reg, indent=2) + "\n")

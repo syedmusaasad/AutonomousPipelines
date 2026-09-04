@@ -161,6 +161,40 @@ def registry_validates_families_and_seals():
 
 
 @test
+def registry_models_table_and_quota_fallback_never_premium():
+    """roles["models"][model]["premium"] tags every candidate; every role's quota_fallback
+    resolves to a model the table does not tag premium; validate() rejects one that does."""
+    reg = roles_mod.load()
+    assert "models" in reg and isinstance(reg["models"], dict) and reg["models"]
+    for model, info in reg["models"].items():
+        assert "premium" in info, model
+        assert info["premium"] in (True, False, "unknown"), model
+    for name, r in reg["roles"].items():
+        assert "quota_fallback" in r, name
+        qf_model, _ = roles_mod._split_arm(r["quota_fallback"])
+        assert not roles_mod.is_premium(qf_model, reg), f"{name}: quota_fallback {r['quota_fallback']} is premium"
+    import copy
+    bad = copy.deepcopy(reg)
+    # pick a confirmed-premium model and force it in as implementer's quota_fallback
+    premium_model = next(m for m, i in bad["models"].items() if i["premium"] is True)
+    bad["roles"]["implementer"]["quota_fallback"] = f"{premium_model}@high"
+    try:
+        roles_mod.validate(bad)
+    except roles_mod.RegistryError:
+        pass
+    else:
+        raise AssertionError("premium quota_fallback accepted")
+    bad2 = copy.deepcopy(reg)
+    del bad2["roles"]["implementer"]["quota_fallback"]
+    try:
+        roles_mod.validate(bad2)
+    except roles_mod.RegistryError:
+        pass
+    else:
+        raise AssertionError("missing quota_fallback accepted")
+
+
+@test
 def rendered_agents_deny_external_channels_and_questions():
     reg = roles_mod.load()
     for name, text in roles_mod.rendered_agents(reg).items():
@@ -731,6 +765,32 @@ FAKE: touch a
 
 
 @test
+def quota_outcome_falls_to_quota_fallback_not_family_fallback():
+    """A 402 premium-tier quota transcript sends the retry to the seat's
+    quota_fallback (never the family fallback), and a quota hit alone does not
+    count as a phase attempt failure: if the fallback succeeds, the phase lands."""
+    with Estate() as E:
+        reg = roles_mod.load()
+        s = roles_mod.seat("implementer", reg)
+        rid, p, r, st = run_plan(E, f"""## Phase 1: a (implementer)
+FAKE: quota-on-model {s['model']}
+FAKE: touch a
+""")
+        assert st["closed"] == "done", r.stderr
+        calls = E.fake_calls()
+        assert calls[0]["model"] == s["model_q"]
+        assert calls[1]["model"] == s["quota_fallback_model_q"]
+        assert calls[1]["model"] != s["fallback_q"]
+        ds = [x for x in jmod.Journal(rid).rows() if x["event"] == "dispatch.start"]
+        assert ds[0].get("quota_fallback") in (False, None) and ds[1]["quota_fallback"] is True
+        assert ds[1]["fallback"] is False
+        de = [x for x in jmod.Journal(rid).rows() if x["event"] == "dispatch.end"]
+        assert de[0]["outcome"] == "quota" and de[1]["outcome"] == "ok"
+        # only one phase attempt was journaled: the quota hit did not burn one on its own
+        assert st["phases"]["1"]["attempts"] == 1
+
+
+@test
 def brief_carries_task_facts_and_previous_failure_only():
     b = dsp.build_brief(task="Edit a.py; git add a.py only; commit 'fix: a'", role="implementer", cwd=Path("/w"), exits=["pytest -q"],
                         previous_failure="EXIT failed: pytest -q\n1 failed", preamble="ctx")
@@ -751,6 +811,38 @@ def dispatch_transcript_parsing_sums_tokens():
         p = dsp.parse_transcript(t)
         assert p["tokens"] == {"input": 30, "output": 10, "reasoning": 1, "total": 41} and abs(p["cost"] - 0.75) < 1e-9
         assert p["session_id"] == "s1" and p["final_text"] == "final deliverable"
+
+
+@test
+def quota_error_signature_detected_from_402_and_premium_wording():
+    """is_quota_error requires BOTH statusCode 402 AND 'premium-tier' or 'allowance' in
+    the text; either alone is not enough."""
+    hit = json.dumps({"error": {"data": {"statusCode": 402, "message": "You\u2019ve used your weekly allowance for premium-tier models"}}})
+    assert dsp.is_quota_error(hit)
+    hit2 = json.dumps({"error": {"data": {"statusCode": 402, "message": "Redeem a Reset Pass; use any standard model. premium-tier caps apply."}}})
+    assert dsp.is_quota_error(hit2)
+    assert not dsp.is_quota_error("")
+    assert not dsp.is_quota_error(json.dumps({"statusCode": 500, "message": "premium-tier allowance exceeded"}))  # wrong code
+    assert not dsp.is_quota_error(json.dumps({"statusCode": 402, "message": "rate limited, try later"}))  # no signature words
+    with Estate() as E:
+        t = E.tmp / "quota.jsonl"
+        t.write_text(json.dumps({"type": "error", "part": {"error": {"data": {
+            "message": "You've used your weekly allowance for premium-tier models on the max plan.",
+            "statusCode": 402}}}}))
+        p = dsp.parse_transcript(t)
+        assert p["quota"] is True and p["steps"] == 0
+
+
+@test
+def dispatch_outcome_is_quota_when_402_and_no_step_completed():
+    with Estate() as E:
+        reg = roles_mod.load()
+        s = roles_mod.seat("implementer", reg)
+        out_dir = E.tmp / "d1"
+        res = dsp.run_dispatch(brief="FAKE: quota\n", role="implementer", cwd=E.work, out_dir=out_dir,
+                               timeout=10, model=s["model_q"])
+        assert res.outcome == "quota", res.as_row()
+        assert res.tokens["total"] == 0
 
 
 # ---------------------------------------------------------------- launchers
@@ -943,6 +1035,41 @@ def status_first_sentence_and_waiting_list_always_present():
 
 
 @test
+def status_names_premium_allowance_hit_once_in_waiting_list():
+    with Estate() as E:
+        reg = roles_mod.load()
+        s = roles_mod.seat("implementer", reg)
+        rid, p, r, st = run_plan(E, f"""## Phase 1: a (implementer)
+FAKE: quota-on-model {s['model']}
+FAKE: touch a
+""")
+        assert st["closed"] == "done", r.stderr
+        rep = status.run_report(rid)
+        hits = [w for w in rep["waiting_on_operator"] if "premium allowance hit" in w]
+        assert len(hits) == 1, rep["waiting_on_operator"]
+        assert s["model_q"] in hits[0] and "resets" in hits[0]
+        text = status.render([rep], scope="all runs")
+        assert text.count("premium allowance hit") == 1
+
+
+@test
+def bench_shows_premium_quota_bucket_and_per_model_hits():
+    with Estate() as E:
+        reg = roles_mod.load()
+        s = roles_mod.seat("implementer", reg)
+        rid, p, r, st = run_plan(E, f"""## Phase 1: a (implementer)
+FAKE: quota-on-model {s['model']}
+FAKE: touch a
+""")
+        assert st["closed"] == "done", r.stderr
+        data = bench.collect()
+        text = bench.render(data)
+        assert "premium quota hits" in text
+        assert "Premium quota hits by model" in text
+        assert f"| {s['model_q']} |" in text.split("Premium quota hits by model")[1]
+
+
+@test
 def bench_is_generated_from_journal_with_regeneration_commands():
     with Estate() as E:
         run_plan(E, "## Phase 1: a (fast-worker)\nFAKE: touch a\n")
@@ -1126,6 +1253,30 @@ def select_band_keeps_faster_drops_much_worse():
 
 
 @test
+def select_returns_best_in_band_non_premium_quota_fallback():
+    """select(reg=...) also names the best (wall then cost) in-band arm that is not
+    tagged premium; None when reg is absent or every in-band arm is premium."""
+    reg = {"models": {
+        "provA": {"premium": True}, "provB": {"premium": False}, "provC": {"premium": False},
+    }}
+    arms = {
+        "provA": {"quality": 8.0, "wall_s": 5.0, "cost": 0.5},   # best, but premium
+        "provB": {"quality": 7.0, "wall_s": 10.0, "cost": 0.3},  # in band, standard, slower
+        "provC": {"quality": 6.8, "wall_s": 8.0, "cost": 0.2},   # in band, standard, faster than B
+    }
+    result = trial.select(arms, 1.5, reg=reg)
+    assert result["chosen"] == "provA"  # premium can still be chosen outright
+    assert result["quota_fallback"] == "provC"  # fastest in-band arm that isn't premium
+    # without reg, quota_fallback is absent/None
+    result_no_reg = trial.select(arms, 1.5)
+    assert result_no_reg.get("quota_fallback") is None
+    # every in-band arm premium -> None
+    reg_all_premium = {"models": {"provA": {"premium": True}, "provB": {"premium": True}, "provC": {"premium": True}}}
+    result_all = trial.select(arms, 1.5, reg=reg_all_premium)
+    assert result_all["quota_fallback"] is None
+
+
+@test
 def select_reviewers_enforces_distinct_families():
     """select_reviewers must return 3 models on 3 distinct families; maximise in-band."""
     arms = {
@@ -1280,6 +1431,26 @@ def trial_apply_writes_effort():
         pass
     else:
         raise AssertionError("apply should refuse mismatched arm")
+
+
+@test
+def trial_apply_writes_quota_fallback_from_selection():
+    """apply() writes verdict["selection"]["quota_fallback"] to the role's quota_fallback."""
+    import shutil
+    regp = Path("/tmp/devpass-code/test_registry_qf.json")
+    regp.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(roles_mod.REGISTRY, regp)
+    chosen_arm = "llmgateway-devpass/gemini-3.1-pro-preview@low"
+    verdict = {
+        "chosen": chosen_arm, "decision": "candidate", "reasons": [], "decided_at": "now",
+        "tolerance": 0.1, "band": 1.5, "arms": {}, "quality": {}, "tokens": {}, "wall_s": {},
+        "selection": {"quota_fallback": "llmgateway-devpass/gpt-5.6-luna@medium"},
+    }
+    trial.apply("implementer", "gemini-3.1-pro-preview@low", verdict, registry_path=regp)
+    after = json.loads(regp.read_text())
+    assert after["roles"]["implementer"]["quota_fallback"] == "gpt-5.6-luna@medium"
+    h = after["roles"]["implementer"]["history"][-1]
+    assert h.get("quota_fallback") == "gpt-5.6-luna@medium"
 
 
 @test

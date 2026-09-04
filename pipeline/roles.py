@@ -41,6 +41,15 @@ def family_of(model: str, reg: dict) -> str:
     return "unknown:" + bare
 
 
+def is_premium(model: str, reg: dict) -> bool:
+    """True if the registry's models table tags `model` as premium-tier. Unknown or
+    untagged models are treated as not-premium-confirmed (i.e. False), matching the
+    conservative default: only a confirmed premium tag blocks a quota_fallback."""
+    bare = model.split("/", 1)[-1]
+    entry = reg.get("models", {}).get(bare)
+    return bool(entry) and entry.get("premium") is True
+
+
 def validate(reg: dict) -> None:
     roles = reg.get("roles", {})
     required = {"interactive", "implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker", *REVIEWERS}
@@ -48,7 +57,7 @@ def validate(reg: dict) -> None:
     if missing:
         raise RegistryError(f"registry missing roles: {sorted(missing)}")
     for name, r in roles.items():
-        for k in ("model", "fallback", "effort", "tools"):
+        for k in ("model", "fallback", "effort", "tools", "quota_fallback"):
             if k not in r:
                 raise RegistryError(f"role {name}: missing {k}")
         if family_of(r["model"], reg) == family_of(r["fallback"], reg):
@@ -60,9 +69,20 @@ def validate(reg: dict) -> None:
                 raise RegistryError(f"role {name}: reviewers must be sealed")
             if r["tools"].get("edit"):
                 raise RegistryError(f"role {name}: sealed reviewers get no edit grant")
+        qf_model, _ = _split_arm(r["quota_fallback"])
+        if is_premium(qf_model, reg):
+            raise RegistryError(f"role {name}: quota_fallback {r['quota_fallback']} is premium-tier")
     fams = {family_of(roles[x]["model"], reg) for x in REVIEWERS}
     if len(fams) < 2:
         raise RegistryError("reviewers must span at least two model families")
+
+
+def _split_arm(s: str) -> tuple:
+    """'model@effort' -> (model, effort); bare 'model' -> (model, None)."""
+    if "@" in s:
+        model, effort = s.rsplit("@", 1)
+        return model, effort
+    return s, None
 
 
 def qualified(model: str, reg: dict) -> str:
@@ -80,6 +100,11 @@ def seat(role: str, reg: dict = None) -> dict:
     r["family"] = family_of(r["model"], reg)
     r["fallback_family"] = family_of(r["fallback"], reg)
     r["agent"] = AGENT_PREFIX + role
+    if r.get("quota_fallback"):
+        qf_model, qf_effort = _split_arm(r["quota_fallback"])
+        r["quota_fallback_model"] = qf_model
+        r["quota_fallback_model_q"] = qualified(qf_model, reg)
+        r["quota_fallback_effort"] = qf_effort if qf_effort is not None else r["effort"]
     return r
 
 

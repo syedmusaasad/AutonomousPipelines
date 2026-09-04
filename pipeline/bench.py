@@ -16,6 +16,7 @@ from .util import read_jsonl
 
 HOST_OUTCOMES = {"outage", "stalled", "killed"}  # host/engine death, not the worker's fault
 MACHINE_FAIL = {"failed", "timeout"}
+QUOTA_OUTCOMES = {"quota"}  # premium-tier weekly allowance hit: neither host nor worker fault
 
 
 def collect() -> dict:
@@ -27,9 +28,23 @@ def collect() -> dict:
                      "wall_s": (st.get("closed_at") or 0) - (st.get("opened_at") or 0) if st.get("closed_at") and st.get("opened_at") else None,
                      "tokens": st["tokens_total"], "cost": st["cost_total"], "relights": st["relights"],
                      "recoveries": sum(st["recoveries"].values())})
-        for d in st["dispatches"].values():
-            if d.get("outcome") is not None:
-                dispatches.append({"run": rid, **d})
+        # Every dispatch.start/dispatch.end PAIR, not the collapsed per-id state: a
+        # quota hit followed by a successful quota_fallback retry reuses the same
+        # dispatch id, and the quota try must still be counted (that is how the
+        # premium list confirms itself over time).
+        starts = {}
+        for r in rows:
+            if r["event"] == "dispatch.start":
+                starts[r["id"]] = r
+            elif r["event"] == "dispatch.end" and r.get("outcome") is not None:
+                s = starts.get(r["id"], {})
+                dispatches.append({
+                    "run": rid, "id": r["id"], "phase": r.get("phase", s.get("phase")),
+                    "role": r.get("role", s.get("role")), "model": r.get("model", s.get("model")),
+                    "outcome": r.get("outcome"), "wall_s": r.get("wall_s"), "tokens": r.get("tokens") or {},
+                    "cost": r.get("cost") or 0.0, "error": r.get("error"),
+                    "fallback": s.get("fallback"), "quota_fallback": s.get("quota_fallback"),
+                })
         for k, p in st["phases"].items():
             phases.append({"run": rid, "phase": k, **p})
         for r in rows:
@@ -66,10 +81,12 @@ def render(data: dict) -> str:
     ok = [d for d in D if d["outcome"] == "ok"]
     host = [d for d in D if d["outcome"] in HOST_OUTCOMES]
     mach = [d for d in D if d["outcome"] in MACHINE_FAIL]
+    quota = [d for d in D if d["outcome"] in QUOTA_OUTCOMES]
     out += ["## Dispatch outcomes", "", f"- dispatches: {len(D)}",
             f"- ok: {len(ok)} ({_pct(len(ok), len(D))})",
             f"- machine failures (failed/timeout): {len(mach)} ({_pct(len(mach), len(D))})",
             f"- host-outage stalls (outage/stalled/killed), separated from machine failures: {len(host)} ({_pct(len(host), len(D))})",
+            f"- premium quota hits (neither machine failure nor host outage): {len(quota)} ({_pct(len(quota), len(D))})",
             f"- ok rate excluding host stalls: {_pct(len(ok), len(D) - len(host))}", ""]
     out += ["## Wall clock", "", f"- median dispatch wall: {_med([d.get('wall_s') for d in D])} s",
             f"- p90 dispatch wall: {_p90([d.get('wall_s') for d in D])} s", ""]
@@ -90,6 +107,17 @@ def render(data: dict) -> str:
         by_model.setdefault(d.get("model"), []).append(d)
     for m, ds in sorted(by_model.items(), key=lambda kv: str(kv[0])):
         out.append(f"| {m} | {len(ds)} | {_sum_tok(ds)} | {_pct(sum(1 for d in ds if d['outcome'] == 'ok'), len(ds))} |")
+    out.append("")
+    out += ["### Premium quota hits by model", "",
+            "This is how the premium-tier list confirms itself over time: a 402 journaled here",
+            "against a model the registry does not yet tag `premium: true` is evidence to fix the tag.", "",
+            "| model | quota hits | dispatches |", "|---|---|---|"]
+    for m, ds in sorted(by_model.items(), key=lambda kv: -sum(1 for d in kv[1] if d["outcome"] == "quota")):
+        hits = sum(1 for d in ds if d["outcome"] == "quota")
+        if hits:
+            out.append(f"| {m} | {hits} | {len(ds)} |")
+    if not any(sum(1 for d in ds if d["outcome"] == "quota") for ds in by_model.values()):
+        out.append("| (none) | 0 | - |")
     out.append("")
     att = [p.get("attempts") or 0 for p in landed]
     out += ["## Phases", "", f"- phases seen: {len(P)}; done: {len(landed)}; failed/burned: {sum(1 for p in P if p.get('status') == 'failed')}",

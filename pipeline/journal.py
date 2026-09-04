@@ -29,7 +29,7 @@ from pathlib import Path
 from . import paths
 from .util import append_jsonl, now_iso, now_ts, read_jsonl
 
-TERMINAL_DISPATCH = {"ok", "failed", "timeout", "killed", "stalled", "outage"}
+TERMINAL_DISPATCH = {"ok", "failed", "timeout", "killed", "stalled", "outage", "quota"}
 
 
 class Journal:
@@ -110,7 +110,7 @@ def derive_state(rows: list) -> dict:
         elif ev == "dispatch.end":
             d = st["dispatches"].setdefault(r["id"], {"id": r["id"]})
             d.update(outcome=r.get("outcome"), wall_s=r.get("wall_s"), tokens=r.get("tokens") or {}, cost=r.get("cost") or 0.0,
-                     ended_t=r.get("t"), model=r.get("model", d.get("model")))
+                     ended_t=r.get("t"), model=r.get("model", d.get("model")), error=r.get("error"))
             st["tokens_total"] += (r.get("tokens") or {}).get("total", 0) or 0
             st["cost_total"] += r.get("cost") or 0.0
         elif ev == "relight":
