@@ -1,5 +1,5 @@
 {
- "min_tests": 131,
+ "min_tests": 133,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
@@ -69,6 +69,8 @@
   "review_provenance_test_review_verdict_dispatch_path_isolation",
   "review_provenance_test_timeout_with_unavailable_verdict",
   "review_runs_only_after_exit_passes",
+  "roblox_skills_drift_guard_detects_hand_edits",
+  "roblox_skills_source_has_every_named_skill",
   "run_launches_detached_and_registers_to_conversation",
   "runs_registry_keys_to_conversation_and_scopes_custody",
   "select_band_keeps_faster_drops_much_worse",

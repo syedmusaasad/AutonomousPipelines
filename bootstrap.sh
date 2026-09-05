@@ -54,6 +54,7 @@ for b in pipeline run quick status finish; do ln -sfn "$REPO/bin/$b" "$SYS/bin/$
 printf '%s\n' "$REPO" > "$SYS/repo"
 # generated agent files + conversation plugin
 "$REPO/bin/pipeline" render-agents >/dev/null
+"$REPO/bin/pipeline" roblox-skills >/dev/null
 mkdir -p "$HOME/.config/devpass-code/plugin"
 cp "$REPO/plugin/pipeline-conversation.js" "$HOME/.config/devpass-code/plugin/pipeline-conversation.js"
 # sentry (systemd --user when available; otherwise a detached loop). --no-sentry is for

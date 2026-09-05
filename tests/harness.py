@@ -21,6 +21,7 @@ class Estate:
         self.estate = self.tmp / "estate"
         self.work = self.tmp / "work"
         self.agents = self.tmp / "agents"
+        self.roblox_skills = self.tmp / "roblox_skills"
         self.work.mkdir(parents=True)
         self.estate.mkdir()
         self.log = self.tmp / "fake.log"
@@ -28,6 +29,7 @@ class Estate:
             "PIPELINE_ESTATE": str(self.estate),
             "PIPELINE_WORKER_BIN": str(FAKE),
             "PIPELINE_AGENTS_DIR": str(self.agents),
+            "PIPELINE_ROBLOX_SKILLS_DIR": str(self.roblox_skills),
             "PIPELINE_POLL_S": "0.2",
             "PIPELINE_GATE_POLL_S": "0.2",
             "PIPELINE_BACKOFF_SCALE": "0.01",

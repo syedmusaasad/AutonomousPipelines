@@ -9,6 +9,7 @@
   resume <run>                  lift a deliberate stop after judging; relaunch
   stop <run>                    write a deliberate-stop receipt and SIGTERM the engine
   render-agents / check-agents  regenerate generated config / drift guard
+  roblox-skills [--check]       sync roblox/skills -> the global skills dir / drift guard
   tui [--conv ID] [--all]       read-only terminal UI (journal-backed; curses)
   bench                         emit BENCHMARKS.md text
   trial <role> <model>...  --tasks F --rubric F    stage a head-to-head (several candidates)
@@ -26,7 +27,7 @@ import signal
 import sys
 from pathlib import Path
 
-from . import bench, engine, finisher, paths, plan as planmod, quick, registry, roles as roles_mod, sentry, status
+from . import bench, engine, finisher, paths, plan as planmod, quick, registry, roblox_skills, roles as roles_mod, sentry, status
 from .journal import Journal
 from .util import log, pid_alive
 
@@ -47,6 +48,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("resume"); p.add_argument("run")
     p = sub.add_parser("stop"); p.add_argument("run"); p.add_argument("--reason", default="operator")
     sub.add_parser("render-agents"); sub.add_parser("check-agents")
+    p = sub.add_parser("roblox-skills"); p.add_argument("--check", action="store_true")
     p = sub.add_parser("tui"); p.add_argument("--conv"); p.add_argument("--all", action="store_true")
     sub.add_parser("bench")
     p = sub.add_parser("trial"); p.add_argument("role"); p.add_argument("model", nargs="+"); p.add_argument("--tasks", required=True); p.add_argument("--rubric", required=True); p.add_argument("-C", "--cwd", default=os.getcwd())
@@ -143,6 +145,20 @@ def cmd_check_agents(a):
             print("  " + x)
         return 1
     print("agents match registry")
+    return 0
+
+
+def cmd_roblox_skills(a):
+    if a.check:
+        if roblox_skills.check_sync():
+            print("roblox skills in sync")
+            return 0
+        print("DRIFT: global skills dir differs from roblox/skills/:")
+        for x in roblox_skills.drift():
+            print("  " + x)
+        return 1
+    for p in roblox_skills.install_skills():
+        print(p)
     return 0
 
 

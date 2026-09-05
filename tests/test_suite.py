@@ -284,6 +284,33 @@ def drift_guard_detects_hand_edits():
 
 
 @test
+def roblox_skills_source_has_every_named_skill():
+    from pipeline import roblox_skills as rbx
+    files = rbx.source_files()
+    for name in ("luau-conventions", "rojo-sync", "studio-verify", "ui-loop", "animation-assets", "data-persistence"):
+        rel = f"{name}/SKILL.md"
+        assert rel in files, rel
+        assert files[rel].startswith("---\n") and f"name: {name}" in files[rel], rel
+
+
+@test
+def roblox_skills_drift_guard_detects_hand_edits():
+    from pipeline import roblox_skills as rbx
+    with Estate() as E:
+        written = rbx.install_skills(E.roblox_skills)
+        assert written and rbx.drift(E.roblox_skills) == []
+        assert rbx.check_sync(E.roblox_skills) is True
+        f = E.roblox_skills / "luau-conventions" / "SKILL.md"
+        f.write_text(f.read_text() + "\n# hand edit\n")
+        assert rbx.drift(E.roblox_skills) == [str(f)]
+        assert rbx.check_sync(E.roblox_skills) is False
+        r = E.cli("roblox-skills", "--check")
+        assert r.returncode == 1 and "DRIFT" in r.stdout
+        E.cli("roblox-skills", check=True)
+        assert E.cli("roblox-skills", "--check").returncode == 0
+
+
+@test
 def worker_contract_names_every_clause():
     c = roles_mod.worker_contract()
     for needle in ("non-interactive", "Never ask", "never wait", "filesystem is the oracle", "End stdout with the deliverable",
