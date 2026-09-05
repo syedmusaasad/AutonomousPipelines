@@ -1,0 +1,6 @@
+# selene config for Roblox Luau (roblox library ships these stds)
+[lint]
+# keep defaults; strictness comes from luau types + review
+
+[roblox]
+# selene's roblox library defines the full API surface

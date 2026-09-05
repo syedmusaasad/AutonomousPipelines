@@ -1,0 +1,10 @@
+{
+  "luau-lsp": {
+    "platform": {
+      "type": "roblox"
+    },
+    "types": {
+      "roblox_security_level": "PluginSecurity"
+    }
+  }
+}
