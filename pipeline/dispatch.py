@@ -42,6 +42,53 @@ def worker_bin() -> str:
     return os.environ.get("PIPELINE_WORKER_BIN", DEFAULT_BIN)
 
 
+_DELIVERABLE_STRIP = '.,;:!?()[]{}"\'`*<>'
+
+
+def parse_deliverables(cwd, final_text: str) -> list:
+    """Extract deliverable paths the worker registered in its own closing words.
+
+    Scans only the LAST non-empty block of `final_text` (blocks are separated by
+    blank lines) -- the worker's sign-off, not its narration. Each whitespace
+    token is stripped of surrounding punctuation and checked against the
+    filesystem: it must resolve to an existing regular file under `cwd` (absolute
+    paths outside `cwd`, directories, and plain chatter words never match since
+    they don't resolve to a real file there). Returns a deduped, sorted list of
+    cwd-relative path strings."""
+    cwd = Path(cwd)
+    if not final_text:
+        return []
+    blocks = [b for b in re.split(r"\n\s*\n", final_text.strip()) if b.strip()]
+    if not blocks:
+        return []
+    last_block = blocks[-1]
+    try:
+        cwd_resolved = cwd.resolve()
+    except OSError:
+        cwd_resolved = cwd
+    found = set()
+    for tok in re.findall(r"\S+", last_block):
+        cleaned = tok.strip(_DELIVERABLE_STRIP)
+        if not cleaned:
+            continue
+        p = Path(cleaned)
+        if p.is_absolute():
+            try:
+                resolved = p.resolve()
+            except OSError:
+                continue
+            try:
+                rel = resolved.relative_to(cwd_resolved)
+            except ValueError:
+                continue
+        else:
+            rel = Path(cleaned)
+            resolved = cwd / rel
+        if resolved.is_file():
+            found.add(rel.as_posix())
+    return sorted(found)
+
+
 def build_brief(*, task: str, role: str, cwd: Path, exits: list = (), extras: dict = None,
                 previous_failure: str = None, preamble: str = None) -> str:
     """Task facts only. The contract and discipline live in the role prompt (agent file)."""
@@ -77,6 +124,7 @@ class DispatchResult:
         self.transcript = kw.get("transcript")
         self.pid = kw.get("pid")
         self.usage = kw.get("usage")  # New: independent usage with provenance
+        self.deliverables = kw.get("deliverables")  # paths the worker registered, cwd-relative
 
     def as_row(self) -> dict:
         row = {
@@ -86,6 +134,8 @@ class DispatchResult:
         }
         if self.usage is not None:
             row["usage"] = self.usage
+        if self.deliverables is not None:
+            row["deliverables"] = self.deliverables
         return row
 
 
@@ -145,6 +195,7 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     result.session_id = parsed["session_id"]
     result.final_text = parsed["final_text"]
     result.usage = parsed.get("usage")  # New independent usage field
+    result.deliverables = parse_deliverables(cwd, result.final_text)
     if result.outcome is None:
         if parsed["quota"] and parsed["steps"] == 0:
             # DevPass weekly premium-tier allowance exhausted (402): the seat never got

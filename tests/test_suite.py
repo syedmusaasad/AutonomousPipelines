@@ -1704,6 +1704,99 @@ def dispatch_parse_transcript_quota_error():
         os.unlink(fname)
 
 
+@test
+def dispatch_deliverables_path_extraction():
+    """parse_deliverables pulls both absolute (made relative) and cwd-relative tokens
+    out of the worker's final closing words."""
+    with Estate() as E:
+        (E.work / "docs").mkdir()
+        (E.work / "docs" / "A.md").write_text("x")
+        (E.work / "notes").mkdir()
+        (E.work / "notes" / "ok.md").write_text("x")
+        text = f"wrote {E.work}/docs/A.md and notes/ok.md"
+        r = dsp.parse_deliverables(E.work, text)
+        assert r == ["docs/A.md", "notes/ok.md"], r
+
+
+@test
+def dispatch_deliverables_nonexistent_paths_ignored():
+    """Tokens that look like paths but don't resolve to a real file under cwd never
+    make the list."""
+    with Estate() as E:
+        (E.work / "docs").mkdir()
+        (E.work / "docs" / "A.md").write_text("x")
+        text = "wrote docs/A.md and made up/nonexistent.md and /etc/not-there.conf"
+        r = dsp.parse_deliverables(E.work, text)
+        assert r == ["docs/A.md"], r
+
+
+@test
+def dispatch_deliverables_chat_chatter_never_matched():
+    """Narration with no real paths yields nothing; only the last block is scanned,
+    so a path mentioned earlier (mid-narration) is not harvested."""
+    with Estate() as E:
+        (E.work / "docs").mkdir()
+        (E.work / "docs" / "A.md").write_text("x")
+        chatty = "I wrote some code and tested it thoroughly. All good."
+        assert dsp.parse_deliverables(E.work, chatty) == []
+        two_blocks = "In passing I touched docs/A.md while exploring.\n\nDone, no files to report here."
+        assert dsp.parse_deliverables(E.work, two_blocks) == []
+
+
+@test
+def dispatch_deliverables_dedup_and_last_block_only():
+    """Repeated tokens collapse to one entry, sorted; only the final non-empty block
+    is scanned, so an earlier block's path is not included."""
+    with Estate() as E:
+        (E.work / "docs").mkdir()
+        (E.work / "docs" / "A.md").write_text("x")
+        (E.work / "notes").mkdir()
+        (E.work / "notes" / "ok.md").write_text("x")
+        text = "First block mentions docs/A.md.\n\ndocs/A.md docs/A.md notes/ok.md"
+        r = dsp.parse_deliverables(E.work, text)
+        assert r == ["docs/A.md", "notes/ok.md"], r
+
+
+@test
+def dispatch_deliverables_empty_text_yields_no_deliverables():
+    with Estate() as E:
+        assert dsp.parse_deliverables(E.work, "") == []
+        assert dsp.parse_deliverables(E.work, "   \n\n  ") == []
+
+
+@test
+def dispatch_as_row_backcompat_no_deliverables_key_when_none():
+    """Old DispatchResult instances (deliverables never set) still round-trip through
+    as_row() without introducing the key -- old journal/result.json rows read as
+    no-deliverables, not an empty list that implies the engine tried and found none."""
+    r = dsp.DispatchResult(outcome="ok", exit_code=0, wall_s=1.0,
+                            tokens={"input": 1, "output": 1, "reasoning": 0, "total": 2}, cost=0.0)
+    row = r.as_row()
+    assert "deliverables" not in row, row
+
+    r2 = dsp.DispatchResult(outcome="ok", exit_code=0, wall_s=1.0,
+                             tokens={"input": 1, "output": 1, "reasoning": 0, "total": 2}, cost=0.0,
+                             deliverables=["docs/A.md"])
+    row2 = r2.as_row()
+    assert row2["deliverables"] == ["docs/A.md"], row2
+
+
+@test
+def dispatch_run_dispatch_journals_deliverables():
+    """run_dispatch wires parse_deliverables(cwd, final_text) into the result and
+    persists whatever it finds (here: none, since the fake worker's default closing
+    text names no real file) in result.json via as_row()."""
+    with Estate() as E:
+        reg = roles_mod.load()
+        s = roles_mod.seat("implementer", reg)
+        out_dir = E.tmp / "d_deliv"
+        res = dsp.run_dispatch(brief="FAKE: touch out.md\n", role="implementer",
+                               cwd=E.work, out_dir=out_dir, timeout=10, model=s["model_q"])
+        assert res.deliverables == [], res.deliverables
+        row = json.loads((out_dir / "result.json").read_text())
+        assert row.get("deliverables") == []
+
+
 # Load and run all test_review_provenance tests as part of the full suite
 def register_review_provenance_tests():
     """Register the review provenance tests in the full suite."""
