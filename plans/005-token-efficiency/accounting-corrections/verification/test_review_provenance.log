@@ -1,0 +1,14 @@
+Command: python3 -m unittest discover -s tests -p test_review_provenance.py
+Return code: 0
+Elapsed: 18.45s
+
+--- STDOUT ---
+
+
+--- STDERR ---
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 18.370s
+
+OK
+

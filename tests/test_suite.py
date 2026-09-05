@@ -1523,6 +1523,250 @@ def trial_apply_writes_quota_fallback_from_selection():
     assert h.get("quota_fallback") == "gpt-5.6-luna@medium"
 
 
+
+
+@test
+def dispatch_parse_transcript_retains_legacy_tokens():
+    """Test that parse_transcript retains legacy token fields while adding new usage field."""
+    from pipeline.dispatch import parse_transcript
+    from pathlib import Path
+    import tempfile
+    import json
+    
+    # Create a test transcript with step_finish events
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Write multiple step_finish events
+        f.write(json.dumps({
+            "type": "step_finish",
+            "sessionID": "ses_test123",
+            "part": {
+                "id": "p1",
+                "tokens": {"total": 150, "input": 100, "output": 30, "reasoning": 20},
+                "cost": 0.15
+            }
+        }) + "\n")
+        f.write(json.dumps({
+            "type": "text",
+            "part": {"text": "final response"}
+        }) + "\n")
+        f.write(json.dumps({
+            "type": "step_finish",
+            "part": {
+                "id": "p2",
+                "tokens": {"total": 100, "input": 50, "output": 40, "reasoning": 10, "cache": {"read": 20, "write": 5}},
+                "cost": 0.1
+            }
+        }) + "\n")
+        fname = f.name
+    
+    try:
+        result = parse_transcript(Path(fname))
+        
+        # Verify legacy tokens are retained
+        assert result["tokens"]["input"] == 150, "legacy input tokens"
+        assert result["tokens"]["output"] == 70, "legacy output tokens"
+        assert result["tokens"]["reasoning"] == 30, "legacy reasoning tokens"
+        assert result["tokens"]["total"] == 250, "legacy total tokens"
+        assert abs(result["cost"] - 0.25) < 0.001, "legacy cost"
+        assert result["session_id"] == "ses_test123"
+        assert result["final_text"] == "final response"
+        assert result["steps"] == 2
+        
+        # Verify new usage field with independent accounting
+        assert "usage" in result, "usage field present"
+        usage = result["usage"]
+        assert usage is not None, "usage not None"
+        assert usage["provider_total"] == 250, "provider_total from accumulator"
+        assert usage["input_tokens"] == 150, "input_tokens from accumulator"
+        assert usage["output_tokens"] == 70, "output_tokens from accumulator"
+        assert usage["reasoning_tokens"] == 30, "reasoning_tokens from accumulator"
+        assert usage["cache_read_tokens"] == 20, "cache_read from accumulator"
+        assert usage["cache_write_tokens"] == 5, "cache_write from accumulator"
+        assert abs(usage["cost_usd"] - 0.25) < 0.001, "cost_usd from accumulator"
+        assert usage["steps_completed"] == 2, "steps from accumulator"
+        assert usage["telemetry_complete"] == True, "telemetry_complete flag"
+        assert usage["missing_fields"] == 0, "no missing fields"
+    finally:
+        import os
+        os.unlink(fname)
+
+
+@test
+def dispatch_result_as_row_includes_usage():
+    """Test that DispatchResult.as_row() includes usage field when present."""
+    from pipeline.dispatch import DispatchResult
+    
+    # Test with usage
+    result = DispatchResult(
+        outcome="ok",
+        exit_code=0,
+        wall_s=10.5,
+        tokens={"input": 100, "output": 50, "reasoning": 10, "total": 160},
+        cost=0.1,
+        model="test-model",
+        session_id="ses_123",
+        usage={
+            "provider_total": 160,
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "reasoning_tokens": 10,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost_usd": 0.1,
+            "steps_completed": 1,
+            "missing_fields": 0,
+            "telemetry_complete": True
+        }
+    )
+    
+    row = result.as_row()
+    assert "usage" in row, "usage field in row"
+    assert row["usage"]["provider_total"] == 160
+    assert row["outcome"] == "ok"
+    assert row["tokens"]["input"] == 100
+    
+    # Test without usage
+    result_no_usage = DispatchResult(
+        outcome="ok",
+        exit_code=0,
+        wall_s=10.5,
+        tokens={"input": 100, "output": 50, "reasoning": 10, "total": 160},
+        cost=0.1
+    )
+    
+    row_no_usage = result_no_usage.as_row()
+    assert "usage" not in row_no_usage, "usage not in row when None"
+
+
+@test
+def dispatch_parse_transcript_incomplete_telemetry():
+    """Test that parse_transcript correctly marks incomplete telemetry."""
+    from pipeline.dispatch import parse_transcript
+    from pathlib import Path
+    import tempfile
+    import json
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Write step_finish without cost field
+        f.write(json.dumps({
+            "type": "step_finish",
+            "part": {
+                "id": "p1",
+                "tokens": {"total": 150, "input": 100, "output": 30, "reasoning": 20}
+                # missing cost
+            }
+        }) + "\n")
+        fname = f.name
+    
+    try:
+        result = parse_transcript(Path(fname))
+        
+        usage = result["usage"]
+        assert usage["cost_usd"] == 0, "cost defaults to 0"
+        assert usage["telemetry_complete"] == False, "telemetry_complete False when missing cost"
+        assert usage["missing_fields"] > 0, "missing_fields > 0"
+    finally:
+        import os
+        os.unlink(fname)
+
+
+@test
+def dispatch_parse_transcript_quota_error():
+    """Test that parse_transcript preserves quota error detection."""
+    from pipeline.dispatch import parse_transcript
+    from pathlib import Path
+    import tempfile
+    import json
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        # Write an error event with 402 and quota signature
+        f.write(json.dumps({
+            "type": "error",
+            "error": {
+                "statusCode": 402,
+                "message": "premium-tier allowance exceeded"
+            }
+        }) + "\n")
+        fname = f.name
+    
+    try:
+        result = parse_transcript(Path(fname))
+        
+        # Quota should be detected
+        assert result["quota"] == True, "quota error detected"
+        # No steps should have been processed
+        assert result["steps"] == 0
+        # usage should still be present with zeros
+        assert result["usage"] is not None
+        assert result["usage"]["steps_completed"] == 0
+    finally:
+        import os
+        os.unlink(fname)
+
+
+# Load and run all test_review_provenance tests as part of the full suite
+def register_review_provenance_tests():
+    """Register the review provenance tests in the full suite."""
+    import unittest
+    from tests import test_review_provenance
+    
+    loader = unittest.TestLoader()
+    suite = loader.loadTestsFromModule(test_review_provenance)
+    
+    # Add each test to the TESTS list
+    for test_group in suite:
+        for test in test_group:
+            test_name = str(test).split()[0]
+            # Create a wrapper function for each test
+            def make_test_wrapper(t):
+                def wrapper():
+                    result = unittest.TestResult()
+                    t.run(result)
+                    if result.failures:
+                        raise AssertionError(result.failures[0][1])
+                    if result.errors:
+                        raise Exception(result.errors[0][1])
+                return wrapper
+            
+            wrapper = make_test_wrapper(test)
+            wrapper.__name__ = f"review_provenance_{test_name}"
+            TESTS.append(wrapper)
+
+
+# Load and run all test_usage_accounting tests as part of the full suite
+def register_usage_accounting_tests():
+    """Register the usage accounting tests in the full suite."""
+    import unittest
+    from tests import test_usage_accounting
+    
+    loader = unittest.TestLoader()
+    suite = loader.loadTestsFromModule(test_usage_accounting)
+    
+    # Add each test to the TESTS list
+    for test_group in suite:
+        for test in test_group:
+            test_name = str(test).split()[0]
+            # Create a wrapper function for each test
+            def make_test_wrapper(t):
+                def wrapper():
+                    result = unittest.TestResult()
+                    t.run(result)
+                    if result.failures:
+                        raise AssertionError(result.failures[0][1])
+                    if result.errors:
+                        raise Exception(result.errors[0][1])
+                return wrapper
+            
+            wrapper = make_test_wrapper(test)
+            wrapper.__name__ = f"usage_accounting_{test_name}"
+            TESTS.append(wrapper)
+
+
+# Call the registration functions
+register_review_provenance_tests()
+register_usage_accounting_tests()
+
+
 @test
 def ratchet_ledger_never_goes_down():
     ledger = json.loads((REPO / "tests" / "ratchet.json").read_text())

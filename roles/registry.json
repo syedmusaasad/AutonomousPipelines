@@ -104,8 +104,8 @@
     },
     "fast-worker": {
       "purpose": "Small, well-specified, cheap: a fetch, a one-line fix, a file rename.",
-      "model": "claude-haiku-4-5",
-      "fallback": "gemini-3.5-flash",
+      "model": "gpt-5.6-luna",
+      "fallback": "deepseek-v4-flash",
       "effort": "low",
       "band": "tolerant",
       "tools": {
@@ -119,12 +119,27 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "claude-haiku-4-5@low"
+      "quota_fallback": "claude-haiku-4-5@low",
+      "history": [
+        {
+          "from": {
+            "model": "claude-haiku-4-5",
+            "fallback": "gemini-3.5-flash"
+          },
+          "to": {
+            "model": "gpt-5.6-luna",
+            "fallback": "deepseek-v4-flash"
+          },
+          "at": "2026-09-05T19:30:00+00:00",
+          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
+          "evidence": "AA: Luna low=26* max=43 vs Haiku=22; 107 vs 100 t/s; 1M vs 200k ctx"
+        }
+      ]
     },
     "lane-worker": {
       "purpose": "One item of a fan-out; writes only under $LANE_OUT.",
-      "model": "claude-haiku-4-5",
-      "fallback": "deepseek-v4-flash",
+      "model": "deepseek-v4-flash",
+      "fallback": "gpt-5.6-luna",
       "effort": "medium",
       "band": "tolerant",
       "tools": {
@@ -138,11 +153,26 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "claude-haiku-4-5@medium"
+      "quota_fallback": "claude-haiku-4-5@medium",
+      "history": [
+        {
+          "from": {
+            "model": "claude-haiku-4-5",
+            "fallback": "deepseek-v4-flash"
+          },
+          "to": {
+            "model": "deepseek-v4-flash",
+            "fallback": "gpt-5.6-luna"
+          },
+          "at": "2026-09-05T19:30:00+00:00",
+          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
+          "evidence": "AA: DS-Flash 41 vs Haiku 22; $0.14/task; TTFT 0.94s; 131 t/s"
+        }
+      ]
     },
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
-      "model": "gemini-3.1-pro-preview",
+      "model": "gemini-3.8-flash",
       "fallback": "claude-sonnet-5",
       "effort": "medium",
       "band": "critical",
@@ -169,15 +199,28 @@
           },
           "at": "2026-09-04T20:20:00+00:00",
           "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        },
+        {
+          "from": {
+            "model": "gemini-3.1-pro-preview",
+            "fallback": "claude-sonnet-5"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "fallback": "claude-sonnet-5"
+          },
+          "at": "2026-09-05T19:30:00+00:00",
+          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
+          "evidence": "AA: 47 vs 37 (3.1 Pro); LiveBench summarize 87.5 best on board"
         }
       ],
       "quota_fallback": "gemini-3.8-flash@medium"
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
-      "model": "claude-sonnet-5",
-      "fallback": "gpt-5.6-luna",
-      "effort": "medium",
+      "model": "gemini-3.8-flash",
+      "fallback": "claude-sonnet-5",
+      "effort": "high",
       "band": "standard",
       "tools": {
         "read": true,
@@ -202,6 +245,19 @@
           },
           "at": "2026-09-04T20:20:00+00:00",
           "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        },
+        {
+          "from": {
+            "model": "claude-sonnet-5",
+            "fallback": "gpt-5.6-luna"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "fallback": "claude-sonnet-5"
+          },
+          "at": "2026-09-05T19:30:00+00:00",
+          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
+          "evidence": "LiveBench: summarize 87.5 vs 71.2; story 82.8 vs 62.3; paraphrase 80.0 vs 61.25; AA 47 vs 45"
         }
       ],
       "quota_fallback": "claude-haiku-4-5@medium"
@@ -227,7 +283,7 @@
     },
     "reviewer-a": {
       "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",
-      "model": "claude-sonnet-5",
+      "model": "gpt-5.6-terra",
       "fallback": "deepseek-v4-pro",
       "effort": "high",
       "band": "critical",
@@ -255,14 +311,39 @@
           },
           "at": "2026-09-04T20:20:00+00:00",
           "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        },
+        {
+          "from": {
+            "model": "claude-sonnet-5",
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "model": "glm-5.3",
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-09-05T19:30:00+00:00",
+          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
+          "evidence": "AA: GLM-5.3 49 vs Sonnet 5 45; TTFT 2.0s"
+        },
+        {
+          "from": {
+            "model": "glm-5.3",
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "model": "gpt-5.6-terra",
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-09-05T19:45:00+00:00",
+          "why": "DECISION reviewer-distinct-from-interactive (2026-09-05): operator rule - no reviewer may share a model with the interactive agent. reviewer-a was glm-5.3 (same as interactive). Next in line by published evidence: gpt-5.6-terra - AA Intelligence 47 (xhigh 44 with published $0.50/task), openai family so reviewers span openai/xai/moonshot, LiveBench 2026-06-25: code_completion 80.4, typos 86, typescript 46.7 (terra-max). Fallback deepseek-v4-pro (AA 42, deepseek family) unchanged. Sources: https://artificialanalysis.ai/leaderboards/models, https://livebench.ai/table_2026_06_25.csv. No model tokens spent."
         }
       ],
       "quota_fallback": "claude-haiku-4-5@high"
     },
     "reviewer-b": {
       "purpose": "Sealed reviewer, family B (must differ from reviewer-a for REVIEW: cross).",
-      "model": "gpt-5.3-codex",
-      "fallback": "grok-4-6",
+      "model": "grok-4-6",
+      "fallback": "gpt-5.3-codex",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -289,14 +370,27 @@
           },
           "at": "2026-09-04T20:20:00+00:00",
           "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        },
+        {
+          "from": {
+            "model": "gpt-5.3-codex",
+            "fallback": "grok-4-6"
+          },
+          "to": {
+            "model": "grok-4-6",
+            "fallback": "gpt-5.3-codex"
+          },
+          "at": "2026-09-05T19:30:00+00:00",
+          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
+          "evidence": "AA: Grok 4.6 high = 51, highest non-premium intelligence; TTFT 52.7s acceptable for detached review"
         }
       ],
       "quota_fallback": "gpt-oss-120b@high"
     },
     "reviewer-c": {
       "purpose": "Sealed reviewer, family C. Substitutes when A or B is unavailable so cross-review still spans two families.",
-      "model": "gemini-3.1-pro-preview",
-      "fallback": "kimi-k3",
+      "model": "kimi-k3",
+      "fallback": "gemini-3.8-flash",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -311,7 +405,22 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "gemini-3.8-flash@high"
+      "quota_fallback": "gemini-3.8-flash@high",
+      "history": [
+        {
+          "from": {
+            "model": "gemini-3.1-pro-preview",
+            "fallback": "kimi-k3"
+          },
+          "to": {
+            "model": "kimi-k3",
+            "fallback": "gemini-3.8-flash"
+          },
+          "at": "2026-09-05T19:30:00+00:00",
+          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
+          "evidence": "AA: Kimi K3 = 50; LiveBench code_completion 82.6"
+        }
+      ]
     }
   },
   "models": {
@@ -421,6 +530,9 @@
       "premium": false
     },
     "seed-1-8-251228": {
+      "premium": false
+    },
+    "gemini-3.5-flash": {
       "premium": false
     }
   }

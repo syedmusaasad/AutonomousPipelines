@@ -41,9 +41,19 @@ class Estate:
         self._saved = {}
 
     def __enter__(self):
+        # Scrub test/worker isolation variables inherited from live process
+        for k in ("REVIEW_OUT", "ITEM", "LANE_OUT", "LANE", "PHASE", "RUN"):
+            if k not in self._saved:
+                self._saved[k] = os.environ.get(k)
+        
         for k, v in self.env.items():
             self._saved[k] = os.environ.get(k)
             os.environ[k] = v
+        
+        # Ensure review/worker variables are not inherited from outer context
+        for k in ("REVIEW_OUT", "ITEM", "LANE_OUT", "LANE", "PHASE", "RUN"):
+            os.environ.pop(k, None)
+        
         # modules read env at import for some constants; reload the ones that do
         import importlib
         from pipeline import engine, sentry, status

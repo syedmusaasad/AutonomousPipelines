@@ -402,13 +402,18 @@ class Engine:
                 role=role, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
                 extras={"PHASE": f"{ph.number}: {ph.name} (review)", "RUN": self.run_id, "REVIEW_OUT": str(out)})
             res = self._dispatch(plan, ph, attempt=0, brief=brief, out_dir=out / "dispatch", env={"REVIEW_OUT": str(out)},
-                                 role=role, timeout=REVIEW_TIMEOUT_S)
-            verdict = read_verdict(out / "review.md")
-            if res.outcome != "ok" and verdict is None:
-                verdict = "UNAVAILABLE"
+                                  role=role, timeout=REVIEW_TIMEOUT_S)
+            # Failed/timed-out/killed reviewer dispatches are unconditionally ineligible:
+            # their verdict is UNAVAILABLE regardless of files left behind.
+            if res.outcome != "ok":
+                 verdict = "UNAVAILABLE"
+            else:
+                 verdict = read_verdict(out / "review.md")
+                 if verdict is None:
+                     verdict = "UNAVAILABLE"
             verdicts[role] = (verdict, res.model)
             self.journal.write("review.verdict", phase=ph.key, reviewer=role, model=res.model, verdict=verdict,
-                               review=str(out / "review.md"))
+                                review=str(out / "review.md"))
 
         with ThreadPoolExecutor(max_workers=2) as ex:
             list(ex.map(review, (a, b)))

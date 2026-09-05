@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import roles as roles_mod
 from .util import now_iso, now_ts
+from .usage import UsageAccumulator
 
 DEFAULT_BIN = "devpass-code"
 
@@ -75,13 +76,17 @@ class DispatchResult:
         self.error = kw.get("error")
         self.transcript = kw.get("transcript")
         self.pid = kw.get("pid")
+        self.usage = kw.get("usage")  # New: independent usage with provenance
 
     def as_row(self) -> dict:
-        return {
+        row = {
             "outcome": self.outcome, "exit_code": self.exit_code, "wall_s": round(self.wall_s, 2),
             "tokens": self.tokens, "cost": round(self.cost, 6), "model": self.model,
             "session_id": self.session_id, "error": self.error,
         }
+        if self.usage is not None:
+            row["usage"] = self.usage
+        return row
 
 
 def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: int, env: dict = None,
@@ -139,6 +144,7 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     result.cost = parsed["cost"]
     result.session_id = parsed["session_id"]
     result.final_text = parsed["final_text"]
+    result.usage = parsed.get("usage")  # New independent usage field
     if result.outcome is None:
         if parsed["quota"] and parsed["steps"] == 0:
             # DevPass weekly premium-tier allowance exhausted (402): the seat never got
@@ -173,18 +179,33 @@ def _kill_group(proc):
 
 
 def parse_transcript(path: Path) -> dict:
-    """Sum tokens/cost from step_finish events; collect final assistant text."""
+    """Sum tokens/cost from step_finish events; collect final assistant text.
+    
+    Uses UsageAccumulator for independent usage accounting while retaining
+    legacy token fields for backward compatibility.
+    """
     tokens = {"input": 0, "output": 0, "reasoning": 0, "total": 0}
     cost = 0.0
     session_id = None
     texts = []
     steps = 0
     tail = ""
+    usage = None  # New independent usage field
+    
     try:
         raw = path.read_text(errors="replace")
     except OSError:
-        return {"tokens": tokens, "cost": cost, "session_id": None, "final_text": "", "tail": "", "steps": 0, "quota": False}
+        return {
+            "tokens": tokens, "cost": cost, "session_id": None, "final_text": "", 
+            "tail": "", "steps": 0, "quota": False, "usage": None
+        }
+    
     tail = raw[-2000:]
+    
+    # Use accumulator for independent usage accounting
+    acc = UsageAccumulator()
+    
+    # Iterate line-by-line for both legacy and new accounting
     for line in raw.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -193,6 +214,11 @@ def parse_transcript(path: Path) -> dict:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
+        
+        # Feed line to accumulator for independent usage
+        acc.feed_line(line)
+        
+        # Legacy token/cost extraction (retained for backward compatibility)
         session_id = session_id or ev.get("sessionID")
         part = ev.get("part") or {}
         t = ev.get("type")
@@ -205,7 +231,26 @@ def parse_transcript(path: Path) -> dict:
             cost += float(part.get("cost", 0) or 0)
         elif t == "text":
             texts.append(part.get("text", ""))
+    
     tokens["total"] = tokens["input"] + tokens["output"] + tokens["reasoning"]
     final_text = texts[-1] if texts else ""
-    return {"tokens": tokens, "cost": cost, "session_id": session_id, "final_text": final_text, "tail": tail,
-            "steps": steps, "quota": is_quota_error(raw)}
+    
+    # New independent usage field with provenance and completeness
+    snap = acc.snapshot()
+    usage = {
+        "provider_total": snap["provider_total"],
+        "input_tokens": snap["input"],
+        "output_tokens": snap["output"],
+        "reasoning_tokens": snap["reasoning"],
+        "cache_read_tokens": snap["cache_read"],
+        "cache_write_tokens": snap["cache_write"],
+        "cost_usd": snap["cost"],
+        "steps_completed": snap["steps"],
+        "missing_fields": snap["missing_fields"],
+        "telemetry_complete": snap["telemetry_complete"],
+    }
+    
+    return {
+        "tokens": tokens, "cost": cost, "session_id": session_id, "final_text": final_text, 
+        "tail": tail, "steps": steps, "quota": is_quota_error(raw), "usage": usage
+    }

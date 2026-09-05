@@ -1,0 +1,69 @@
+{
+  "source_references": [
+    "https://devpass.llmgateway.io/pricing (Sept 5, 2026)",
+    "https://artificialanalysis.ai/leaderboards/models (Sept 5, 2026)"
+  ],
+  "verified_claims": [
+    "Premium threshold is $5+ per million input or $15+ per million output.",
+    "GLM-5.3 (max) scores 49 on general intelligence index, $1.26/task, 80 t/s.",
+    "Claude Sonnet 5 (max) scores 45, $3.31/task, 74 t/s.",
+    "GPT-5.6 Terra (max) scores 47, $0.81/task, 111 t/s.",
+    "GPT-5.6 Luna (max) scores 43, $0.10/task, 135 t/s.",
+    "DeepSeek V4 Flash 0731 (max) scores 41, $0.14/task, 135 t/s.",
+    "Grok 4.6 (high) scores 51, $1.25/task, 65 t/s.",
+    "DeepSeek V4 Pro 0813 (max) scores 42, $0.33/task, 70 t/s.",
+    "Gemini 3.1 Pro Preview scores 38* (unverified), 116 t/s.",
+    "GPT-5.3 Codex (xhigh) scores 37* (unverified), 134 t/s."
+  ],
+  "withdrawn_claims": [
+    "Kimi K3 tool use capability (unverified without task-specific tests).",
+    "Earlier report scores for LiveBench and SWE-Bench (unverified as sources were inaccessible)."
+  ],
+  "unresolved": [
+    "Code, research, and frontend suitability for all candidates (general index scores alone cannot establish suitability).",
+    "Performance at low/medium/high effort for models with only max-effort scores."
+  ],
+  "recommended_roles": {
+    "interactive": {
+      "primary": "glm-5.3",
+      "fallback": "claude-sonnet-5"
+    },
+    "implementer": {
+      "primary": "claude-sonnet-5",
+      "fallback": "gpt-5.6-luna"
+    },
+    "fast-worker": {
+      "primary": "claude-haiku-4-5",
+      "fallback": "gemini-3.5-flash"
+    },
+    "lane-worker": {
+      "primary": "claude-haiku-4-5",
+      "fallback": "deepseek-v4-flash"
+    },
+    "researcher": {
+      "primary": "gemini-3.1-pro-preview",
+      "fallback": "claude-sonnet-5"
+    },
+    "document-writer": {
+      "primary": "claude-sonnet-5",
+      "fallback": "gpt-5.6-luna"
+    },
+    "frontend-worker": {
+      "primary": "claude-sonnet-5",
+      "fallback": "gemini-3.1-pro-preview"
+    },
+    "reviewer-a": {
+      "primary": "claude-sonnet-5",
+      "fallback": "deepseek-v4-pro"
+    },
+    "reviewer-b": {
+      "primary": "gpt-5.3-codex",
+      "fallback": "grok-4-6"
+    },
+    "reviewer-c": {
+      "primary": "gemini-3.1-pro-preview",
+      "fallback": "kimi-k3"
+    }
+  },
+  "new_candidate_tests_run": 0
+}

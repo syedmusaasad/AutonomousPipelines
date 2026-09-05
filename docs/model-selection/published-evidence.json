@@ -1,0 +1,81 @@
+{
+  "sources": [
+    {
+      "url": "https://devpass.llmgateway.io/pricing",
+      "outcome": "success",
+      "identifiers": [],
+      "evidence": "Frontier fair-use covers premium models \u2014 any model priced at $5+ per million input tokens or $15+ per million output tokens"
+    },
+    {
+      "url": "https://artificialanalysis.ai/leaderboards/models",
+      "outcome": "success_truncated",
+      "identifiers": ["claude-fable-5-1", "grok-4-6", "kimi-k3", "glm-5.3", "gpt-5.6-terra", "glm-5.3-flash", "claude-sonnet-5", "gemini-3.7-flash", "gpt-5.6-luna", "deepseek-v4-pro", "deepseek-v4-flash", "gemini-3.1-pro-preview", "mimo-v2.5-pro", "minimax-m3"],
+      "evidence": "Artificial Analysis Intelligence Index scores: Claude Fable 5.1 (57), Grok 4.6 (51), Kimi K3 (50), GLM-5.3 (49), GPT-5.6 Terra (47), GLM-5.3-Flash (46), Claude Sonnet 5 (45), Gemini 3.7 Flash (45), GPT-5.6 Luna (43), DeepSeek V4 Pro (42)."
+    },
+    {
+      "url": "https://livebench.ai/",
+      "outcome": "failed_js_required",
+      "identifiers": [],
+      "evidence": "Page requires JavaScript; unable to extract model data."
+    },
+    {
+      "url": "https://www.swebench.com/",
+      "outcome": "failed_js_required_for_data",
+      "identifiers": [],
+      "evidence": "Page loaded but actual leaderboard data requires JavaScript interaction to render."
+    },
+    {
+      "url": "https://lmarena.ai/leaderboard",
+      "outcome": "failed_size_limit",
+      "identifiers": [],
+      "evidence": "Response too large (exceeds 5MB limit)."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/NVIDIA/RULER/main/README.md",
+      "outcome": "success",
+      "identifiers": ["gemini-1.5-pro", "qwen2.5-14b", "jamba"],
+      "evidence": "Long context benchmark. No direct mapping to devpass 2026 models like Gemini 3.1 Pro or Claude Sonnet 5 found in the top table."
+    }
+  ],
+  "model_mapping": {
+    "glm-5.3": "GLM-5.3 (max)",
+    "gpt-5.6-terra": "GPT-5.6 Terra (max)",
+    "gpt-5.6-luna": "GPT-5.6 Luna (max)",
+    "claude-sonnet-5": "Claude Sonnet 5 (max)",
+    "deepseek-v4-pro": "DeepSeek V4 Pro (max)",
+    "deepseek-v4-flash": "DeepSeek V4 Flash 0731 (max)",
+    "gemini-3.7-flash": "Gemini 3.7 Flash (high)",
+    "gemini-3.1-pro-preview": "Gemini 3.1 Pro Preview",
+    "kimi-k3": "Kimi K3 (max)",
+    "grok-4-6": "Grok 4.6 (high)",
+    "grok-4-5": "Grok 4.5 (high)",
+    "claude-fable-5-1": "Claude Fable 5.1 (max with fallback)",
+    "gpt-5.6-sol": "GPT-5.6 Sol (max)",
+    "claude-haiku-4-5": "unverified (possibly Claude 4.5 Haiku)"
+  },
+  "shortlist": {
+    "interactive": ["glm-5.3", "kimi-k3"],
+    "implementer": ["gpt-5.6-terra", "claude-sonnet-5"],
+    "fast-worker": ["gpt-5.6-luna", "deepseek-v4-flash"],
+    "lane-worker": ["gpt-5.6-luna", "deepseek-v4-flash"],
+    "researcher": ["gemini-3.1-pro-preview", "claude-sonnet-5"],
+    "document-writer": ["gpt-5.6-terra", "claude-sonnet-5"],
+    "frontend-worker": ["claude-sonnet-5", "gpt-5.6-terra"],
+    "reviewer-a": ["claude-sonnet-5", "deepseek-v4-pro"],
+    "reviewer-b": ["grok-4-6", "gpt-5.3-codex"],
+    "reviewer-c": ["kimi-k3", "gemini-3.1-pro-preview"]
+  },
+  "gaps": [
+    "claude-haiku-4-5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.5",
+    "gpt-oss-120b",
+    "grok-build-0-1",
+    "muse-spark-1.3",
+    "muse-spark-1.3-contributor",
+    "seed-1-8-251228"
+  ],
+  "new_model_tests_run": 0
+}

@@ -1,0 +1,10 @@
+Command: bin/pipeline check-agents
+Return code: 0
+Elapsed: 0.09s
+
+--- STDOUT ---
+agents match registry
+
+
+--- STDERR ---
+

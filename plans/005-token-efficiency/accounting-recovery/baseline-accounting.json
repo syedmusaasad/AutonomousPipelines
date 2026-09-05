@@ -1,0 +1,279 @@
+{
+  "schema_version": "2.0",
+  "run_ids": [
+    "run_20260905T001926_cbe4f7",
+    "run_20260905T002109_0c0fd0"
+  ],
+  "excluded_overhead": {
+    "description": "Setup/recovery/coordinator costs are not included in workload totals",
+    "repair_run": "run_20260905T001926_cbe4f7",
+    "researcher_run": "run_20260905T002109_0c0fd0"
+  },
+  "totals": {
+    "input_tokens": 65319,
+    "output_tokens": 3486,
+    "reasoning_tokens": 2883,
+    "cache_read_tokens": 93043,
+    "cache_write_tokens": 0,
+    "cost_usd": 0.22339420000000001,
+    "steps_completed": 24,
+    "worker_wall_secs": 106.64999999999999,
+    "elapsed_secs": 85.02300000190735
+  },
+  "per_run": {
+    "run_20260905T001926_cbe4f7": {
+      "dispatches": [
+        {
+          "run_id": "run_20260905T001926_cbe4f7",
+          "dispatch_id": "d_20260905T001927_225fe6",
+          "role": "implementer",
+          "model": "llmgateway-devpass/claude-sonnet-5",
+          "outcome": "ok",
+          "wall_secs": 28.29,
+          "tokens": {
+            "input": 18495,
+            "output": 1126,
+            "reasoning": 213,
+            "total": 19834
+          },
+          "cost": 0.057057,
+          "usage": {
+            "provider_total": 53220,
+            "input_tokens": 18495,
+            "output_tokens": 1126,
+            "reasoning_tokens": 213,
+            "cache_read_tokens": 33386,
+            "cache_write_tokens": 0,
+            "cost_usd": 0.0570572,
+            "steps_completed": 6,
+            "missing_fields": 0,
+            "telemetry_complete": true
+          }
+        },
+        {
+          "run_id": "run_20260905T001926_cbe4f7",
+          "dispatch_id": "d_20260905T001955_074663",
+          "role": "reviewer-a",
+          "model": "llmgateway-devpass/claude-sonnet-5",
+          "outcome": "ok",
+          "wall_secs": 26.56,
+          "tokens": {
+            "input": 18869,
+            "output": 1343,
+            "reasoning": 21,
+            "total": 20233
+          },
+          "cost": 0.055834,
+          "usage": {
+            "provider_total": 42514,
+            "input_tokens": 18869,
+            "output_tokens": 1343,
+            "reasoning_tokens": 21,
+            "cache_read_tokens": 22281,
+            "cache_write_tokens": 0,
+            "cost_usd": 0.0558342,
+            "steps_completed": 5,
+            "missing_fields": 0,
+            "telemetry_complete": true
+          }
+        },
+        {
+          "run_id": "run_20260905T001926_cbe4f7",
+          "dispatch_id": "d_20260905T001955_c631b1",
+          "role": "reviewer-b",
+          "model": "llmgateway-devpass/gpt-5.3-codex",
+          "outcome": "ok",
+          "wall_secs": 36.03,
+          "tokens": {
+            "input": 8144,
+            "output": 833,
+            "reasoning": 2215,
+            "total": 11192
+          },
+          "cost": 0.063465,
+          "usage": {
+            "provider_total": 48568,
+            "input_tokens": 8144,
+            "output_tokens": 833,
+            "reasoning_tokens": 2215,
+            "cache_read_tokens": 37376,
+            "cache_write_tokens": 0,
+            "cost_usd": 0.0634648,
+            "steps_completed": 9,
+            "missing_fields": 0,
+            "telemetry_complete": true
+          }
+        }
+      ],
+      "wall_secs": 90.88,
+      "elapsed_secs": 65.01600003242493,
+      "cost_usd": 0.17635599999999998,
+      "usage": {
+        "input_tokens": 45508,
+        "output_tokens": 3302,
+        "reasoning_tokens": 2449,
+        "cache_read_tokens": 93043,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.17635620000000002,
+        "steps_completed": 20,
+        "missing_fields": 0,
+        "telemetry_complete": true
+      }
+    },
+    "run_20260905T002109_0c0fd0": {
+      "dispatches": [
+        {
+          "run_id": "run_20260905T002109_0c0fd0",
+          "dispatch_id": "d_20260905T002110_990277",
+          "role": "researcher",
+          "model": "llmgateway-devpass/gemini-3.1-pro-preview",
+          "outcome": "ok",
+          "wall_secs": 15.77,
+          "tokens": {
+            "input": 19811,
+            "output": 184,
+            "reasoning": 434,
+            "total": 20429
+          },
+          "cost": 0.047038,
+          "usage": {
+            "provider_total": 20429,
+            "input_tokens": 19811,
+            "output_tokens": 184,
+            "reasoning_tokens": 434,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost_usd": 0.047038,
+            "steps_completed": 4,
+            "missing_fields": 0,
+            "telemetry_complete": true
+          }
+        }
+      ],
+      "wall_secs": 15.77,
+      "elapsed_secs": 20.006999969482422,
+      "cost_usd": 0.047038,
+      "usage": {
+        "input_tokens": 19811,
+        "output_tokens": 184,
+        "reasoning_tokens": 434,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.047038,
+        "steps_completed": 4,
+        "missing_fields": 0,
+        "telemetry_complete": true
+      }
+    }
+  },
+  "per_dispatch": [
+    {
+      "run_id": "run_20260905T001926_cbe4f7",
+      "dispatch_id": "d_20260905T001927_225fe6",
+      "role": "implementer",
+      "model": "llmgateway-devpass/claude-sonnet-5",
+      "outcome": "ok",
+      "wall_secs": 28.29,
+      "tokens": {
+        "input": 18495,
+        "output": 1126,
+        "reasoning": 213,
+        "total": 19834
+      },
+      "cost": 0.057057,
+      "usage": {
+        "provider_total": 53220,
+        "input_tokens": 18495,
+        "output_tokens": 1126,
+        "reasoning_tokens": 213,
+        "cache_read_tokens": 33386,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.0570572,
+        "steps_completed": 6,
+        "missing_fields": 0,
+        "telemetry_complete": true
+      }
+    },
+    {
+      "run_id": "run_20260905T001926_cbe4f7",
+      "dispatch_id": "d_20260905T001955_074663",
+      "role": "reviewer-a",
+      "model": "llmgateway-devpass/claude-sonnet-5",
+      "outcome": "ok",
+      "wall_secs": 26.56,
+      "tokens": {
+        "input": 18869,
+        "output": 1343,
+        "reasoning": 21,
+        "total": 20233
+      },
+      "cost": 0.055834,
+      "usage": {
+        "provider_total": 42514,
+        "input_tokens": 18869,
+        "output_tokens": 1343,
+        "reasoning_tokens": 21,
+        "cache_read_tokens": 22281,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.0558342,
+        "steps_completed": 5,
+        "missing_fields": 0,
+        "telemetry_complete": true
+      }
+    },
+    {
+      "run_id": "run_20260905T001926_cbe4f7",
+      "dispatch_id": "d_20260905T001955_c631b1",
+      "role": "reviewer-b",
+      "model": "llmgateway-devpass/gpt-5.3-codex",
+      "outcome": "ok",
+      "wall_secs": 36.03,
+      "tokens": {
+        "input": 8144,
+        "output": 833,
+        "reasoning": 2215,
+        "total": 11192
+      },
+      "cost": 0.063465,
+      "usage": {
+        "provider_total": 48568,
+        "input_tokens": 8144,
+        "output_tokens": 833,
+        "reasoning_tokens": 2215,
+        "cache_read_tokens": 37376,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.0634648,
+        "steps_completed": 9,
+        "missing_fields": 0,
+        "telemetry_complete": true
+      }
+    },
+    {
+      "run_id": "run_20260905T002109_0c0fd0",
+      "dispatch_id": "d_20260905T002110_990277",
+      "role": "researcher",
+      "model": "llmgateway-devpass/gemini-3.1-pro-preview",
+      "outcome": "ok",
+      "wall_secs": 15.77,
+      "tokens": {
+        "input": 19811,
+        "output": 184,
+        "reasoning": 434,
+        "total": 20429
+      },
+      "cost": 0.047038,
+      "usage": {
+        "provider_total": 20429,
+        "input_tokens": 19811,
+        "output_tokens": 184,
+        "reasoning_tokens": 434,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cost_usd": 0.047038,
+        "steps_completed": 4,
+        "missing_fields": 0,
+        "telemetry_complete": true
+      }
+    }
+  ]
+}

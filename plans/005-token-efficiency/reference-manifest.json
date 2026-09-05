@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "prepared_at": "2026-09-05T00:09:21+00:00",
+  "original_conversation": "ses_f957d9dc1ffepFpvyzZoBE3AmE",
+  "measurement_status": "not_started",
+  "workspaces": {
+    "repair": {
+      "path": "/root/.system/projects/token-efficiency-reference/repair",
+      "plan_md": "/root/.system/projects/token-efficiency-reference/repair/plan.md",
+      "fixtures_hash": {
+        "repair/__pycache__/calc.cpython-314.pyc": "62e9cce379bd20de93e2c22b3e686b0938737d6a2c09f849ff1bd7f6decd2f41",
+        "repair/calc.py": "de1ddede504506088f340a08951f6b291623a3bb0761cb8c2241c7752ade2e24",
+        "repair/tests/test_calc.py": "c0b779f34bcb4b56297f7db4426e1566ea3037488dcc8deeba39820d0c8212a9"
+      }
+    },
+    "researcher": {
+      "path": "/root/.system/projects/token-efficiency-reference/researcher",
+      "plan_md": "/root/.system/projects/token-efficiency-reference/researcher/plan.md",
+      "fixtures_hash": {
+        "answer_key.py": "a8705017707a9c5c638659898a6fed9f46aba5b0fb8f459f3635a387945b7086",
+        "journal.jsonl": "9a0441c953f75a3f5f6da7487bb2e22f082b627732b79eba35b1a824cdae48b8"
+      }
+    }
+  },
+  "frozen_settings": {
+    "roles": {
+      "implementer": {
+        "model": "claude-sonnet-5",
+        "fallback": "gpt-5.6-luna",
+        "effort": "high"
+      },
+      "reviewer-a": {
+        "model": "claude-sonnet-5",
+        "fallback": "deepseek-v4-pro",
+        "effort": "high"
+      },
+      "reviewer-b": {
+        "model": "gpt-5.3-codex",
+        "fallback": "grok-4-6",
+        "effort": "high"
+      },
+      "researcher": {
+        "model": "gemini-3.1-pro-preview",
+        "fallback": "claude-sonnet-5",
+        "effort": "medium"
+      }
+    },
+    "provider": "llmgateway-devpass"
+  }
+}

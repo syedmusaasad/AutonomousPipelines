@@ -1,0 +1,38 @@
+{
+  "checks": [
+    {
+      "name": "test_review_provenance",
+      "command": "python3 -m unittest discover -s tests -p test_review_provenance.py",
+      "returncode": 0,
+      "elapsed_s": 18.45,
+      "log_path": "/root/pipeline/plans/005-token-efficiency/accounting-corrections/verification/test_review_provenance.log",
+      "timeout_hit": false
+    },
+    {
+      "name": "run_harness",
+      "command": "python3 tests/run.py",
+      "returncode": 0,
+      "elapsed_s": 44.91,
+      "log_path": "/root/pipeline/plans/005-token-efficiency/accounting-corrections/verification/run_harness.log",
+      "timeout_hit": false
+    },
+    {
+      "name": "check_agents",
+      "command": "bin/pipeline check-agents",
+      "returncode": 0,
+      "elapsed_s": 0.09,
+      "log_path": "/root/pipeline/plans/005-token-efficiency/accounting-corrections/verification/check_agents.log",
+      "timeout_hit": false
+    }
+  ],
+  "all_passed": true,
+  "total_elapsed_s": 63.46,
+  "source_fingerprint": "3056737ef8688079144838ce26dcf31f0be4a27230598f394abccdce39762699",
+  "unresolved_findings": [
+    "pipeline/dispatch.py:196 parse_transcript loads full transcript before splitting (should iterate line-by-line)",
+    "pipeline/dispatch.py:240 usage payload lacks explicit provenance field",
+    "plans/005-token-efficiency/accounting-recovery/extract.py:177 schema missing EXIT/check/verdict evidence",
+    "plans/005-token-efficiency/accounting-recovery/baseline-accounting.json:7 excluded_overhead refs wrong run IDs",
+    "plans/005-token-efficiency/accounting-recovery/check.py:146 validation missing EXIT/cross-review evidence checks"
+  ]
+}
