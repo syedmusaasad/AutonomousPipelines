@@ -9,6 +9,7 @@
   resume <run>                  lift a deliberate stop after judging; relaunch
   stop <run>                    write a deliberate-stop receipt and SIGTERM the engine
   render-agents / check-agents  regenerate generated config / drift guard
+  tui [--conv ID] [--all]       read-only terminal UI (journal-backed; curses)
   bench                         emit BENCHMARKS.md text
   trial <role> <model>...  --tasks F --rubric F    stage a head-to-head (several candidates)
   trial-apply <trial-run> <role>                   apply the verdict's chosen model (numbers decide)
@@ -46,6 +47,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("resume"); p.add_argument("run")
     p = sub.add_parser("stop"); p.add_argument("run"); p.add_argument("--reason", default="operator")
     sub.add_parser("render-agents"); sub.add_parser("check-agents")
+    p = sub.add_parser("tui"); p.add_argument("--conv"); p.add_argument("--all", action="store_true")
     sub.add_parser("bench")
     p = sub.add_parser("trial"); p.add_argument("role"); p.add_argument("model", nargs="+"); p.add_argument("--tasks", required=True); p.add_argument("--rubric", required=True); p.add_argument("-C", "--cwd", default=os.getcwd())
     p = sub.add_parser("trial-apply"); p.add_argument("run"); p.add_argument("role")
@@ -146,6 +148,14 @@ def cmd_check_agents(a):
 
 def cmd_bench(a):
     sys.stdout.write(bench.render(bench.collect()))
+    return 0
+
+
+def cmd_tui(a):
+    import curses
+    from .tui import app as tui_app, model as tui_model
+    conv = tui_model.resolve_conversation(a.conv)
+    curses.wrapper(lambda stdscr: tui_app.run_app(stdscr, conv, all_sessions=a.all))
     return 0
 
 

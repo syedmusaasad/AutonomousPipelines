@@ -1860,6 +1860,37 @@ register_review_provenance_tests()
 register_usage_accounting_tests()
 
 
+# Load and run all test_tui_model tests as part of the full suite
+def register_tui_model_tests():
+    """Register the TUI model unit tests in the full suite."""
+    import unittest
+    from tests import test_tui_model
+
+    loader = unittest.TestLoader()
+    suite = loader.loadTestsFromModule(test_tui_model)
+
+    for test_group in suite:
+        for test in test_group:
+            test_name = str(test).split()[0]
+
+            def make_test_wrapper(t):
+                def wrapper():
+                    result = unittest.TestResult()
+                    t.run(result)
+                    if result.failures:
+                        raise AssertionError(result.failures[0][1])
+                    if result.errors:
+                        raise Exception(result.errors[0][1])
+                return wrapper
+
+            wrapper = make_test_wrapper(test)
+            wrapper.__name__ = f"tui_model_{test_name}"
+            TESTS.append(wrapper)
+
+
+register_tui_model_tests()
+
+
 @test
 def ratchet_ledger_never_goes_down():
     ledger = json.loads((REPO / "tests" / "ratchet.json").read_text())
