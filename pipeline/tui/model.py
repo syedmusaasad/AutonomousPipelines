@@ -21,6 +21,13 @@ from ..util import pid_alive, liveness as util_liveness, read_json
 CONVERSATION_STUB_TEXT = "no live session (conversation tab lands in phase 3)"
 
 
+def conversation_db_path() -> Path:
+    """Where the Conversation tab reads session/message/part rows from -- same file
+    the status bar's session_tokens() already reads (devpass_db_path), kept as its
+    own name here since the two readers are conceptually independent."""
+    return devpass_db_path()
+
+
 # ---------------------------------------------------------------- conversation scoping
 
 def resolve_conversation(explicit: str = None) -> str:
@@ -312,16 +319,19 @@ def context_fill_pct(session_id: str, model_bare: str = None) -> str:
     return f"{pct:.1f}%"
 
 
-def status_bar(conversation: str, reg: dict = None) -> dict:
+def status_bar(conversation: str, reg: dict = None, mouse_hint: str = None) -> dict:
     """agent name, model+effort, context-fill %, session id, auth-expiry, mouse mode.
     auth-expiry is 'n/a' unless a real expiry exists somewhere we can read (devpass-code
-    keeps none today, so this always reads 'n/a' honestly)."""
+    keeps none today, so this always reads 'n/a' honestly). `mouse_hint` is supplied by
+    the app (pipeline.tui.mouse.MouseMode().hint()) -- model.py has no curses/mouse
+    knowledge of its own, so this stays 'n/a' when the caller doesn't pass one (e.g. the
+    --selftest CLI path, which has no live mouse state)."""
     reg = reg or roles_mod.load()
     seat = roles_mod.seat("interactive", reg)
     return {
         "agent": seat["agent"], "model": seat["model_q"], "effort": seat["effort"],
         "context_fill": context_fill_pct(conversation, seat["model"]),
-        "session_id": conversation, "auth_expiry": "n/a", "mouse_mode": "n/a",
+        "session_id": conversation, "auth_expiry": "n/a", "mouse_mode": mouse_hint or "n/a",
     }
 
 

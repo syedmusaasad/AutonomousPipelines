@@ -1918,6 +1918,44 @@ def register_tui_model_tests():
 register_tui_model_tests()
 
 
+# Load and run all test_scroll / test_mouse / test_conversation tests (the pure
+# parts of the phase-3 TUI work: wrap calc, follow rules, selection buffer, OSC52
+# payload shape, and the conversation-tab sqlite reader) as part of the full suite.
+def register_module_tests(module, prefix):
+    import unittest
+
+    loader = unittest.TestLoader()
+    suite = loader.loadTestsFromModule(module)
+
+    for test_group in suite:
+        for t in test_group:
+            test_name = str(t).split()[0]
+
+            def make_test_wrapper(tt):
+                def wrapper():
+                    result = unittest.TestResult()
+                    tt.run(result)
+                    if result.failures:
+                        raise AssertionError(result.failures[0][1])
+                    if result.errors:
+                        raise Exception(result.errors[0][1])
+                return wrapper
+
+            wrapper = make_test_wrapper(t)
+            wrapper.__name__ = f"{prefix}_{test_name}"
+            TESTS.append(wrapper)
+
+
+def register_scroll_mouse_conversation_tests():
+    from tests import test_scroll, test_mouse, test_conversation
+    register_module_tests(test_scroll, "tui_scroll")
+    register_module_tests(test_mouse, "tui_mouse")
+    register_module_tests(test_conversation, "tui_conversation")
+
+
+register_scroll_mouse_conversation_tests()
+
+
 @test
 def ratchet_ledger_never_goes_down():
     ledger = json.loads((REPO / "tests" / "ratchet.json").read_text())
