@@ -27,7 +27,7 @@ import signal
 import sys
 from pathlib import Path
 
-from . import bench, engine, finisher, paths, plan as planmod, quick, registry, roblox_skills, roles as roles_mod, sentry, status
+from . import bench, engine, finisher, gc as gcmod, paths, plan as planmod, quick, registry, roblox_skills, roles as roles_mod, sentry, status
 from .journal import Journal
 from .util import log, pid_alive
 
@@ -57,6 +57,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("sentry"); p.add_argument("--once", action="store_true")
     sub.add_parser("suite")
     p = sub.add_parser("validate"); p.add_argument("plan")
+    p = sub.add_parser("gc"); p.add_argument("--dry-run", action="store_true"); p.add_argument("--sweep", action="store_true")
+    p.add_argument("--buffer-hours", type=float, default=72.0); p.add_argument("--quick-only", action="store_true")
     a = ap.parse_args(argv)
     return globals()["cmd_" + a.cmd.replace("-", "_")](a)
 
@@ -303,6 +305,33 @@ def cmd_validate(a):
         if ph.surfaces: flags.append(f"surface={ph.surfaces}")
         if ph.is_gate: flags.append(f"gate={ph.gate}")
         print(f"  {ph.number}: {ph.name} ({ph.role}) timeout={ph.timeout} attempts={ph.attempts} {' '.join(flags)}")
+    return 0
+
+
+def cmd_gc(a):
+    from .util import fs_probe
+    buffer_s = a.buffer_hours * 3600.0
+    if not fs_probe(paths.estate_root()):
+        print(f"gc: estate filesystem probe failed at {paths.estate_root()}", file=sys.stderr)
+        return 2
+    sweep_list, keep_list, saved_bytes, reasons = gcmod.plan(buffer_s=buffer_s, quick_only=a.quick_only)
+    if a.sweep:
+        result = gcmod.sweep(sweep_list)
+        print(f"gc: swept {len(sweep_list)} run(s), deleted {result['deleted']} path(s), "
+              f"~{saved_bytes} bytes freed; manifest {result['manifest']}")
+        if result["errors"]:
+            print(f"gc: {len(result['errors'])} error(s) during sweep (see manifest for what was attempted)", file=sys.stderr)
+        return 0
+    # default: dry-run report
+    print(f"{'run':<28} {'kind':<6} {'closed_at':<12} {'age_h':>8} {'eligible':<10} {'bytes':>10}")
+    for item in sweep_list:
+        age_h = f"{item['age_s'] / 3600:.1f}" if item.get("age_s") is not None else "n/a"
+        print(f"{item['run']:<28} {item['kind']:<6} {str(item.get('closed_at') or ''):<12} {age_h:>8} {'eligible':<10} {item['bytes']:>10}")
+    for item in keep_list:
+        age_h = f"{item['age_s'] / 3600:.1f}" if item.get("age_s") is not None else "n/a"
+        print(f"{item['run']:<28} {item['kind']:<6} {str(item.get('closed_at') or ''):<12} {age_h:>8} {'keep':<10} {'-':>10}  # {item['reason']}")
+    print(f"\ngc dry-run: {len(sweep_list)} eligible, {len(keep_list)} kept, ~{saved_bytes} bytes recoverable "
+          f"(buffer={a.buffer_hours}h). Nothing deleted; pass --sweep to delete.")
     return 0
 
 

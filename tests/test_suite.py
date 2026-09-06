@@ -1956,6 +1956,162 @@ def register_scroll_mouse_conversation_tests():
 register_scroll_mouse_conversation_tests()
 
 
+# ---------------------------------------------------------------- gc
+
+@test
+def gc_eligibility_matrix():
+    from pipeline import gc as gcmod
+    now = 1_000_000.0
+    buf = 3600.0
+    # running (never closed) is always kept, however old opened_at might be
+    assert gcmod.eligibility({"closed": None, "opened_at": 0.0}, now=now, buffer_s=buf) == gcmod.KEEP_RUNNING
+    # closed but within the buffer is kept
+    assert gcmod.eligibility({"closed": "done", "closed_at": now - 10}, now=now, buffer_s=buf) == gcmod.KEEP_RECENT
+    # closed, past the buffer -> eligible
+    assert gcmod.eligibility({"closed": "done", "closed_at": now - buf - 1}, now=now, buffer_s=buf) == gcmod.ELIGIBLE_CLOSED
+    # closed with a stopped outcome, past the buffer -> still eligible (a STOPPED
+    # receipt is evidence kept on disk regardless; the journal row itself is fine
+    # to consider closed)
+    assert gcmod.eligibility({"closed": "stopped", "closed_at": now - buf - 1}, now=now, buffer_s=buf) == gcmod.ELIGIBLE_CLOSED
+    # closed but no closed_at timestamp is not enough evidence: keep
+    assert gcmod.eligibility({"closed": "done", "closed_at": None}, now=now, buffer_s=buf) == gcmod.KEEP_RUNNING
+
+
+@test
+def gc_plan_on_fixture_estate_running_and_recent_kept_closed_old_eligible():
+    from pipeline import gc as gcmod
+    with Estate() as E:
+        now = time.time()
+        buf_s = 3600.0
+
+        def make_run(rid, rows, quick=False):
+            rdir = E.estate / "runs" / rid
+            rdir.mkdir(parents=True)
+            for r in rows:
+                jmod.Journal(rid).write(r.pop("event"), **r)
+            if quick:
+                (E.estate / "quick" / rid).mkdir(parents=True)
+
+        # 1) still running: never closed
+        make_run("run_running", [
+            {"event": "run.open", "plan": "p", "cwd": "c", "conversation": "other", "pid": os.getpid()},
+        ])
+        # 2) dead-engine, open, no run.close: sentry may relight it -- keep
+        make_run("run_dead_engine", [
+            {"event": "run.open", "plan": "p", "cwd": "c", "conversation": "other", "pid": 999999},
+        ])
+        # 3) closed recently (within buffer): keep
+        make_run("run_recent", [
+            {"event": "run.open", "plan": "p", "cwd": "c", "conversation": "other", "pid": os.getpid()},
+            {"event": "run.close", "outcome": "done"},
+        ])
+        # 4) closed long ago: eligible
+        make_run("run_old", [
+            {"event": "run.open", "plan": "p", "cwd": "c", "conversation": "other", "pid": os.getpid()},
+            {"event": "run.close", "outcome": "done"},
+        ], quick=True)
+        # backdate run_old's closed_at by rewriting its journal rows directly
+        jp = E.estate / "runs" / "run_old" / "journal.jsonl"
+        rows = [json.loads(l) for l in jp.read_text().splitlines()]
+        for r in rows:
+            r["t"] = now - (buf_s * 3 + 100)
+        jp.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n")
+        # 5) closed long ago but IS the current conversation's lineage: keep
+        make_run("run_lineage", [
+            {"event": "run.open", "plan": "p", "cwd": "c", "conversation": registry.current_conversation(), "pid": os.getpid()},
+            {"event": "run.close", "outcome": "done"},
+        ])
+        jp2 = E.estate / "runs" / "run_lineage" / "journal.jsonl"
+        rows2 = [json.loads(l) for l in jp2.read_text().splitlines()]
+        for r in rows2:
+            r["t"] = now - (buf_s * 3 + 100)
+        jp2.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows2) + "\n")
+        registry.register("plan", "run_lineage", journal=jp2, conversation=registry.current_conversation())
+
+        sweep_list, keep_list, saved_bytes, reasons = gcmod.plan(E.estate, buffer_s=buf_s)
+        swept = {i["run"] for i in sweep_list}
+        kept = {i["run"] for i in keep_list}
+        assert swept == {"run_old"}, (swept, kept)
+        assert {"run_running", "run_dead_engine", "run_recent", "run_lineage"} <= kept
+        assert reasons["run_lineage"] == "current conversation lineage"
+        assert reasons["run_running"].startswith("open/running")
+        old_item = next(i for i in sweep_list if i["run"] == "run_old")
+        assert old_item["kind"] == "quick"
+
+
+@test
+def gc_sweep_deletes_artifacts_keeps_journal_and_stopped_writes_manifest_first():
+    from pipeline import gc as gcmod
+    with Estate() as E:
+        rid = "run_sweepme"
+        rdir = E.estate / "runs" / rid
+        rdir.mkdir(parents=True)
+        j = jmod.Journal(rid)
+        j.write("run.open", plan="p", cwd="c", conversation="other", pid=os.getpid())
+        j.write("run.stop", reason="burned", detail="d")
+        j.write("run.close", outcome="stopped")
+        (rdir / "STOPPED").write_text("burned\nd\n")
+        (rdir / "engine.lock").write_text(str(os.getpid()))
+        (rdir / "engine.log").write_text("log output\n")
+        pdir = rdir / "phase-1"
+        pdir.mkdir()
+        (pdir / "transcript.jsonl").write_text("x" * 50)
+        (pdir / "brief.txt").write_text("brief text")
+        # backdate closed_at well past the buffer
+        jp = rdir / "journal.jsonl"
+        rows = [json.loads(l) for l in jp.read_text().splitlines()]
+        now = time.time()
+        for r in rows:
+            r["t"] = now - (3600.0 * 3 + 100)
+        jp.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n")
+
+        sweep_list, keep_list, saved_bytes, reasons = gcmod.plan(E.estate, buffer_s=3600.0)
+        assert [i["run"] for i in sweep_list] == [rid]
+        assert saved_bytes > 0
+
+        result = gcmod.sweep(sweep_list, estate=E.estate)
+        assert result["errors"] == []
+        assert result["deleted"] >= 1
+        manifest_path = Path(result["manifest"])
+        assert manifest_path.exists() and manifest_path.parent == E.estate / "logs"
+        manifest_rows = [json.loads(l) for l in manifest_path.read_text().splitlines()]
+        assert manifest_rows and all(r["run"] == rid for r in manifest_rows)
+
+        # journal, STOPPED, engine.lock survive; artifacts are gone
+        assert jp.exists() and (rdir / "STOPPED").exists() and (rdir / "engine.lock").exists()
+        assert not (rdir / "engine.log").exists()
+        assert not pdir.exists()
+        # re-planning finds nothing left to sweep for this run (0 bytes: already gone)
+        sweep_list2, _, _, _ = gcmod.plan(E.estate, buffer_s=3600.0)
+        remaining = next((i for i in sweep_list2 if i["run"] == rid), None)
+        assert remaining is None or remaining["bytes"] == 0
+
+
+@test
+def gc_dry_run_deletes_nothing_and_cli_reports():
+    with Estate() as E:
+        rid = "run_dryrun"
+        rdir = E.estate / "runs" / rid
+        rdir.mkdir(parents=True)
+        j = jmod.Journal(rid)
+        j.write("run.open", plan="p", cwd="c", conversation="other", pid=os.getpid())
+        j.write("run.close", outcome="done")
+        (rdir / "engine.log").write_text("keep me for now\n")
+        jp = rdir / "journal.jsonl"
+        rows = [json.loads(l) for l in jp.read_text().splitlines()]
+        now = time.time()
+        for r in rows:
+            r["t"] = now - (3600.0 * 3 + 100)
+        jp.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n")
+
+        r = E.cli("gc", "--dry-run", "--buffer-hours", "1", check=True)
+        assert rid in r.stdout and "eligible" in r.stdout
+        assert (rdir / "engine.log").exists()  # nothing deleted
+        assert not any((E.estate / "logs").glob("gc-manifest-*.jsonl"))
+        r2 = E.cli("gc", check=True)  # default (no flags) is dry-run too
+        assert (rdir / "engine.log").exists()
+
+
 @test
 def ratchet_ledger_never_goes_down():
     ledger = json.loads((REPO / "tests" / "ratchet.json").read_text())
