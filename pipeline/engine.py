@@ -283,7 +283,8 @@ class Engine:
         pdir = self._phase_dir(ph) / f"attempt-{attempt}"
         brief = dsp.build_brief(task=ph.brief, role=ph.role, cwd=plan.workdir, exits=ph.exits,
                                 preamble=plan.preamble, previous_failure=failure_text,
-                                extras={"PHASE": f"{ph.number}: {ph.name}", "RUN": self.run_id})
+                                extras={"PHASE": f"{ph.number}: {ph.name}", "RUN": self.run_id},
+                                budget_s=ph.timeout)
         res = self._dispatch(plan, ph, attempt=attempt, brief=brief, out_dir=pdir)
         if res.outcome != "ok":
             raise PhaseFailure(f"worker outcome {res.outcome}: {res.error or ''}\n--- worker tail ---\n{res.final_text[-1500:]}")
@@ -310,7 +311,8 @@ class Engine:
             brief = dsp.build_brief(task=ph.brief, role=ph.role, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
                                     previous_failure=failure_text if failure_text and f"lane {idx}" in failure_text else None,
                                     extras={"PHASE": f"{ph.number}: {ph.name}", "RUN": self.run_id, "ITEM": item,
-                                            "LANE": idx, "LANE_OUT": str(lane_out)})
+                                            "LANE": idx, "LANE_OUT": str(lane_out)},
+                                    budget_s=ph.timeout)
             res = self._dispatch(plan, ph, attempt=attempt, brief=brief, out_dir=pdir / f"lane-{idx}", env=env,
                                  lane=idx, item=item)
             if res.outcome != "ok":

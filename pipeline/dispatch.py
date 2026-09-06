@@ -90,11 +90,18 @@ def parse_deliverables(cwd, final_text: str) -> list:
 
 
 def build_brief(*, task: str, role: str, cwd: Path, exits: list = (), extras: dict = None,
-                previous_failure: str = None, preamble: str = None) -> str:
+                previous_failure: str = None, preamble: str = None, budget_s: int = None) -> str:
     """Task facts only. The contract and discipline live in the role prompt (agent file)."""
     parts = []
     parts.append(f"WORKING DIRECTORY: {cwd}")
     parts.append(f"ROLE: {role}")
+    if budget_s is not None:
+        parts.append(
+            f"TIME BUDGET: {budget_s}s. SHIP BY: {int(budget_s * 0.8)}s.\n"
+            "Investigate only what the task names. At SHIP BY, stop investigating: land what exists\n"
+            "(files written, commands run once each), write what remains to NOTES.md, and stop.\n"
+            "The engine re-runs the EXIT predicates as the authority after you finish."
+        )
     if extras:
         for k, v in extras.items():
             parts.append(f"{k}: {v}")

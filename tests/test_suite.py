@@ -314,7 +314,8 @@ def roblox_skills_drift_guard_detects_hand_edits():
 def worker_contract_names_every_clause():
     c = roles_mod.worker_contract()
     for needle in ("non-interactive", "Never ask", "never wait", "filesystem is the oracle", "End stdout with the deliverable",
-                   "engine runs EXIT", "refused", "Scope fences", "external channels", "Ceremony is exact"):
+                   "engine runs EXIT", "refused", "Scope fences", "external channels", "Ceremony is exact",
+                   "Verification is bounded", "at most once", "Never loop verification"):
         assert needle in c, needle
 
 
@@ -444,6 +445,19 @@ FAKE: touch made.txt
         calls = E.fake_calls()
         assert calls[0]["agent"] == "pl-implementer" and calls[0]["auto"]
         assert "EXIT predicates" in calls[0]["brief"] and "test -f made.txt" in calls[0]["brief"]
+
+
+@test
+def phase_timeout_reaches_worker_brief_as_time_budget():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: make (implementer)
+TIMEOUT: 30
+EXIT: test -f made.txt
+FAKE: touch made.txt
+""")
+        assert st["closed"] == "done", r.stderr
+        calls = E.fake_calls()
+        assert "TIME BUDGET: 30s" in calls[0]["brief"] and "SHIP BY: 24s" in calls[0]["brief"]
 
 
 @test
@@ -882,6 +896,14 @@ def brief_carries_task_facts_and_previous_failure_only():
                         previous_failure="EXIT failed: pytest -q\n1 failed", preamble="ctx")
     assert "WORKING DIRECTORY: /w" in b and "git add a.py only" in b and "`pytest -q`" in b and "Attack this failure first" in b
     assert "Never ask" not in b  # discipline lives in the role prompt, not the brief
+
+
+@test
+def brief_states_time_budget_when_given():
+    b = dsp.build_brief(task="t", role="fast-worker", cwd=Path("/tmp"), budget_s=900)
+    assert "TIME BUDGET: 900s" in b and "SHIP BY: 720s" in b
+    nb = dsp.build_brief(task="t", role="fast-worker", cwd=Path("/tmp"))
+    assert "TIME BUDGET" not in nb
 
 
 @test
