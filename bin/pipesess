@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Session manager for pipeline's read-only session registry.
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 - "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+from collections import defaultdict
+
+from pipeline import registry, status
+
+
+def usage():
+    print("usage: pipesess {list|attach|kill|resume} ...", file=sys.stderr)
+
+
+def conversation(args):
+    if args:
+        if args[0] in ("--conv", "-c"):
+            if len(args) < 2:
+                raise SystemExit("pipesess: --conv requires an id")
+            return args[1], args[2:]
+    env = os.environ.get("PIPELINE_CONVERSATION")
+    if env:
+        return env, args
+    rows = registry.all_rows()
+    return (rows[-1].get("conversation", registry.UNKNOWN) if rows else registry.UNKNOWN), args
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        usage(); print("  list [--all] [--conv ID]\n  attach [--conv ID]\n  kill RUN\n  resume RUN")
+        return 0
+    verb, rest = argv[0], argv[1:]
+    if verb == "list":
+        all_sessions = "--all" in rest
+        conv, rest = conversation([x for x in rest if x != "--all"])
+        rows = registry.all_rows()
+        if not all_sessions:
+            rows = [r for r in rows if r.get("conversation") == conv]
+        groups = defaultdict(list)
+        for row in rows: groups[row.get("conversation", registry.UNKNOWN)].append(row)
+        for c, session_rows in groups.items():
+            runs = []
+            for row in session_rows:
+                rid = row.get("run")
+                if rid and rid not in runs: runs.append(rid)
+            states = []
+            for rid in runs:
+                try: states.append(status.run_report(rid)["verdict"])
+                except Exception: states.append("unknown")
+            print(f"{c}\t{len(runs)} run(s)\t{', '.join(states) or 'empty'}")
+        return 0
+    if verb == "attach":
+        if os.environ.get("PIPELINE_TUI_ATTACHED"):
+            print("pipesess: refusing nested TUI (PIPELINE_TUI_ATTACHED is set)", file=sys.stderr)
+            return 3
+        conv, rest = conversation(rest)
+        if rest:
+            print("pipesess: unexpected attach arguments", file=sys.stderr); return 2
+        pit = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "pit")
+        os.environ["PIPELINE_TUI_ATTACHED"] = "1"
+        os.execv(pit, [pit, "--conv", conv])
+    if verb in ("kill", "resume"):
+        if len(rest) != 1 or rest[0].startswith("-"):
+            usage(); return 2
+        cmd = "stop" if verb == "kill" else "resume"
+        return subprocess.call([os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "pipeline"), cmd, rest[0]])
+    usage(); return 2
+
+
+raise SystemExit(main(sys.argv[1:]))
+PY
