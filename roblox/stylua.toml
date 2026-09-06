@@ -1,4 +1,6 @@
-quote_type = "AutoPreferDouble"
+# Verified against stylua 2.5.2's actual TOML schema: the field is
+# `quote_style`, not `quote_type` (stylua rejects unknown fields outright).
+quote_style = "AutoPreferDouble"
 call_parentheses = "Always"
 indent_type = "Tabs"
 indent_width = 4
