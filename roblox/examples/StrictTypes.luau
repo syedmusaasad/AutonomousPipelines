@@ -1,30 +1,13 @@
 --!strict
--- Tiny strict-typed Luau module: proves the headless pipeline can produce
--- selene-clean, stylua-clean, rojo-buildable Roblox source with zero Studio.
--- Copy this file + roblox/examples/project/ as the starting point for a new
--- game plan's first script (see docs/ROBLOX-TOOLCHAIN.md).
+-- Tiny strict-typed, side-effect-free module for headless toolchain checks.
 
-export type Cooldown = {
-	seconds: number,
-	lastFiredAt: number,
-}
-
-local CooldownGate = {}
-
-function CooldownGate.new(seconds: number): Cooldown
-	assert(seconds >= 0, "cooldown seconds must be non-negative")
-	return { seconds = seconds, lastFiredAt = 0 }
-end
-
--- Re-derives elapsed time from the server clock rather than trusting a
--- caller-supplied timestamp (see roblox/skills/luau-conventions/SKILL.md,
--- rule 8: never trust client-supplied state).
-function CooldownGate.tryFire(gate: Cooldown, now: number): boolean
-	if now - gate.lastFiredAt < gate.seconds then
-		return false
+local function clamp(value: number, minimum: number, maximum: number): number
+	if value < minimum then
+		return minimum
+	elseif value > maximum then
+		return maximum
 	end
-	gate.lastFiredAt = now
-	return true
+	return value
 end
 
-return CooldownGate
+return clamp

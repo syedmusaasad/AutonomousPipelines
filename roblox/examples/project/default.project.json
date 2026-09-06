@@ -2,8 +2,8 @@
   "name": "example",
   "tree": {
     "$className": "DataModel",
-    "ReplicatedStorage": {
-      "CooldownGate": { "$path": "../StrictTypes.luau" }
+    "ServerScriptService": {
+      "StrictTypes": { "$path": "../StrictTypes.luau" }
     }
   }
 }
