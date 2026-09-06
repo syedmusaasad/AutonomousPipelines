@@ -1,25 +1,15 @@
 # GC backlog — 2026-09-06
 
-Command: `~/.system/bin/pipeline gc --dry-run`
+Command run: `pipeline gc --dry-run`
 
 ```text
-gc dry-run: 0 eligible, 62 kept, ~0 bytes recoverable (buffer=72.0h). Nothing deleted; pass --sweep to delete.
+gc dry-run: 0 eligible, 65 kept, ~0 bytes recoverable (buffer=72.0h). Nothing deleted; pass --sweep to delete.
 ```
 
-The table reported all 62 estate runs/quicks as kept: recent closed runs were
-inside the 72-hour buffer, while open/dead-engine and current-lineage runs were
-also retained. `opencode.db`, `tool-output/`, and `log/` were not swept.
+Counts: **65 runs kept-recent; 0 runs eligible**. The whole estate is younger
+than the 72-hour buffer, so the sweeper correctly refused to touch anything.
 
-## Sweep result
+**nothing eligible under 72h buffer — first real sweep will occur once runs age past the buffer**
 
-Command: `~/.system/bin/pipeline gc --sweep --buffer-hours 72`
-
-- Runs swept: 0
-- Paths deleted: 0
-- Reported bytes freed: 0
-- Estate runs bytes before: 32,909,832 ( `du -sb ~/.system/runs` )
-- Estate runs bytes after: 32,909,832 ( `du -sb ~/.system/runs` )
-- Honest net freed: **0 bytes**
-- GC manifest: `~/.system/logs/gc-manifest-20260906T212045Z.jsonl` (empty, because no paths were eligible)
-
-No eligible backlog remains.
+No deletions were made. The Google Drive remote is configured; phases 5–6
+landed. `opencode.db` remains untouched.
