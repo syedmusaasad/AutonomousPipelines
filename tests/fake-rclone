@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Fake rclone for the characterization suite's cloud-tier tests.
+
+Emulates just enough of rclone's CLI surface for pipeline.cloudtier: `lsd
+remote:` (reachability probe), `copy <src> remote:dir/` (upload), and `hashsum
+sha256 remote:dir/name` (remote checksum). The "remote" is a plain local
+directory (FAKE_RCLONE_ROOT env var) so the shim needs no network and no real
+Google Drive.
+
+Failure knobs (env vars), so tests can force each contract-tested path:
+  FAKE_RCLONE_UNREACHABLE=1   every invocation exits 1 (remote/binary down)
+  FAKE_RCLONE_MISMATCH=1     `hashsum` returns a wrong-but-well-formed hash
+"""
+
+import hashlib
+import os
+import shutil
+import sys
+from pathlib import Path
+
+
+def die(msg, code=1):
+    sys.stderr.write(msg + "\n")
+    sys.exit(code)
+
+
+def root() -> Path:
+    r = os.environ.get("FAKE_RCLONE_ROOT")
+    if not r:
+        die("FAKE_RCLONE_ROOT not set")
+    p = Path(r)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def resolve(remote_spec: str) -> Path:
+    # "remote:some/dir/name" -> <root>/some/dir/name
+    if ":" not in remote_spec:
+        die(f"not a remote spec: {remote_spec}")
+    _, rel = remote_spec.split(":", 1)
+    return root() / rel
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def main():
+    if os.environ.get("FAKE_RCLONE_UNREACHABLE"):
+        sys.stderr.write("fake rclone: remote unreachable\n")
+        sys.exit(1)
+
+    argv = sys.argv[1:]
+    if not argv:
+        die("no subcommand")
+    cmd = argv[0]
+
+    if cmd == "lsd":
+        target = resolve(argv[1])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        print(f"{target}")
+        sys.exit(0)
+
+    if cmd == "copy":
+        src, dst_spec = argv[1], argv[2]
+        dst_dir = resolve(dst_spec)  # rclone copy <file> remote:dir/ -- dst_spec names a directory
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst_dir / Path(src).name)
+        sys.exit(0)
+
+    if cmd == "hashsum":
+        algo, spec = argv[1], argv[2]
+        if algo != "sha256":
+            die(f"unsupported algo {algo}")
+        path = resolve(spec)
+        if not path.exists():
+            die(f"no such object: {spec}")
+        if os.environ.get("FAKE_RCLONE_MISMATCH"):
+            print("0" * 64 + f"  {path.name}")
+        else:
+            print(f"{sha256_of(path)}  {path.name}")
+        sys.exit(0)
+
+    die(f"unsupported fake-rclone subcommand: {cmd}")
+
+
+if __name__ == "__main__":
+    main()

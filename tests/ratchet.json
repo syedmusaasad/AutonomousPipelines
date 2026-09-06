@@ -1,11 +1,17 @@
 {
- "min_tests": 214,
+ "min_tests": 220,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
   "bench_shows_premium_quota_bucket_and_per_model_hits",
   "bootstrap_is_sticky",
   "brief_carries_task_facts_and_previous_failure_only",
+  "cloudtier_checksum_mismatch_keeps_local",
+  "cloudtier_cli_exit_2_on_unreachable_remote",
+  "cloudtier_export_verify_delete_happy_path",
+  "cloudtier_manifest_written_before_local_deletion",
+  "cloudtier_remote_unreachable_deletes_nothing",
+  "cloudtier_tar_excludes_journal_and_stopped_lock",
   "config_mismatch_is_deliberate_stop",
   "cross_review_two_families_blocking_stops",
   "dispatch_as_row_backcompat_no_deliverables_key_when_none",

@@ -27,7 +27,7 @@ import signal
 import sys
 from pathlib import Path
 
-from . import bench, engine, finisher, gc as gcmod, paths, plan as planmod, quick, registry, roblox_skills, roles as roles_mod, sentry, status
+from . import bench, cloudtier, engine, finisher, gc as gcmod, paths, plan as planmod, quick, registry, roblox_skills, roles as roles_mod, sentry, status
 from .journal import Journal
 from .util import log, pid_alive
 
@@ -59,6 +59,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("validate"); p.add_argument("plan")
     p = sub.add_parser("gc"); p.add_argument("--dry-run", action="store_true"); p.add_argument("--sweep", action="store_true")
     p.add_argument("--buffer-hours", type=float, default=72.0); p.add_argument("--quick-only", action="store_true")
+    p.add_argument("--cloud")
     a = ap.parse_args(argv)
     return globals()["cmd_" + a.cmd.replace("-", "_")](a)
 
@@ -315,6 +316,19 @@ def cmd_gc(a):
         print(f"gc: estate filesystem probe failed at {paths.estate_root()}", file=sys.stderr)
         return 2
     sweep_list, keep_list, saved_bytes, reasons = gcmod.plan(buffer_s=buffer_s, quick_only=a.quick_only)
+    if a.cloud:
+        try:
+            result = cloudtier.export_plan(sweep_list, a.cloud)
+        except cloudtier.CloudTierError as e:
+            print(f"gc --cloud: {e}", file=sys.stderr)
+            return 2
+        print(f"gc --cloud: uploaded {len(result['uploaded'])} run(s) to {a.cloud}, "
+              f"{len(result['errors'])} error(s); manifest {result['manifest']}")
+        for u in result["uploaded"]:
+            print(f"  {u['run']} -> {u['remote_url']} sha256={u['sha256']}")
+        for e in result["errors"]:
+            print(f"  {e['run']}: {e['error']}", file=sys.stderr)
+        return 0
     if a.sweep:
         result = gcmod.sweep(sweep_list)
         print(f"gc: swept {len(sweep_list)} run(s), deleted {result['deleted']} path(s), "

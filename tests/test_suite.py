@@ -2112,6 +2112,164 @@ def gc_dry_run_deletes_nothing_and_cli_reports():
         assert (rdir / "engine.log").exists()
 
 
+# ---------------------------------------------------------------- gc cloud tier
+
+def _make_old_closed_run(E, rid, *, buf_s=3600.0, quick=False):
+    """A closed, past-buffer run with a couple of artifact files -- the shape
+    gc.plan() reports as eligible. Returns (rdir, sweep_item)."""
+    from pipeline import gc as gcmod
+    rdir = E.estate / "runs" / rid
+    rdir.mkdir(parents=True)
+    j = jmod.Journal(rid)
+    j.write("run.open", plan="p", cwd="c", conversation="other", pid=os.getpid())
+    j.write("run.close", outcome="done")
+    (rdir / "STOPPED").write_text("nope\n")  # present to prove it's never tarred/deleted
+    (rdir / "engine.lock").write_text(str(os.getpid()))
+    (rdir / "engine.log").write_text("some engine output\n" * 5)
+    pdir = rdir / "phase-1"
+    pdir.mkdir()
+    (pdir / "transcript.jsonl").write_text("x" * 200)
+    if quick:
+        qdir = E.estate / "quick" / rid
+        qdir.mkdir(parents=True)
+        (qdir / "scratch.txt").write_text("quick scratch\n")
+    jp = rdir / "journal.jsonl"
+    rows = [json.loads(l) for l in jp.read_text().splitlines()]
+    now = time.time()
+    for r in rows:
+        r["t"] = now - (buf_s * 3 + 100)
+    jp.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n")
+    sweep_list, _, _, _ = gcmod.plan(E.estate, buffer_s=buf_s)
+    item = next(i for i in sweep_list if i["run"] == rid)
+    return rdir, item
+
+
+@test
+def cloudtier_export_verify_delete_happy_path():
+    from pipeline import cloudtier
+    with Estate() as E:
+        rdir, item = _make_old_closed_run(E, "run_cloud_ok")
+        jp = rdir / "journal.jsonl"
+
+        result = cloudtier.export_plan([item], "fakeremote", estate=E.estate)
+
+        assert result["errors"] == [], result["errors"]
+        assert [u["run"] for u in result["uploaded"]] == ["run_cloud_ok"]
+        u = result["uploaded"][0]
+        assert len(u["sha256"]) == 64
+        # remote object exists at the recorded URL and its checksum matches
+        remote_path = Path(os.environ["FAKE_RCLONE_ROOT"]) / "pipeline-cold" / "run_cloud_ok.tar.gz"
+        assert remote_path.exists()
+        assert cloudtier.sha256_file(remote_path) == u["sha256"]
+
+        # manifest recorded before the local tar/artifacts vanished
+        manifest_rows = [json.loads(l) for l in Path(result["manifest"]).read_text().splitlines()]
+        assert manifest_rows and manifest_rows[0]["run"] == "run_cloud_ok"
+        assert manifest_rows[0]["tar_sha256"] == u["sha256"]
+        assert manifest_rows[0]["remote_url"] == u["remote_url"]
+        assert manifest_rows[0]["artifact_bytes"] > 0
+
+        # local tar deleted after verify; artifacts swept; journal + STOPPED + lock survive
+        assert not (E.estate / "cold" / "run_cloud_ok.tar.gz").exists()
+        assert not (rdir / "engine.log").exists()
+        assert not (rdir / "phase-1").exists()
+        assert jp.exists() and (rdir / "STOPPED").exists() and (rdir / "engine.lock").exists()
+
+
+@test
+def cloudtier_checksum_mismatch_keeps_local():
+    from pipeline import cloudtier
+    with Estate() as E:
+        rdir, item = _make_old_closed_run(E, "run_cloud_bad")
+        os.environ["FAKE_RCLONE_MISMATCH"] = "1"
+        try:
+            result = cloudtier.export_plan([item], "fakeremote", estate=E.estate)
+        finally:
+            del os.environ["FAKE_RCLONE_MISMATCH"]
+
+        assert result["uploaded"] == []
+        assert len(result["errors"]) == 1 and result["errors"][0]["run"] == "run_cloud_bad"
+        assert "mismatch" in result["errors"][0]["error"]
+        # nothing local was deleted: tar kept, artifacts kept
+        assert (E.estate / "cold" / "run_cloud_bad.tar.gz").exists()
+        assert (rdir / "engine.log").exists()
+        assert (rdir / "phase-1").exists()
+
+
+@test
+def cloudtier_remote_unreachable_deletes_nothing():
+    from pipeline import cloudtier
+    with Estate() as E:
+        rdir, item = _make_old_closed_run(E, "run_cloud_down")
+        os.environ["FAKE_RCLONE_UNREACHABLE"] = "1"
+        try:
+            try:
+                cloudtier.export_plan([item], "fakeremote", estate=E.estate)
+                raised = False
+            except cloudtier.CloudTierError:
+                raised = True
+        finally:
+            del os.environ["FAKE_RCLONE_UNREACHABLE"]
+
+        assert raised
+        # not even a tar was built for this run: probe_remote fails before any per-run work
+        assert not (E.estate / "cold").exists() or not any((E.estate / "cold").iterdir())
+        assert (rdir / "engine.log").exists()
+        assert (rdir / "phase-1").exists()
+
+
+@test
+def cloudtier_cli_exit_2_on_unreachable_remote():
+    with Estate() as E:
+        rdir, item = _make_old_closed_run(E, "run_cloud_cli_down")
+        os.environ["FAKE_RCLONE_UNREACHABLE"] = "1"
+        try:
+            r = E.cli("gc", "--cloud", "fakeremote", "--buffer-hours", "1")
+        finally:
+            del os.environ["FAKE_RCLONE_UNREACHABLE"]
+        assert r.returncode == 2, r.stdout + r.stderr
+        assert (rdir / "engine.log").exists()
+        assert (rdir / "phase-1").exists()
+
+
+@test
+def cloudtier_tar_excludes_journal_and_stopped_lock():
+    import tarfile
+    from pipeline import cloudtier
+    with Estate() as E:
+        rdir, item = _make_old_closed_run(E, "run_cloud_tar")
+        tar_path = cloudtier.build_tar(item, estate=E.estate)
+        assert tar_path == E.estate / "cold" / "run_cloud_tar.tar.gz"
+        with tarfile.open(tar_path, "r:gz") as tf:
+            names = tf.getnames()
+        assert any(n.endswith("engine.log") for n in names)
+        assert any("phase-1" in n for n in names)
+        assert not any(n.endswith("journal.jsonl") for n in names)
+        assert not any(n.endswith("STOPPED") for n in names)
+        assert not any(n.endswith("engine.lock") for n in names)
+        # journal/STOPPED/lock are untouched on disk regardless
+        assert (rdir / "journal.jsonl").exists() and (rdir / "STOPPED").exists() and (rdir / "engine.lock").exists()
+
+
+@test
+def cloudtier_manifest_written_before_local_deletion():
+    from pipeline import cloudtier
+    with Estate() as E:
+        rdir, item = _make_old_closed_run(E, "run_cloud_manifest", quick=True)
+        qdir = E.estate / "quick" / "run_cloud_manifest"
+
+        result = cloudtier.export_plan([item], "fakeremote", estate=E.estate)
+
+        assert result["errors"] == []
+        manifest_path = Path(result["manifest"])
+        assert manifest_path.exists() and manifest_path.parent == E.estate / "logs"
+        rows = [json.loads(l) for l in manifest_path.read_text().splitlines()]
+        assert len(rows) == 1 and rows[0]["run"] == "run_cloud_manifest"
+        # the quick scratch dir was included in artifact_bytes and swept too
+        assert rows[0]["artifact_bytes"] > 0
+        assert not qdir.exists()
+
+
 @test
 def ratchet_ledger_never_goes_down():
     ledger = json.loads((REPO / "tests" / "ratchet.json").read_text())
