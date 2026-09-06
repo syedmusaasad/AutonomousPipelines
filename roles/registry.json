@@ -173,7 +173,7 @@
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
       "model": "gemini-3.8-flash",
-      "fallback": "claude-sonnet-5",
+      "fallback": "glm-5.3",
       "effort": "medium",
       "band": "critical",
       "tools": {
@@ -212,6 +212,18 @@
           "at": "2026-09-05T19:30:00+00:00",
           "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
           "evidence": "AA: 47 vs 37 (3.1 Pro); LiveBench summarize 87.5 best on board"
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "fallback": "claude-sonnet-5"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "fallback": "glm-5.3"
+          },
+          "at": "2026-09-06T23:05:00+00:00",
+          "why": "DECISION fallback-sweep (2026-09-06, completed by the interactor after two worker timeouts left the analysis unfinished): criterion = same as the primary's. For researcher/document-writer (reading/digesting, prose) the published numbers rank glm-5.3 above claude-sonnet-5 on every axis of the role's criterion: LiveBench summarize 74.55 vs 71.22, AA intelligence 49 vs 45, TTFT 2.0s vs 2.9s (sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv, both retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md). kimi-k3's AA 50 is beaten here by its LB summarize 69.35 (below sonnet's 71.22) and TTFT 28.5s. Interactive KEEPS claude-sonnet-5: conversational TTFT 2.9s beats kimi-k3's 28.5s; glm-5.3 is unusable as its own fallback (same model as the primary). No other seat's fallback changed: each current one already wins its role's criterion (implementer gpt-5.6-luna on code speed/cost, reviewers deepseek-v4-pro/gpt-5.3-codex/gemini-3.8-flash on intelligence+TTFT)."
         }
       ],
       "quota_fallback": "gemini-3.8-flash@medium"
@@ -219,7 +231,7 @@
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
       "model": "gemini-3.8-flash",
-      "fallback": "claude-sonnet-5",
+      "fallback": "glm-5.3",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -258,6 +270,18 @@
           "at": "2026-09-05T19:30:00+00:00",
           "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
           "evidence": "LiveBench: summarize 87.5 vs 71.2; story 82.8 vs 62.3; paraphrase 80.0 vs 61.25; AA 47 vs 45"
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "fallback": "claude-sonnet-5"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "fallback": "glm-5.3"
+          },
+          "at": "2026-09-06T23:05:00+00:00",
+          "why": "DECISION fallback-sweep (2026-09-06, completed by the interactor after two worker timeouts left the analysis unfinished): criterion = same as the primary's. For researcher/document-writer (reading/digesting, prose) the published numbers rank glm-5.3 above claude-sonnet-5 on every axis of the role's criterion: LiveBench summarize 74.55 vs 71.22, AA intelligence 49 vs 45, TTFT 2.0s vs 2.9s (sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv, both retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md). kimi-k3's AA 50 is beaten here by its LB summarize 69.35 (below sonnet's 71.22) and TTFT 28.5s. Interactive KEEPS claude-sonnet-5: conversational TTFT 2.9s beats kimi-k3's 28.5s; glm-5.3 is unusable as its own fallback (same model as the primary). No other seat's fallback changed: each current one already wins its role's criterion (implementer gpt-5.6-luna on code speed/cost, reviewers deepseek-v4-pro/gpt-5.3-codex/gemini-3.8-flash on intelligence+TTFT)."
         }
       ],
       "quota_fallback": "claude-haiku-4-5@medium"
