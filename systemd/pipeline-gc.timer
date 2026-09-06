@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Pipeline storage GC report
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=pipeline-gc.service
+
+[Install]
+WantedBy=timers.target

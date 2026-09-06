@@ -218,6 +218,16 @@ These defects exist in local source. **Unattended operation unreliable if accoun
 
 ## RECOMMENDATIONS FOR UNATTENDED USE
 
+### Honest Limits: Storage GC
+
+The daily `pipeline-gc.timer` performs a report-only, journal-aware GC check by
+default. It does not delete journals, registries, stopped receipts, or plan
+workspaces, and it never sweeps runs that are open, waiting, recently closed, or
+part of the current conversation lineage. Automatic artifact deletion is an
+operator opt-in: edit the installed service to use `pipeline gc --sweep` (and
+set `PIPELINE_GC_SWEEP=1`). Cloud export is not performed by this timer; the
+operator must separately configure and verify the approved storage tier.
+
 ### Tier 1: Stop-the-Line (Do Before Operation)
 
 1. **Add MODEL premium eligibility check at launch** (pipeline/engine.py around line 462-463)

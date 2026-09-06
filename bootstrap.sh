@@ -64,9 +64,13 @@ if [ "$SENTRY" = 0 ]; then
 elif command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1; then
   mkdir -p "$HOME/.config/systemd/user"
   cp "$REPO/systemd/pipeline-sentry.service" "$HOME/.config/systemd/user/pipeline-sentry.service"
+  cp "$REPO/systemd/pipeline-gc.service" "$HOME/.config/systemd/user/pipeline-gc.service"
+  cp "$REPO/systemd/pipeline-gc.timer" "$HOME/.config/systemd/user/pipeline-gc.timer"
   systemctl --user daemon-reload
   systemctl --user enable --now pipeline-sentry.service
+  systemctl --user enable --now pipeline-gc.timer
   echo "bootstrap: sentry enabled (systemd --user)"
+  echo "bootstrap: GC reports daily; set PIPELINE_GC_SWEEP=1 and replace --dry-run with --sweep in the timer service to opt into auto-sweep"
 else
   if ! pgrep -f "pipeline.cli sentry" >/dev/null; then
     ( setsid nohup "$SYS/bin/pipeline" sentry >>"$ESTATE/logs/sentry.log" 2>&1 & )

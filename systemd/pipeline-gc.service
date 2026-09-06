@@ -1,0 +1,10 @@
+[Unit]
+Description=Pipeline storage GC: daily journal-aware report
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.system/bin/pipeline gc --dry-run
+Environment=PIPELINE_GC_SWEEP=0
+# Operator opt-in: replace --dry-run with --sweep to enable automatic deletion.
+# ExecStart=%h/.system/bin/pipeline gc --sweep
