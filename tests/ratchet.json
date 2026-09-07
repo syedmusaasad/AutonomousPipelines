@@ -1,6 +1,10 @@
 {
- "min_tests": 244,
+ "min_tests": 247,
  "required": [
+  "adopt_does_not_touch_execution_state",
+  "adopt_refusals",
+  "adopt_rekeys_row_and_appends_receipt",
+  "adopt_rolls_back_registry_when_receipt_fails",
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
   "bench_shows_premium_quota_bucket_and_per_model_hits",
@@ -116,6 +120,7 @@
   "sequence_default_never_overlaps",
   "status_first_sentence_and_waiting_list_always_present",
   "status_names_premium_allowance_hit_once_in_waiting_list",
+  "status_shows_adopted_run_in_scope",
   "storm_armor_retries_with_backoff",
   "surface_missing_file_fails_honestly",
   "surface_scorer_metrics",
