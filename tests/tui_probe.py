@@ -1,5 +1,7 @@
+import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -12,6 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SERVER = "pipeline-tui-probe"
 SESSION = "tui-probe"
 FIXTURE = Path("/tmp/devpass-code/tui-probe-fixture")
+CONV_DB = FIXTURE / "conversation.db"
+PROBE_SESSION_ID = "ses_probe"
 
 
 def fixup_env():
@@ -50,6 +54,53 @@ def build_fixture():
             journal.write("run.close", outcome="done")
         register("plan", run_id, journal=journal.path, plan="probe", cwd=str(FIXTURE),
                  conversation="ses_probe", launcher_pid=pid, engine_pid=pid)
+    _seed_conversation_db()
+
+
+def _seed_conversation_db():
+    """A minimal devpass-code-shaped sqlite DB (session/message/part) for the
+    Conversation tab: one session matching the fixture's conversation id, with
+    exactly one already-loaded text part. This is enough for
+    ConversationState.open() to land in STATUS_LOADING -> STATUS_READY (one
+    part, well under chunk_size) so the "stream" assertion's poll() path is
+    live by the time it appends more rows behind the TUI's back."""
+    conn = sqlite3.connect(str(CONV_DB))
+    try:
+        conn.execute("CREATE TABLE session (id text PRIMARY KEY)")
+        conn.execute("""CREATE TABLE message (id text PRIMARY KEY, session_id text,
+                     time_created integer, time_updated integer, data text)""")
+        conn.execute("""CREATE TABLE part (id text PRIMARY KEY, message_id text, session_id text,
+                     time_created integer, time_updated integer, data text)""")
+        now_ms = int(time.time() * 1000)
+        conn.execute("INSERT INTO session VALUES (?)", (PROBE_SESSION_ID,))
+        conn.execute("INSERT INTO message VALUES (?,?,?,?,?)",
+                     ("m-seed", PROBE_SESSION_ID, now_ms, now_ms, json.dumps({"role": "user"})))
+        conn.execute("INSERT INTO part VALUES (?,?,?,?,?,?)",
+                     ("p-seed", "m-seed", PROBE_SESSION_ID, now_ms, now_ms,
+                      json.dumps({"type": "text", "text": "probe seed message"})))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def append_stream_part(text: str):
+    """Append one assistant text part to the fixture conversation DB, as if a
+    real session were streaming a reply -- entirely behind the TUI's back (a
+    separate sqlite connection, no keys sent). time_updated is a fresh
+    millisecond timestamp so ConversationState.poll() (time_updated > last
+    seen) picks it up on the TUI's next data-poll tick."""
+    conn = sqlite3.connect(str(CONV_DB))
+    try:
+        now_ms = int(time.time() * 1000)
+        mid = f"m-stream-{now_ms}"
+        pid = f"p-stream-{now_ms}"
+        conn.execute("INSERT INTO message VALUES (?,?,?,?,?)",
+                     (mid, PROBE_SESSION_ID, now_ms, now_ms, json.dumps({"role": "assistant"})))
+        conn.execute("INSERT INTO part VALUES (?,?,?,?,?,?)",
+                     (pid, mid, PROBE_SESSION_ID, now_ms, now_ms, json.dumps({"type": "text", "text": text})))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def capture(tmux_session, escape=False):
@@ -69,11 +120,26 @@ def pane_dead(tmux_session):
     return result.stdout.strip() == "1"
 
 
-def boot_tui(tmux_session):
+def tui_env():
     env = os.environ.copy()
     env["PIPELINE_ESTATE"] = str(FIXTURE)
     env["HOME"] = str(FIXTURE / "home")
+    env["PIPELINE_DEVPASS_DB"] = str(CONV_DB)
     Path(env["HOME"] + "/.system").mkdir(parents=True, exist_ok=True)
+    return env
+
+
+def _kill_stale():
+    """A stale session from a crashed prior run makes new-session fail with
+    'duplicate session'. Kill it best-effort before boot; the fixture is
+    regenerated anyway, so nothing is lost."""
+    subprocess.run(["tmux", "-L", SERVER, "kill-session", "-t", SESSION],
+                   capture_output=True)
+
+
+def boot_tui(tmux_session):
+    _kill_stale()
+    env = tui_env()
     subprocess.run(["tmux", "-L", SERVER, "new-session", "-d", "-x", "120", "-y", "40",
                     "-s", tmux_session, "pipeline tui --conv ses_probe"],
                    env=env, check=True)
@@ -136,10 +202,121 @@ def run_boot():
     assert_boot(SESSION, plain)
 
 
+# -- latency ---------------------------------------------------------------
+
+LATENCY_KEYS = "bcdfghjkmnpqrstvwxyz"  # 20 distinct, unambiguous keystrokes
+LATENCY_BUDGET_S = 0.15
+
+
+def assert_latency(tmux_session):
+    """Paste LATENCY_KEYS (20 keystrokes) as a single burst, then send nothing
+    further. Each key's visible effect (its cumulative prefix appearing in the
+    composer line) must show up within LATENCY_BUDGET_S of the paste -- proving
+    the real curses event loop drains + repaints promptly, not batched behind a
+    tick. Measured by timestamped capture-pane polls against the REAL app; no
+    mocks. Failure prints the slowest per-key delta."""
+    # land on the Conversation tab: it is the one tab with a composer, so a
+    # burst of printable keystrokes has a guaranteed visible effect (the typed
+    # buffer growing) rather than being consumed as navigation.
+    send_key(tmux_session, "4")
+    time.sleep(0.3)
+    subprocess.run(["tmux", "-L", SERVER, "set-buffer", LATENCY_KEYS], check=True)
+    t0 = time.monotonic()
+    subprocess.run(["tmux", "-L", SERVER, "paste-buffer", "-t", tmux_session], check=True)
+
+    deltas = {}  # prefix length -> seconds until first seen
+    deadline = t0 + max(2.0, LATENCY_BUDGET_S * len(LATENCY_KEYS) + 1.0)
+    seen_full = False
+    while time.monotonic() < deadline:
+        now = time.monotonic()
+        cap = capture(tmux_session)
+        for n in range(len(LATENCY_KEYS), 0, -1):
+            prefix = LATENCY_KEYS[:n]
+            if prefix not in deltas and prefix in cap:
+                deltas[prefix] = now - t0
+        if LATENCY_KEYS in deltas:
+            seen_full = True
+            break
+        time.sleep(0.01)
+
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died mid-burst")
+    if not seen_full:
+        print(capture(tmux_session))
+        missing = [LATENCY_KEYS[:n] for n in range(1, len(LATENCY_KEYS) + 1) if LATENCY_KEYS[:n] not in deltas]
+        raise AssertionError(f"full 20-key burst never appeared; missing prefixes up to: {missing[-1] if missing else '?'}")
+
+    # per-key delta: the time between consecutive prefixes appearing (an
+    # honest per-keystroke visible-effect latency, not just end-to-end).
+    ordered = sorted(deltas.items(), key=lambda kv: len(kv[0]))
+    prev_t = 0.0
+    slowest = 0.0
+    slowest_prefix = ""
+    for prefix, t in ordered:
+        d = t - prev_t
+        if d > slowest:
+            slowest = d
+            slowest_prefix = prefix
+        prev_t = t
+    if slowest > LATENCY_BUDGET_S:
+        print(capture(tmux_session))
+        raise AssertionError(
+            f"slowest keystroke-to-visible-effect delta was {slowest * 1000:.1f}ms "
+            f"(budget {LATENCY_BUDGET_S * 1000:.0f}ms) landing on prefix {slowest_prefix!r}")
+
+
+def run_latency():
+    boot_tui(SESSION)
+    assert_latency(SESSION)
+
+
+# -- stream ------------------------------------------------------------------
+
+STREAM_MARKER = "STREAM-APPEND-MARKER-7f3a"
+STREAM_BUDGET_S = 3.0
+
+
+def assert_stream(tmux_session):
+    """Append a new assistant text part to the fixture conversation DB behind
+    the TUI's back (a separate sqlite connection -- no tmux keys sent at all)
+    and confirm the new content appears in timed capture-pane polls. Drives the
+    REAL app's poll-on-data-tick path (ConversationState.poll(), driven by
+    app.py's regular POLL_S refresh), not a mock."""
+    send_key(tmux_session, "4")
+    time.sleep(0.3)
+    before = capture(tmux_session)
+    if STREAM_MARKER in before:
+        raise AssertionError("marker already present before the DB append (test setup bug)")
+
+    append_stream_part(STREAM_MARKER)
+    t0 = time.monotonic()
+    seen_at = None
+    while time.monotonic() - t0 < STREAM_BUDGET_S:
+        cap = capture(tmux_session)
+        if STREAM_MARKER in cap:
+            seen_at = time.monotonic() - t0
+            break
+        time.sleep(0.02)
+
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died while waiting for the streamed append")
+    if seen_at is None:
+        print(capture(tmux_session))
+        raise AssertionError(
+            f"streamed DB append never appeared within {STREAM_BUDGET_S}s of zero-input timed captures")
+
+
+def run_stream():
+    boot_tui(SESSION)
+    assert_stream(SESSION)
+
+
 # name -> callable. Each phase of plan 011 adds more entries here; --only FILTER
 # runs the subset whose name contains FILTER (same convention as tests/run.py).
 ASSERTIONS = {
     "boot": run_boot,
+    "latency": run_latency,
+    "stream": run_stream,
 }
 
 
