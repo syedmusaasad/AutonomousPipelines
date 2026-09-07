@@ -338,6 +338,29 @@ FAKE: verdict PASS
         assert len([x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]) == 2
 
 
+@test
+def iterate_demo_migration_dogfoods_launch_in_two_iterations():
+    """The checked-in fixture exercises the detached public launch path end to end."""
+    import shutil
+
+    with Estate() as E:
+        demo = E.work / "iterate-demo"
+        shutil.copytree(REPO / "tests" / "fixtures" / "iterate-demo", demo)
+        rid = "iterate-demo"
+        row = engine.launch(demo / "plan.md", run_id=rid, conversation="ses_iterate_demo")
+        assert row["run"] == rid
+        wait_for(lambda: jmod.Journal(rid).state()["closed"] == "done", timeout=30)
+        rows = jmod.Journal(rid).rows()
+        iterations = [row for row in rows if row["event"] == "iterate.end"]
+        assert len(iterations) == 2
+        assert [row["exit_ok"] for row in iterations] == [False, True]
+        assert jmod.Journal(rid).state()["phases"]["1"]["status"] == "done"
+        calls = E.fake_calls()
+        assert len([call for call in calls if call["agent"] == "pl-implementer"]) == 2
+        assert not [row for row in rows if row["event"] == "review.verdict"]
+        assert not [call for call in calls if call["agent"].startswith("pl-reviewer")]
+
+
 # ---------------------------------------------------------------- registry
 
 @test

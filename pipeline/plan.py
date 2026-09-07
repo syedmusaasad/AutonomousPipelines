@@ -6,7 +6,7 @@ does not run.
     AFTER: 1, 2                    explicit deps; phases whose deps are met run concurrently
     TIMEOUT: <seconds>             per phase (per dispatch attempt)
     LANES: <items-file>            fan out one dispatch per non-empty line of the file
-    CEILING: <n>                   max concurrent lanes
+    CEILING: <n>                   max concurrent lanes, or hard iteration cap with ITERATE
     REVIEW: cross                  two reviewers on different model families after EXIT
     SURFACE: <glob> <surface>      score prose artifacts against a register standard
     GATE: <sentinel-path>          (gate phases) the file the operator must write

@@ -9,6 +9,8 @@ FAKE directives (in the brief task text):
   FAKE: touch <path>            create file (relative to --dir); $ITEM/$LANE_OUT/$REVIEW_OUT expanded
   FAKE: write <path> <<text>>   write text (single line, \\n escapes)
   FAKE: append <path> <<text>>
+  FAKE: touch-on-call <n> <path>       create file only on this agent/cwd invocation
+  FAKE: write-on-call <n> <path> <<text>>  write file only on this agent/cwd invocation
   FAKE: exit <code>             exit with this code after emitting events
   FAKE: sleep <seconds>
   FAKE: hang                    sleep forever without writing to stdout (stall)
@@ -66,12 +68,19 @@ def main():
         return p if os.path.isabs(p) else os.path.join(cwd, p)
 
     log = env.get("FAKE_LOG")
+    invocation = 1
+    if log and os.path.exists(log):
+        try:
+            invocation += sum(1 for line in open(log) if (row := json.loads(line)).get("agent") == agent
+                              and row.get("cwd") == cwd)
+        except (OSError, json.JSONDecodeError):
+            pass
     if log:
         with open(log, "a") as f:
             f.write(json.dumps({"agent": agent, "model": model, "variant": args.get("variant"), "cwd": cwd,
                                 "ITEM": env.get("ITEM"), "LANE": env.get("LANE"), "LANE_OUT": env.get("LANE_OUT"),
                                 "REVIEW_OUT": env.get("REVIEW_OUT"), "retry": is_retry, "brief_len": len(brief),
-                                "brief": brief, "auto": "--auto" in argv}) + "\n")
+                                "brief": brief, "auto": "--auto" in argv, "invocation": invocation}) + "\n")
 
     emit("step_start", {"type": "step-start"})
     directives = re.findall(r"^\s*(?:- )?FAKE:\s*(.+?)\s*$", brief, flags=re.M)
@@ -88,12 +97,25 @@ def main():
             p = path(rest)
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
             open(p, "a").close()
+        elif cmd == "touch-on-call":
+            n, target = rest.split(None, 1)
+            if invocation == int(n):
+                p = path(target)
+                os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+                open(p, "a").close()
         elif cmd in ("write", "append"):
             m = re.match(r"(\S+)\s+<<(.*)>>$", rest)
             p = path(m.group(1))
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
             with open(p, "a" if cmd == "append" else "w") as f:
                 f.write(expand(m.group(2)).replace("\\n", "\n") + "\n")
+        elif cmd == "write-on-call":
+            m = re.match(r"(\d+)\s+(\S+)\s+<<(.*)>>$", rest)
+            if invocation == int(m.group(1)):
+                p = path(m.group(2))
+                os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+                with open(p, "w") as f:
+                    f.write(expand(m.group(3)).replace("\\n", "\n") + "\n")
         elif cmd == "exit":
             code = int(rest)
         elif cmd == "sleep":

@@ -19,6 +19,15 @@ Decide the shape. One small, well-specified piece of work is a `quick`, not a pl
 9. Ceremony is where workers die. Name it exactly and give the finisher something to check: `EXIT: git log -1 --format=%s | grep -qxF '<subject>'`.
 10. When a judgment call changes the plan, ask once and record the answer: `DECISION <name>: <choice and why>` in the preamble.
 
+## Iterative phases
+
+Use `ITERATE: on` only for a bounded loop where a fresh worker can advance the same
+small outcome. It requires an explicit, low `CEILING:` and at least one `EXIT:`; it
+cannot use `LANES:`. Name the phase-local progress file in the brief and require the
+worker to maintain its `- [ ]` boxes, so the built-in signal can see work advance.
+When using `PROGRESS:`, the predicate owns its comparison state rather than asking the
+engine to infer it. Prefer the lowest ceiling that can plausibly finish the work.
+
 ## Anti-patterns
 
 - A "setup" phase that does nothing verifiable.

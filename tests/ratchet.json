@@ -1,5 +1,5 @@
 {
- "min_tests": 239,
+ "min_tests": 240,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
@@ -54,6 +54,7 @@
   "iterate_and_lanes_together_is_rejected",
   "iterate_builtin_stall_stops_after_two_unchanged_iterations",
   "iterate_ceiling_stops_after_progressing_iterations",
+  "iterate_demo_migration_dogfoods_launch_in_two_iterations",
   "iterate_forbidden_on_gate_phases",
   "iterate_grammar_accepts_on_and_sets_fields",
   "iterate_progress_directive_is_captured",
