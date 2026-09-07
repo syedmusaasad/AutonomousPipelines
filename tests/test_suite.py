@@ -527,7 +527,7 @@ def drift_guard_detects_hand_edits():
 def roblox_skills_source_has_every_named_skill():
     from pipeline import roblox_skills as rbx
     files = rbx.source_files()
-    for name in ("luau-conventions", "rojo-sync", "studio-verify", "ui-loop", "animation-assets", "data-persistence"):
+    for name in ("luau-conventions", "rojo-sync", "studio-verify", "ui-loop", "animation-assets", "data-persistence", "asset-generation"):
         rel = f"{name}/SKILL.md"
         assert rel in files, rel
         assert files[rel].startswith("---\n") and f"name: {name}" in files[rel], rel

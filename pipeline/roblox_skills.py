@@ -8,6 +8,17 @@ from pathlib import Path
 
 from . import paths
 
+EXPECTED_SKILLS = (
+    "luau-conventions",
+    "rojo-sync",
+    "studio-verify",
+    "ui-loop",
+    "animation-assets",
+    "data-persistence",
+    "asset-generation",
+)
+SKILLS = EXPECTED_SKILLS
+
 
 def source_dir() -> Path:
     return paths.repo_root() / "roblox" / "skills"
