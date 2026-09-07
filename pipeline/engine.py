@@ -13,7 +13,9 @@ Loop:
 State is never kept in memory that the journal does not also have."""
 
 import glob as globmod
+import hashlib
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -35,6 +37,7 @@ MAX_CONCURRENT_PHASES = int(os.environ.get("PIPELINE_MAX_PHASES", "3"))
 EXIT_TIMEOUT_S = int(os.environ.get("PIPELINE_EXIT_TIMEOUT_S", "600"))
 REVIEW_TIMEOUT_S = int(os.environ.get("PIPELINE_REVIEW_TIMEOUT_S", "900"))
 STOP_REASONS = ("burned", "gate_failed", "review_blocking", "config_mismatch", "plan_invalid")
+ITERATE_STALL_LIMIT = 2  # consecutive no-progress iterations before ITERATE-STALLED
 
 
 class DeliberateStop(Exception):
@@ -193,6 +196,8 @@ class Engine:
     def _run_phase(self, plan, ph):
         if ph.is_gate:
             return self._run_gate(plan, ph)
+        if ph.iterate:
+            return self._run_iterate(plan, ph)
         st = self.journal.state().get("phases", {}).get(ph.key, {})
         # Only attempts that actually FAILED count against the budget. A phase left
         # "running" by a dead engine or an aborted run never got its verdict; it is
@@ -216,6 +221,105 @@ class Engine:
             self.journal.write("phase.done", phase=ph.key)
             return
         raise DeliberateStop("burned", f"phase {ph.number} ({ph.name}) burned {ph.attempts} attempts; last: {failure_text}")
+
+    def _run_iterate(self, plan, ph):
+        """Ralph-loop: fresh session per iteration, no prompt/failure carryover. See
+        DECISION iterate-semantics in plans/013-iterate/plan.md for the 10 numbered
+        steps this implements exactly."""
+        pdir = self._phase_dir(ph)
+        iterate_dir = pdir / "iterate"
+        iterate_dir.mkdir(parents=True, exist_ok=True)
+        prior = [r for r in self.journal.rows() if r.get("event") == "iterate.end" and r.get("phase") == ph.key]
+        start_iter = len(prior) + 1
+        stall_count = prior[-1]["stall_count"] if prior else 0
+        cum_tokens = prior[-1]["cumulative_tokens"] if prior else 0
+        cum_cost = prior[-1]["cumulative_cost"] if prior else 0.0
+        if not prior:
+            self.journal.write("phase.start", phase=ph.key, role=ph.role, attempt=1, name=ph.name)
+        progress_check = self._make_progress_check(plan, ph, iterate_dir)
+        for iteration in range(start_iter, ph.ceiling + 1):
+            t0 = time.time()
+            # (1) fresh session, unchanged phase body: previous_failure=None, always.
+            brief = dsp.build_brief(task=ph.brief, role=ph.role, cwd=plan.workdir, exits=ph.exits,
+                                    preamble=plan.preamble, previous_failure=None,
+                                    extras={"PHASE": f"{ph.number}: {ph.name}", "RUN": self.run_id},
+                                    budget_s=ph.timeout)
+            res = self._dispatch(plan, ph, attempt=iteration, brief=brief, out_dir=pdir / f"iter-{iteration}")
+            # (2) run all EXITs (engine-run, same as the attempt loop).
+            exit_ok = self._run_exits_iterate(plan, ph, iteration, iterate_dir)
+            wall_s = time.time() - t0
+            tokens = res.tokens.get("total", 0) or 0
+            cost = res.cost or 0.0
+            cum_tokens += tokens
+            cum_cost += cost
+            if exit_ok:
+                # (3) all pass -> phase done; REVIEW/SURFACE run once, only here.
+                self.journal.write("iterate.end", phase=ph.key, iteration=iteration, exit_ok=True, progress=None,
+                                    stall_count=stall_count, wall_s=round(wall_s, 2), tokens=tokens, cost=round(cost, 6),
+                                    cumulative_tokens=cum_tokens, cumulative_cost=round(cum_cost, 6), ceiling=ph.ceiling)
+                try:
+                    self._run_surfaces(plan, ph, iteration)
+                    self._run_review(plan, ph)
+                except PhaseFailure as e:
+                    raise DeliberateStop("burned", f"phase {ph.number} ({ph.name}) iterate: EXIT passed at iteration "
+                                                    f"{iteration} but REVIEW/SURFACE failed: {e}")
+                self.journal.write("phase.done", phase=ph.key)
+                return
+            # (4) PROGRESS predicate (cwd=plan.workdir) or the built-in signal.
+            progressed, is_first = progress_check()
+            # (5) progress -> reset consecutive-no-progress to 0; else increment.
+            if progressed:
+                stall_count = 0
+            else:
+                stall_count += 1
+            self.journal.write("iterate.end", phase=ph.key, iteration=iteration, exit_ok=False,
+                                progress=(None if is_first else progressed), stall_count=stall_count,
+                                wall_s=round(wall_s, 2), tokens=tokens, cost=round(cost, 6),
+                                cumulative_tokens=cum_tokens, cumulative_cost=round(cum_cost, 6), ceiling=ph.ceiling)
+            # (6) 2 consecutive no-progress -> deliberate stop ITERATE-STALLED. Stall wins ties.
+            if stall_count >= ITERATE_STALL_LIMIT:
+                raise DeliberateStop("burned", f"ITERATE-STALLED: phase {ph.number} ({ph.name}) made no progress "
+                                                f"for {stall_count} consecutive iterations (iteration {iteration}/{ph.ceiling})")
+            # (7) iteration count reaches CEILING with EXIT failing -> deliberate stop ITERATE-CEILING.
+            if iteration >= ph.ceiling:
+                raise DeliberateStop("burned", f"ITERATE-CEILING: phase {ph.number} ({ph.name}) reached "
+                                                f"CEILING={ph.ceiling} without EXIT passing")
+            # (8) next iteration.
+        raise DeliberateStop("burned", f"ITERATE-CEILING: phase {ph.number} ({ph.name}) reached "
+                                        f"CEILING={ph.ceiling} without EXIT passing")
+
+    def _make_progress_check(self, plan, ph, iterate_dir):
+        """Returns callable() -> (progressed: bool, is_first: bool). is_first is only
+        ever True for the built-in signal's very first invocation (no PROGRESS override,
+        no persisted state yet); a custom PROGRESS predicate always yields a real
+        true/false, iteration 1 included."""
+        if ph.iterate_progress:
+            pred = ph.iterate_progress
+
+            def check():
+                ok, _ = run_predicate(pred, cwd=plan.workdir, timeout=EXIT_TIMEOUT_S)
+                return ok, False
+            return check
+
+        def check():
+            is_first = not any((iterate_dir / n).exists() for n in ("checkbox_count.txt", "fingerprint.txt"))
+            progressed = builtin_progress_signal(iterate_dir, plan.workdir)
+            return progressed, is_first
+        return check
+
+    def _run_exits_iterate(self, plan, ph, iteration, iterate_dir) -> bool:
+        """Same as _run_exits but never raises: failing EXIT output is written to
+        <rdir>/phase-<N>/iterate/exit-<iter>-<i>.log instead of feeding a retry brief
+        (there is no retry brief in iterate mode)."""
+        all_ok = True
+        for i, pred in enumerate(ph.exits):
+            ok, out = run_predicate(pred, cwd=plan.workdir, timeout=EXIT_TIMEOUT_S)
+            self.journal.write("exit.check", phase=ph.key, predicate=pred, ok=ok, output=out[-800:], lane=None,
+                                iteration=iteration)
+            if not ok:
+                all_ok = False
+                (iterate_dir / f"exit-{iteration}-{i}.log").write_text(out)
+        return all_ok
 
     def _run_gate(self, plan, ph):
         sentinel = Path(ph.gate)
@@ -442,6 +546,96 @@ def read_verdict(path: Path):
         v = first.split(":", 1)[1].strip().upper().split()[0] if first.split(":", 1)[1].strip() else ""
         return v if v in ("PASS", "CONCERNS", "BLOCKING") else None
     return None
+
+
+_NOISE_DIRS = {".pipeline", "__pycache__", ".git"}
+_NOISE_SUFFIXES = (".log",)
+_NOISE_NAMES = {"brief.md", "transcript.jsonl", "result.json"}
+
+
+def _count_unchecked_boxes(workdir: Path):
+    """Count `- [ ]` boxes across every .pipeline/phase-N*/progress.md or tasks.md
+    under workdir. Returns None if no such file exists or none has any boxes at all
+    (both checked and unchecked): a file with all boxes checked is a real 0, but a
+    project that never wrote the file has no built-in-signal opinion."""
+    files = sorted(globmod.glob(str(workdir / ".pipeline" / "phase-*" / "progress.md")))
+    files += sorted(globmod.glob(str(workdir / ".pipeline" / "phase-*" / "tasks.md")))
+    if not files:
+        return None
+    any_box = False
+    unchecked = 0
+    for f in files:
+        try:
+            text = Path(f).read_text(errors="replace")
+        except OSError:
+            continue
+        if re.search(r"^\s*[-*]\s*\[[ xX]\]", text, re.M):
+            any_box = True
+        unchecked += len(re.findall(r"^\s*[-*]\s*\[ \]", text, re.M))
+    return unchecked if any_box else None
+
+
+def _git_tracked_state_fingerprint(workdir: Path) -> str:
+    """git status --porcelain + git diff of tracked files, hashed. Falls back to a
+    deterministic mtime+size walk (excluding engine/estate noise) when workdir is
+    not inside a git repo."""
+    try:
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=str(workdir), capture_output=True,
+                                text=True, timeout=30)
+        diff = subprocess.run(["git", "diff"], cwd=str(workdir), capture_output=True, text=True, timeout=60)
+        if status.returncode == 0 and diff.returncode == 0:
+            h = hashlib.sha256()
+            h.update(status.stdout.encode())
+            h.update(diff.stdout.encode())
+            return h.hexdigest()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    h = hashlib.sha256()
+    for root, dirs, files in os.walk(workdir):
+        dirs[:] = sorted(d for d in dirs if d not in _NOISE_DIRS)
+        for name in sorted(files):
+            if name in _NOISE_NAMES or name.endswith(_NOISE_SUFFIXES):
+                continue
+            p = Path(root) / name
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            rel = str(p.relative_to(workdir))
+            h.update(f"{rel}:{st.st_mtime_ns}:{st.st_size}\n".encode())
+    return h.hexdigest()
+
+
+def builtin_progress_signal(state_dir: Path, workdir: Path) -> bool:
+    """The built-in PROGRESS signal used when a phase omits PROGRESS. Checkbox count
+    first (a phase-local progress file the brief tells workers to maintain); else a
+    project-state fingerprint (git tracked-file state, or a noise-excluding mtime+size
+    walk as fallback). State persists in `state_dir`, updated only when progress is
+    detected. Tolerant of the first call ever: no prior state means progress by
+    definition (persisted, returns True)."""
+    state_dir = Path(state_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    count = _count_unchecked_boxes(Path(workdir))
+    if count is not None:
+        f = state_dir / "checkbox_count.txt"
+        prev = f.read_text().strip() if f.exists() else None
+        if prev is None:
+            f.write_text(str(count))
+            return True
+        if count < int(prev):
+            f.write_text(str(count))
+            return True
+        return False
+    fp = _git_tracked_state_fingerprint(Path(workdir))
+    f = state_dir / "fingerprint.txt"
+    prev = f.read_text().strip() if f.exists() else None
+    if prev is None:
+        f.write_text(fp)
+        return True
+    if fp != prev:
+        f.write_text(fp)
+        return True
+    return False
 
 
 def run_predicate(pred: str, *, cwd: Path, env: dict = None, timeout: int = 600):

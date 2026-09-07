@@ -21,7 +21,7 @@ FOOTER_HINT_ROWS = 1
 def draw(stdscr, app):
     stdscr.erase()
     h, w = stdscr.getmaxyx()
-    _draw_tabs(stdscr, app.nav, w)
+    _draw_tabs(stdscr, app.nav, w, palette=app.palette)
     body_top = 2
     from .app import CONVERSATION_TAB
     composer_rows = 1 if app.nav.tab == CONVERSATION_TAB and app.nav.top() is None else 0
@@ -58,12 +58,13 @@ def _safe_addstr(stdscr, y, x, text, attr=0):
         pass
 
 
-def _draw_tabs(stdscr, nav, w):
+def _draw_tabs(stdscr, nav, w, palette=None):
     from .app import TABS
+    palette = palette or {}
     x = 0
     for i, name in enumerate(TABS):
         label = f" {i + 1}:{name} "
-        attr = curses.A_REVERSE if i == nav.tab else curses.A_NORMAL
+        attr = curses.A_REVERSE | palette.get("accent", 0) if i == nav.tab else curses.A_NORMAL
         _safe_addstr(stdscr, 0, x, label, attr)
         x += len(label)
     scope = "ALL SESSIONS" if nav.all_sessions else "this conversation"
@@ -90,8 +91,9 @@ def _draw_tab_body(stdscr, app, top, height, w):
     elif tab == 2:
         rows = app.data.get("files") or []
         lines = [render_file_line(r) for r in rows]
+        attrs = [app.palette["error"] if not r["exists"] else 0 for r in rows]
         draw_scrollable(stdscr, top, height, w, lines, app.list_viewport(tab),
-                         sel_idx=app.nav.cur_selection() if rows else None,
+                         sel_idx=app.nav.cur_selection() if rows else None, attrs=attrs,
                          empty_msg="(no deliverables registered yet)")
     elif tab == 3:
         _draw_conversation(stdscr, app, top, height, w)

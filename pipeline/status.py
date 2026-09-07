@@ -42,7 +42,17 @@ def run_report(run_id: str) -> dict:
         verdict = "unknown"
     waiting = [f"phase {k}: write sentinel {p['waiting_on']}" for k, p in phases.items() if p.get("status") == "waiting"]
     if st.get("stopped") and st["closed"]:
-        waiting.append(f"deliberate stop [{st['stopped']}]: {(st.get('stop_detail') or '')[:200]}  (resume with `pipeline resume {run_id}` after judging)")
+        detail = st.get("stop_detail") or ""
+        if detail.startswith("ITERATE-STALLED:"):
+            waiting.append(f"ITERATE-STALLED: {detail[len('ITERATE-STALLED:'):].strip()[:200]}  "
+                            f"(the loop made no progress for consecutive iterations; inspect the iterate/ "
+                            f"logs, fix the phase brief or PROGRESS predicate, then `pipeline resume {run_id}`)")
+        elif detail.startswith("ITERATE-CEILING:"):
+            waiting.append(f"ITERATE-CEILING: {detail[len('ITERATE-CEILING:'):].strip()[:200]}  "
+                            f"(the loop exhausted its CEILING without EXIT passing; raise CEILING or fix the phase, "
+                            f"then `pipeline resume {run_id}`)")
+        else:
+            waiting.append(f"deliberate stop [{st['stopped']}]: {detail[:200]}  (resume with `pipeline resume {run_id}` after judging)")
     # dispatch.end rows, not the collapsed per-id state: a quota hit followed by a
     # successful quota_fallback retry reuses the dispatch id, so the derived state's
     # single "outcome" per id would lose the quota event.
@@ -94,7 +104,13 @@ def render(reports: list, *, scope: str) -> str:
     for r in inflight:
         lines.append(f"  {r['run']}  {r['verdict']}  engine_pid={r['engine_pid']} alive={r['engine_alive']}  plan={r['plan']}")
         for k, p in sorted(r["phases"].items(), key=lambda kv: int(kv[0])):
-            lines.append(f"    phase {k}: {p.get('status')} role={p.get('role')} attempts={p.get('attempts')}")
+            it = p.get("iterate")
+            if it:
+                lines.append(f"    phase {k}: {p.get('status')} role={p.get('role')} "
+                             f"iter {it.get('iteration')}/{it.get('ceiling')} stall={it.get('stall_count')} "
+                             f"${round(it.get('cumulative_cost') or 0, 4)}")
+            else:
+                lines.append(f"    phase {k}: {p.get('status')} role={p.get('role')} attempts={p.get('attempts')}")
         for w in r["workers"]:
             age = f"{int(w['age'])}s" if w.get("age") is not None else "n/a"
             state = "stalled" if w["stalled"] else ("alive" if w["alive"] else "dead")

@@ -19,6 +19,9 @@ Event vocabulary (the characterization suite pins this):
   exit.check      phase, predicate, ok, output (truncated)
   review.verdict  phase, reviewer role, model, verdict (PASS|CONCERNS|BLOCKING)
   surface.score   phase, file, surface, metrics, pass
+  iterate.end     phase, iteration, exit_ok, progress (true|false|null=first), stall_count,
+                  wall_s, tokens, cost, cumulative_tokens, cumulative_cost (ITERATE phases;
+                  one row per iteration, no phase.fail written for a merely-failing EXIT)
   recover.stall   phase, by (sentry), action
   relight         by (sentry), old pid, new pid
 """
@@ -101,6 +104,11 @@ def derive_state(rows: list) -> dict:
         elif ev == "phase.wait":
             p = st["phases"].setdefault(r["phase"], {"attempts": 0})
             p.update(status="waiting", waiting_on=r.get("sentinel"), role="gate")
+        elif ev == "iterate.end":
+            p = st["phases"].setdefault(r["phase"], {"attempts": 0, "waiting_on": None})
+            p.update(iterate={"iteration": r.get("iteration"), "ceiling": r.get("ceiling"),
+                               "stall_count": r.get("stall_count"), "exit_ok": r.get("exit_ok"),
+                               "cumulative_cost": r.get("cumulative_cost"), "cumulative_tokens": r.get("cumulative_tokens")})
         elif ev == "dispatch.start":
             st["dispatches"][r["id"]] = {
                 "id": r["id"], "phase": r.get("phase"), "role": r.get("role"), "model": r.get("model"),

@@ -25,6 +25,7 @@ import time
 from . import model, views
 from . import conversation as conv_mod
 from . import mouse as mouse_mod
+from . import palette as palette_mod
 from . import scroll as scroll_mod
 
 POLL_S = float(os.environ.get("PIPELINE_TUI_POLL_S", "0.5"))
@@ -185,6 +186,11 @@ class App:
         self.composer = conv_mod.Composer(writer=writer)
         self._conv_session = None
 
+        # -- color: exactly one accent pair + one error pair (pipeline.tui.palette),
+        # registered once real curses is up in run() below; {} (both attrs degrade
+        # to 0/A_NORMAL) until then, so views.py never needs a None check.
+        self.palette = {"accent": 0, "error": 0}
+
         # -- mouse state
         self.mouse_mode = mouse_mod.MouseMode(captured=True)
         self.selection = mouse_mod.Selection()
@@ -318,6 +324,7 @@ class App:
 
     def run(self, stdscr):
         curses.curs_set(0)
+        self.palette = palette_mod.init_palette()
         # raw (not just cbreak, which curses.wrapper already set) disables ISIG so
         # Ctrl+C arrives as a normal byte (KEY_CTRL_C, handled below as copy-selection)
         # instead of the tty raising SIGINT -- otherwise Ctrl+C never reaches the app
