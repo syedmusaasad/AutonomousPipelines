@@ -2527,11 +2527,12 @@ def cloudtier_export_verify_delete_happy_path():
         manifest_rows = [json.loads(l) for l in Path(result["manifest"]).read_text().splitlines()]
         assert manifest_rows and manifest_rows[0]["run"] == "run_cloud_ok"
         assert manifest_rows[0]["tar_sha256"] == u["sha256"]
+        assert manifest_rows[0]["local_cold"] == str(E.local_cold / "run_cloud_ok.tar.gz")
         assert manifest_rows[0]["remote_url"] == u["remote_url"]
         assert manifest_rows[0]["artifact_bytes"] > 0
 
-        # local tar deleted after verify; artifacts swept; journal + STOPPED + lock survive
-        assert not (E.estate / "cold" / "run_cloud_ok.tar.gz").exists()
+        # local cold tar stays after verify; artifacts are swept; journal + STOPPED + lock survive
+        assert (E.local_cold / "run_cloud_ok.tar.gz").exists()
         assert not (rdir / "engine.log").exists()
         assert not (rdir / "phase-1").exists()
         assert jp.exists() and (rdir / "STOPPED").exists() and (rdir / "engine.lock").exists()
@@ -2552,7 +2553,7 @@ def cloudtier_checksum_mismatch_keeps_local():
         assert len(result["errors"]) == 1 and result["errors"][0]["run"] == "run_cloud_bad"
         assert "mismatch" in result["errors"][0]["error"]
         # nothing local was deleted: tar kept, artifacts kept
-        assert (E.estate / "cold" / "run_cloud_bad.tar.gz").exists()
+        assert (E.local_cold / "run_cloud_bad.tar.gz").exists()
         assert (rdir / "engine.log").exists()
         assert (rdir / "phase-1").exists()
 
@@ -2574,7 +2575,7 @@ def cloudtier_remote_unreachable_deletes_nothing():
 
         assert raised
         # not even a tar was built for this run: probe_remote fails before any per-run work
-        assert not (E.estate / "cold").exists() or not any((E.estate / "cold").iterdir())
+        assert not any(E.local_cold.iterdir())
         assert (rdir / "engine.log").exists()
         assert (rdir / "phase-1").exists()
 
@@ -2600,7 +2601,7 @@ def cloudtier_tar_excludes_journal_and_stopped_lock():
     with Estate() as E:
         rdir, item = _make_old_closed_run(E, "run_cloud_tar")
         tar_path = cloudtier.build_tar(item, estate=E.estate)
-        assert tar_path == E.estate / "cold" / "run_cloud_tar.tar.gz"
+        assert tar_path == E.local_cold / "run_cloud_tar.tar.gz"
         with tarfile.open(tar_path, "r:gz") as tf:
             names = tf.getnames()
         assert any(n.endswith("engine.log") for n in names)
@@ -2629,6 +2630,40 @@ def cloudtier_manifest_written_before_local_deletion():
         # the quick scratch dir was included in artifact_bytes and swept too
         assert rows[0]["artifact_bytes"] > 0
         assert not qdir.exists()
+
+
+@test
+def cloudtier_falls_back_to_tmp_when_local_cold_probe_fails():
+    from pipeline import cloudtier
+    with Estate() as E:
+        rdir, item = _make_old_closed_run(E, "run_cloud_fallback")
+        os.environ["PIPELINE_LOCAL_COLD"] = "/proc/pipeline-cold-unavailable"
+        try:
+            assert not cloudtier.probe_local_cold()
+            result = cloudtier.export_plan([item], "fakeremote", estate=E.estate)
+        finally:
+            os.environ["PIPELINE_LOCAL_COLD"] = str(E.local_cold)
+
+        assert result["errors"] == []
+        row = json.loads(Path(result["manifest"]).read_text().strip())
+        assert row["local_cold"].startswith("/tmp/")
+        assert not Path(row["local_cold"]).exists()
+        assert not (rdir / "engine.log").exists()
+
+
+@test
+def cold_get_reports_local_archive_or_remote_hint():
+    with Estate() as E:
+        local_tar = E.local_cold / "run_local.tar.gz"
+        local_tar.write_text("archive")
+        present = E.cli("cold-get", "run_local")
+        assert present.returncode == 0 and present.stdout.strip() == str(local_tar)
+
+        (E.estate / "logs").mkdir()
+        (E.estate / "logs" / "gc-cloud-manifest-20260907T000000Z.jsonl").write_text(
+            json.dumps({"run": "run_remote", "remote_url": "fakeremote:pipeline-cold/run_remote.tar.gz"}) + "\n")
+        absent = E.cli("cold-get", "run_remote")
+        assert absent.returncode == 4 and absent.stdout.strip() == "fakeremote:pipeline-cold/run_remote.tar.gz"
 
 
 @test

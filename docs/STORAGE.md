@@ -143,7 +143,13 @@ Systemd user services manage scheduled storage reporting:
 ## 6. Cloud Archive Tier (Extension)
 
 For long-term retention beyond the local SSD estate, `pipeline/cloudtier.py` extends GC using `rclone` with Google Drive as the primary free tier:
-1. **Export**: The pipeline bundles eligible run artifacts into `<estate>/cold/<run>.tar.gz` while omitting `journal.jsonl` and `STOPPED` receipts.
+1. **Export**: The pipeline bundles eligible run artifacts while omitting `journal.jsonl` and `STOPPED` receipts.
 2. **Upload**: The pipeline copies the cold bundle to `remote:pipeline-cold/<run>.tar.gz`.
 3. **Verify Checksum**: The pipeline validates the local SHA-256 hash against the remote checksum from `rclone hashsum sha256`.
-4. **Manifest and Local Delete**: The pipeline records the cloud manifest entry and deletes local artifact files only after checksum verification passes.
+4. **Manifest and Local Delete**: The pipeline records the cloud manifest entry and deletes local run artifact files only after checksum verification passes.
+
+### Local cold tier
+
+`/mnt/HC_Volume_106815039/pipeline-cold` is the local cold tier. It is not the estate: the sticky estate remains at `/root/.system`. GC writes each verified archive to this volume first, retains it there for fast retrieval, and also uploads the same archive to Drive as the off-site copy. Use `pipeline cold-get <run-id>` to print the local archive path; if it is absent, the command prints the recorded Drive hint and exits 4.
+
+The volume is a single device and is not backed up itself. Drive remains the redundancy for exactly that reason. If the volume cannot be probed, cloud export stages its tar in `/tmp` and still completes the verified Drive archive rather than failing the export.

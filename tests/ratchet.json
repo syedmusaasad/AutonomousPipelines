@@ -1,5 +1,5 @@
 {
- "min_tests": 240,
+ "min_tests": 244,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
@@ -10,11 +10,13 @@
   "cloudtier_checksum_mismatch_keeps_local",
   "cloudtier_cli_exit_2_on_unreachable_remote",
   "cloudtier_export_verify_delete_happy_path",
+  "cloudtier_falls_back_to_tmp_when_local_cold_probe_fails",
   "cloudtier_manifest_written_before_local_deletion",
   "cloudtier_remote_unreachable_deletes_nothing",
   "cloudtier_tar_excludes_journal_and_stopped_lock",
   "cmd_validate_shows_iterate_flag",
   "cmd_validate_warns_but_still_exits_zero",
+  "cold_get_reports_local_archive_or_remote_hint",
   "config_mismatch_is_deliberate_stop",
   "cost_ceiling_is_reserved_and_rejected",
   "cross_review_two_families_blocking_stops",

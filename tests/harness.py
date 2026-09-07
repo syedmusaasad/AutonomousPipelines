@@ -23,14 +23,17 @@ class Estate:
         self.work = self.tmp / "work"
         self.agents = self.tmp / "agents"
         self.roblox_skills = self.tmp / "roblox_skills"
+        self.local_cold = self.tmp / "local-cold"
         self.work.mkdir(parents=True)
         self.estate.mkdir()
+        self.local_cold.mkdir()
         self.log = self.tmp / "fake.log"
         self.env = {
             "PIPELINE_ESTATE": str(self.estate),
             "PIPELINE_WORKER_BIN": str(FAKE),
             "PIPELINE_RCLONE_BIN": str(FAKE_RCLONE),
             "FAKE_RCLONE_ROOT": str(self.tmp / "fake-remote"),
+            "PIPELINE_LOCAL_COLD": str(self.local_cold),
             "PIPELINE_AGENTS_DIR": str(self.agents),
             "PIPELINE_ROBLOX_SKILLS_DIR": str(self.roblox_skills),
             "PIPELINE_POLL_S": "0.2",

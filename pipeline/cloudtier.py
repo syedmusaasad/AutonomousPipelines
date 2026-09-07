@@ -1,25 +1,24 @@
-"""Cloud tier for GC: export closed run artifacts to remote storage via rclone,
-verify byte-identical, then delete local copies (see plans/009-gc/plan.md
-DECISION cloud-tier). This EXTENDS gc, it does not replace it: gc.plan() still
-decides what is eligible (journal-closed, past buffer, not current lineage);
-this module adds an export -> upload -> VERIFY CHECKSUM -> local-delete stage
-in front of gc.sweep() so the cold copy lives on Drive (or any rclone remote)
-instead of vanishing.
+"""Cloud tier for GC: export closed run artifacts to local cold storage and
+Drive, verify byte-identical, then delete the run artifacts (see
+plans/009-gc/plan.md DECISION cloud-tier). This EXTENDS gc, it does not replace
+it: gc.plan() still decides what is eligible (journal-closed, past buffer, not
+current lineage); this module adds an export -> upload -> VERIFY CHECKSUM ->
+local-delete stage in front of gc.sweep().
 
 Per run, export_plan():
   1. tar the artifact files (everything gc.sweep() would otherwise delete --
      NEVER journal.jsonl / STOPPED / engine.lock, those stay local forever)
-     to <estate>/cold/<run>.tar.gz
+      to the local cold volume at LOCAL_COLD/<run>.tar.gz
   2. `rclone copy` that tar to remote:pipeline-cold/<run>.tar.gz
   3. verify_upload(): compare the LOCAL sha256 of the tar against the REMOTE
      object's sha256 (via `rclone hashsum sha256`) -- byte-identical proof,
      not upload-success-only
   4. only if that verification passes: gc.sweep() the run's local artifacts,
-     then delete the local tar (the remote copy is now the archive)
+      while keeping the local cold tar for fast retrieval
 
-The manifest row (run id, tar sha256, remote URL, artifact byte count) is
-written to <estate>/logs/gc-cloud-manifest-<ts>.jsonl BEFORE the local tar is
-deleted -- same discipline as gc.sweep()'s manifest-before-delete.
+The manifest row (run id, tar sha256, local cold path, remote URL, artifact
+byte count) is written to <estate>/logs/gc-cloud-manifest-<ts>.jsonl BEFORE
+artifact deletion -- same discipline as gc.sweep()'s manifest-before-delete.
 
 If rclone or the remote is unreachable at all: nothing is deleted, not one
 local byte, for ANY run in the batch (checked up front via probe_remote()).
@@ -27,17 +26,20 @@ A per-run checksum mismatch keeps that run's tar and artifacts but does not
 abort the rest of the batch."""
 
 import hashlib
+import json
 import os
 import subprocess
 import tarfile
+import tempfile
 import time
 from pathlib import Path
 
 from . import gc as gcmod, paths
-from .util import append_jsonl, now_iso, with_storm_armor
+from .util import append_jsonl, fs_probe, log, now_iso, with_storm_armor
 
 RCLONE_BIN = "rclone"
 REMOTE_DIR_NAME = "pipeline-cold"
+LOCAL_COLD = Path("/mnt/HC_Volume_106815039/pipeline-cold")
 
 
 class CloudTierError(Exception):
@@ -58,9 +60,19 @@ def _run_rclone(args: list, timeout: float = 120) -> subprocess.CompletedProcess
         raise CloudTierError(f"rclone unreachable running {' '.join(argv)}: {e}") from e
 
 
-def cold_dir(estate: Path = None) -> Path:
-    estate = Path(estate) if estate else paths.estate_root()
-    return estate / "cold"
+def local_cold_dir() -> Path:
+    """Configured local cold archive directory.
+
+    The environment override keeps the test harness and recovery operators off
+    the production volume. It is resolved per call so a long-lived process can
+    use a temporary override without reimporting this module.
+    """
+    return Path(os.environ.get("PIPELINE_LOCAL_COLD", str(LOCAL_COLD)))
+
+
+def probe_local_cold() -> bool:
+    """Return whether the local cold volume can create, read, and remove data."""
+    return fs_probe(local_cold_dir())
 
 
 def sha256_file(path: Path) -> str:
@@ -81,9 +93,10 @@ def probe_remote(remote: str) -> bool:
         return False
 
 
-def build_tar(item: dict, *, estate: Path = None) -> Path:
+def build_tar(item: dict, *, estate: Path = None, tar_dir: Path = None) -> Path:
     """Tar the artifact files for one gc-eligible run item (as produced by
-    gc.plan()'s sweep_list) to <estate>/cold/<run>.tar.gz. Excludes
+    gc.plan()'s sweep_list) to tar_dir/<run>.tar.gz, defaulting to the local
+    cold tier. Excludes
     journal.jsonl / STOPPED / engine.lock (gc._artifact_paths already filters
     those out) and includes the companion quick scratch dir if present.
     Written via a tmp file + atomic rename so a crash mid-tar never leaves a
@@ -91,7 +104,7 @@ def build_tar(item: dict, *, estate: Path = None) -> Path:
     estate = Path(estate) if estate else paths.estate_root()
     rid = item["run"]
     rdir = Path(item["rdir"])
-    cdir = cold_dir(estate)
+    cdir = Path(tar_dir) if tar_dir is not None else local_cold_dir()
 
     def _mkdir():
         cdir.mkdir(parents=True, exist_ok=True)
@@ -149,10 +162,36 @@ def verify_upload(tar_path: Path, remote_url: str) -> dict:
     return {"ok": local == remote, "local_sha256": local, "remote_sha256": remote}
 
 
+def cold_get(run_id: str, *, estate: Path = None) -> tuple[str, int]:
+    """Return the fast local archive path, or the recorded remote retrieval hint.
+
+    The caller prints the returned text. A missing local archive is deliberately
+    exit 4 even when the manifest identifies its Drive copy: restoration then
+    requires an explicit rclone operation rather than pretending it is local.
+    """
+    tar_path = local_cold_dir() / f"{run_id}.tar.gz"
+    if tar_path.is_file():
+        return str(tar_path), 0
+
+    estate = Path(estate) if estate else paths.estate_root()
+    remote_hint = None
+    for manifest_path in sorted((estate / "logs").glob("gc-cloud-manifest-*.jsonl")):
+        try:
+            for line in manifest_path.read_text().splitlines():
+                row = json.loads(line)
+                if row.get("run") == run_id and row.get("remote_url"):
+                    remote_hint = row["remote_url"]
+        except (OSError, json.JSONDecodeError):
+            continue
+    return remote_hint or f"remote:{REMOTE_DIR_NAME}/{run_id}.tar.gz", 4
+
+
 def export_plan(gc_items: list, remote: str, *, estate: Path = None) -> dict:
     """Compose the cold-tier pipeline over a batch of gc-eligible items (as
-    produced by gc.plan()'s sweep_list): for each item, tar -> upload -> verify
-    -> gc.sweep() the run's local artifacts -> delete the local tar.
+    produced by gc.plan()'s sweep_list): for each item, tar to local cold ->
+    upload -> verify -> gc.sweep() the run's local artifacts. If the cold
+    volume is unavailable, /tmp is temporary staging and Drive remains the
+    system of record.
 
     Raises CloudTierError up front (before touching any run) if the remote is
     unreachable -- nothing is deleted for anyone in that case. A per-run
@@ -163,6 +202,14 @@ def export_plan(gc_items: list, remote: str, *, estate: Path = None) -> dict:
     [{"run", "error"}...], "manifest": <path str>}."""
     estate = Path(estate) if estate else paths.estate_root()
     logs = estate / "logs"
+
+    if probe_local_cold():
+        tar_dir = local_cold_dir()
+        local_cold_available = True
+    else:
+        tar_dir = Path(tempfile.gettempdir()) / "pipeline-cold"
+        local_cold_available = False
+        log(f"cloudtier: local cold tier unreachable at {local_cold_dir()}; staging tar in {tar_dir}")
 
     if not probe_remote(remote):
         raise CloudTierError(f"remote '{remote}' unreachable via rclone; nothing exported, nothing deleted")
@@ -178,7 +225,7 @@ def export_plan(gc_items: list, remote: str, *, estate: Path = None) -> dict:
     for item in gc_items:
         rid = item["run"]
         try:
-            tar_path = build_tar(item, estate=estate)
+            tar_path = build_tar(item, estate=estate, tar_dir=tar_dir)
             remote_url = upload(tar_path, remote)
             result = verify_upload(tar_path, remote_url)
             if not result["ok"]:
@@ -189,13 +236,16 @@ def export_plan(gc_items: list, remote: str, *, estate: Path = None) -> dict:
             # record survives even a death partway through the rest of this loop.
             row = {
                 "ts": now_iso(), "run": rid, "tar_sha256": result["local_sha256"],
-                "remote_url": remote_url, "artifact_bytes": item.get("bytes", 0),
+                "local_cold": str(tar_path), "remote_url": remote_url,
+                "artifact_bytes": item.get("bytes", 0),
             }
             with_storm_armor(lambda row=row: append_jsonl(manifest_path, row), what=f"cloudtier manifest {manifest_path}")
 
             gcmod.sweep([item], estate=estate)
-            with_storm_armor(lambda p=tar_path: p.unlink(missing_ok=True), what=f"cloudtier tar delete {tar_path}")
-            uploaded.append({"run": rid, "remote_url": remote_url, "sha256": result["local_sha256"]})
+            if not local_cold_available:
+                with_storm_armor(lambda p=tar_path: p.unlink(missing_ok=True), what=f"cloudtier staging tar delete {tar_path}")
+            uploaded.append({"run": rid, "local_cold": str(tar_path), "remote_url": remote_url,
+                             "sha256": result["local_sha256"]})
         except CloudTierError as e:
             errors.append({"run": rid, "error": str(e)})
 
