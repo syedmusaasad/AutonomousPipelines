@@ -156,7 +156,10 @@ def _draw_conversation(stdscr, app, top, height, w):
     lines = cs.lines()
     progress = cs.progress_text()
     if progress:
-        lines = [progress] + lines
+        # Follow mode pins the viewport to the tail.  Keep the live progress
+        # marker there as well so a large replay never hides its only loading
+        # signal above the current conversation rows.
+        lines = lines + [progress]
     draw_scrollable(stdscr, top, height, w, lines, app.conv_viewport)
 
 

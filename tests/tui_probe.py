@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import traceback
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -133,11 +134,11 @@ def pane_dead(tmux_session):
     return result.stdout.strip() == "1"
 
 
-def tui_env():
+def tui_env(db_path=CONV_DB):
     env = os.environ.copy()
     env["PIPELINE_ESTATE"] = str(FIXTURE)
     env["HOME"] = str(FIXTURE / "home")
-    env["PIPELINE_DEVPASS_DB"] = str(CONV_DB)
+    env["PIPELINE_DEVPASS_DB"] = str(db_path)
     Path(env["HOME"] + "/.system").mkdir(parents=True, exist_ok=True)
     return env
 
@@ -150,12 +151,14 @@ def _kill_stale():
                    capture_output=True)
 
 
-def boot_tui(tmux_session):
+def boot_tui(tmux_session, conv=PROBE_SESSION_ID, db_path=CONV_DB, settle=True):
     _kill_stale()
-    env = tui_env()
+    env = tui_env(db_path)
     subprocess.run(["tmux", "-L", SERVER, "new-session", "-d", "-x", "120", "-y", "40",
-                    "-s", tmux_session, "pipeline tui --conv ses_probe"],
-                   env=env, check=True)
+                    "-s", tmux_session, f"pipeline tui --conv {conv}"],
+                    env=env, check=True)
+    if not settle:
+        return ""
     previous = ""
     stable = 0
     deadline = time.monotonic() + 10
@@ -433,6 +436,87 @@ def run_scroll():
     assert_scroll(SESSION)
 
 
+# -- replay (20k-part conversation must remain responsive) --------------------
+
+GIANT_FIXTURE = FIXTURE / "giant"
+GIANT_DB = GIANT_FIXTURE / "giant.db"
+REPLAY_BUDGET_S = 3.0
+
+
+def assert_replay(tmux_session):
+    """Generate the fixed 20k-part/100k-line fixture, then make exactly two
+    captures: one while the chunked loader reports progress and one after it has
+    had the remaining replay budget to paint conversation content.  There is no
+    capture-poll loop here: a slow replay is an app bug, not a probe retry."""
+    subprocess.run([sys.executable, str(Path(__file__).parent / "fixtures" / "tui_giant_fixture.py"),
+                    "--target", str(GIANT_FIXTURE)], check=True)
+    started = time.monotonic()
+    boot_tui(tmux_session, conv="ses_giant", db_path=GIANT_DB, settle=False)
+    # Give curses one draw tick to create the loading state, then switch to the
+    # attached conversation before taking the required immediate capture.
+    time.sleep(0.10)
+    send_key(tmux_session, "4")
+    time.sleep(0.05)  # one paint after the tab key; this is not a capture poll
+    progress_cap = capture(tmux_session)
+    if "loading conversation:" not in progress_cap:
+        print(progress_cap)
+        raise AssertionError("giant replay never showed its loading progress line")
+
+    remaining = REPLAY_BUDGET_S - (time.monotonic() - started)
+    if remaining > 0:
+        time.sleep(remaining)
+    content_cap = capture(tmux_session)
+    elapsed = time.monotonic() - started
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died during giant replay")
+    if "giant replay line " not in content_cap:
+        print(content_cap)
+        raise AssertionError("giant replay showed no conversation content rows")
+    if elapsed > REPLAY_BUDGET_S + 0.15:
+        raise AssertionError(f"giant replay exceeded {REPLAY_BUDGET_S}s budget ({elapsed:.2f}s)")
+
+
+def run_replay():
+    assert_replay(SESSION)
+
+
+# -- palette (registered colors + visibly marked active tab) ------------------
+
+def assert_palette(tmux_session):
+    """The palette contract is an in-process assertion on the App palette, not
+    fragile ANSI parsing.  The live capture only verifies that the marked tab and
+    the app-owned status-bar identity are actually painted."""
+    from pipeline.tui import app as tui_app
+
+    registered = []
+    with mock.patch.object(tui_app.palette_mod.curses, "has_colors", return_value=True), \
+         mock.patch.object(tui_app.palette_mod.curses, "start_color"), \
+         mock.patch.object(tui_app.palette_mod.curses, "use_default_colors"), \
+         mock.patch.object(tui_app.palette_mod.curses, "init_pair",
+                           side_effect=lambda number, fg, bg: registered.append((number, fg, bg))), \
+         mock.patch.object(tui_app.palette_mod.curses, "color_pair", side_effect=lambda number: number):
+        app = tui_app.App(PROBE_SESSION_ID)
+        app.palette = tui_app.palette_mod.init_palette()
+    if set(app.palette) != {"accent", "error"} or len(registered) != 2:
+        raise AssertionError(f"expected exactly accent/error palette pairs, got {app.palette!r}, {registered!r}")
+    if [pair[0] for pair in registered] != [1, 2]:
+        raise AssertionError(f"unexpected palette pair registration: {registered!r}")
+
+    plain = boot_tui(tmux_session)
+    escaped = capture(tmux_session, escape=True)
+    first_line = escaped.splitlines()[0] if escaped.splitlines() else ""
+    if "agent=pl-interactive" not in plain:
+        print(plain)
+        raise AssertionError("palette capture is missing the app status-bar identity")
+    if "\x1b[7m" not in first_line and "\x1b[4m" not in first_line:
+        print(escaped)
+        raise AssertionError("palette capture has no inverse/underline active-tab marker")
+
+
+def run_palette():
+    assert_palette(SESSION)
+
+
 # -- osc52 (mouse-capture hint + drag-select + Ctrl+C clipboard escape) -------
 
 def assert_osc52(tmux_session):
@@ -509,6 +593,8 @@ ASSERTIONS = {
     "stream": run_stream,
     "scroll": run_scroll,
     "osc52": run_osc52,
+    "replay": run_replay,
+    "palette": run_palette,
 }
 
 

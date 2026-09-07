@@ -456,7 +456,7 @@ class App:
                 return []
             lines = cs.lines()
             progress = cs.progress_text()
-            return ([progress] + lines) if progress else lines
+            return (lines + [progress]) if progress else lines
         return [str(r) for r in self.current_tab_rows()]
 
     def _scroll_active(self, direction: int, page: bool = False, home: bool = False, end: bool = False):
