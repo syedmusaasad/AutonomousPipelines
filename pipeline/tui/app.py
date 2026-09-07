@@ -318,6 +318,14 @@ class App:
 
     def run(self, stdscr):
         curses.curs_set(0)
+        # raw (not just cbreak, which curses.wrapper already set) disables ISIG so
+        # Ctrl+C arrives as a normal byte (KEY_CTRL_C, handled below as copy-selection)
+        # instead of the tty raising SIGINT -- otherwise Ctrl+C never reaches the app
+        # at all, only ever a KeyboardInterrupt out of select.select().
+        try:
+            curses.raw()
+        except curses.error:
+            pass
         stdscr.nodelay(True)
         stdscr.keypad(True)
         if hasattr(curses, "mousemask"):
