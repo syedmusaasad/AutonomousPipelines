@@ -32,6 +32,9 @@ DEFAULT_ATTEMPTS = 2
 DEFAULT_CEILING = 2
 GATE_ROLE = "gate"
 
+DELIBERATION_MARKERS = ("figure out", "design the", "decide how", "decide whether",
+                         "consider whether", "pick the best approach", "determine which")
+
 
 class PlanError(ValueError):
     pass
@@ -246,6 +249,19 @@ def parse_file(path) -> Plan:
     if not plan.phases:
         raise PlanError(f"{path}: no phases found")
     return plan
+
+
+def deliberation_warnings(plan: Plan) -> list:
+    """One warning line per phase whose brief contains a deliberation marker."""
+    out = []
+    for ph in plan.phases:
+        if ph.is_gate:
+            continue
+        low = ph.brief.lower()
+        hit = next((m for m in DELIBERATION_MARKERS if m in low), None)
+        if hit:
+            out.append(f"phase {ph.number} brief contains deliberation marker {hit!r}: pre-made decisions survive; open-ended briefs have timed out on this estate. Pre-decide the choice or accept the risk.")
+    return out
 
 
 def validate_roles(plan: Plan, known_roles: set) -> None:

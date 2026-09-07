@@ -1,5 +1,5 @@
 {
- "min_tests": 222,
+ "min_tests": 224,
  "required": [
   "after_runs_independent_phases_concurrently",
   "bench_is_generated_from_journal_with_regeneration_commands",
@@ -13,8 +13,10 @@
   "cloudtier_manifest_written_before_local_deletion",
   "cloudtier_remote_unreachable_deletes_nothing",
   "cloudtier_tar_excludes_journal_and_stopped_lock",
+  "cmd_validate_warns_but_still_exits_zero",
   "config_mismatch_is_deliberate_stop",
   "cross_review_two_families_blocking_stops",
+  "deliberation_warnings_flag_markers_not_clean_briefs",
   "dispatch_as_row_backcompat_no_deliverables_key_when_none",
   "dispatch_deliverables_chat_chatter_never_matched",
   "dispatch_deliverables_dedup_and_last_block_only",

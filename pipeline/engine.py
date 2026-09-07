@@ -468,6 +468,8 @@ def launch(plan_path: Path, *, run_id: str = None, conversation: str = None, kin
     plan = planmod.parse_file(plan_path)
     reg = roles_mod.load()
     planmod.validate_roles(plan, set(reg["roles"]) | {planmod.GATE_ROLE})
+    for w in planmod.deliberation_warnings(plan):
+        log(w)
     paths.ensure_layout()
     if not fs_probe(paths.runs_dir()):
         raise RuntimeError(f"estate filesystem not writable: {paths.runs_dir()}")

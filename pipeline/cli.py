@@ -306,6 +306,11 @@ def cmd_validate(a):
         if ph.surfaces: flags.append(f"surface={ph.surfaces}")
         if ph.is_gate: flags.append(f"gate={ph.gate}")
         print(f"  {ph.number}: {ph.name} ({ph.role}) timeout={ph.timeout} attempts={ph.attempts} {' '.join(flags)}")
+    warnings = planmod.deliberation_warnings(pl)
+    for w in warnings:
+        print(f"WARN: {w}")
+    if warnings:
+        print(f"warn-count: {len(warnings)} (deliberation briefs have a known timeout cost; see docs/WRITING-PLANS.md)")
     return 0
 
 

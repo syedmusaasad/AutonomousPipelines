@@ -121,6 +121,27 @@ def plan_gate_default_sentinel():
     assert pl.by_number(1).gate == "/p/.gate-1"
 
 
+@test
+def deliberation_warnings_flag_markers_not_clean_briefs():
+    assert planmod.DELIBERATION_MARKERS
+    clean = planmod.parse_text("## Phase 1: a (implementer)\ndo the named thing\n")
+    assert planmod.deliberation_warnings(clean) == []
+    dirty = planmod.parse_text("## Phase 1: a (implementer)\ndesign the assertion approach\n")
+    warnings = planmod.deliberation_warnings(dirty)
+    assert len(warnings) == 1
+    assert "design the" in warnings[0]
+
+
+@test
+def cmd_validate_warns_but_still_exits_zero():
+    with Estate() as E:
+        p = E.plan("## Phase 1: a (implementer)\nEXIT: true\ndesign the assertion approach\n")
+        r = E.cli("validate", str(p))
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "WARN:" in r.stdout
+        assert "warn-count: 1" in r.stdout
+
+
 # ---------------------------------------------------------------- registry
 
 @test
@@ -315,7 +336,7 @@ def worker_contract_names_every_clause():
     c = roles_mod.worker_contract()
     for needle in ("non-interactive", "Never ask", "never wait", "filesystem is the oracle", "End stdout with the deliverable",
                    "engine runs EXIT", "refused", "Scope fences", "external channels", "Ceremony is exact",
-                   "Verification is bounded", "at most once", "Never loop verification"):
+                   "Verification is bounded", "at most once", "Never loop verification", "Never stall on design"):
         assert needle in c, needle
 
 
