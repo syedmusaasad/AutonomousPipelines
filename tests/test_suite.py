@@ -142,6 +142,98 @@ def cmd_validate_warns_but_still_exits_zero():
         assert "warn-count: 1" in r.stdout
 
 
+@test
+def iterate_grammar_accepts_on_and_sets_fields():
+    pl = planmod.parse_text("## Phase 1: x (implementer)\nITERATE: on\nCEILING: 12\nEXIT: true\n")
+    ph = pl.by_number(1)
+    assert ph.iterate is True and ph.ceiling == 12 and ph.iterate_progress is None
+
+
+@test
+def iterate_progress_directive_is_captured():
+    pl = planmod.parse_text("## Phase 1: x (implementer)\nITERATE: on\nCEILING: 3\nEXIT: true\nPROGRESS: test -f progress.md\n")
+    ph = pl.by_number(1)
+    assert ph.iterate_progress == "test -f progress.md"
+
+
+@test
+def iterate_rejects_non_on_value():
+    try:
+        planmod.parse_text("## Phase 1: x (implementer)\nITERATE: yes\nCEILING: 12\nEXIT: true\n")
+    except planmod.PlanError:
+        pass
+    else:
+        raise AssertionError("ITERATE: yes must fail")
+
+
+@test
+def iterate_and_lanes_together_is_rejected():
+    try:
+        planmod.parse_text("## Phase 1: x (implementer)\nITERATE: on\nCEILING: 12\nLANES: items\nEXIT: true\n")
+    except planmod.PlanError as e:
+        assert "LANES" in str(e) and "ITERATE" in str(e)
+    else:
+        raise AssertionError("ITERATE+LANES must fail")
+
+
+@test
+def iterate_without_ceiling_is_rejected():
+    try:
+        planmod.parse_text("## Phase 1: x (implementer)\nITERATE: on\nEXIT: true\n")
+    except planmod.PlanError as e:
+        assert "CEILING" in str(e)
+    else:
+        raise AssertionError("ITERATE without CEILING must fail")
+
+
+@test
+def iterate_without_exit_is_rejected():
+    try:
+        planmod.parse_text("## Phase 1: x (implementer)\nITERATE: on\nCEILING: 2\n")
+    except planmod.PlanError as e:
+        assert "EXIT" in str(e)
+    else:
+        raise AssertionError("ITERATE without EXIT must fail")
+
+
+@test
+def iterate_forbidden_on_gate_phases():
+    try:
+        planmod.parse_text("## Phase 1: g (gate)\nITERATE: on\nCEILING: 2\n")
+    except planmod.PlanError:
+        pass
+    else:
+        raise AssertionError("ITERATE on a gate phase must fail")
+
+
+@test
+def cost_ceiling_is_reserved_and_rejected():
+    try:
+        planmod.parse_text("## Phase 1: x (implementer)\nCOST-CEILING: 5\nEXIT: true\n")
+    except planmod.PlanError as e:
+        assert "reserved" in str(e).lower()
+    else:
+        raise AssertionError("COST-CEILING must be rejected")
+
+
+@test
+def non_iterate_plan_is_unchanged():
+    """Phases that never mention ITERATE keep their old defaults; full grammar test above
+    (plan_parses_every_directive) already covers this, but assert explicitly for iterate fields."""
+    pl = planmod.parse_text("## Phase 1: a (implementer)\nEXIT: true\n")
+    ph = pl.by_number(1)
+    assert ph.iterate is False and ph.iterate_progress is None
+
+
+@test
+def cmd_validate_shows_iterate_flag():
+    with Estate() as E:
+        p = E.plan("## Phase 1: a (implementer)\nITERATE: on\nCEILING: 5\nEXIT: true\n")
+        r = E.cli("validate", str(p))
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "iterate" in r.stdout and "ceiling=5" in r.stdout
+
+
 # ---------------------------------------------------------------- registry
 
 @test

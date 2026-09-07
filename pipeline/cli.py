@@ -305,6 +305,7 @@ def cmd_validate(a):
         if ph.review: flags.append("review=cross")
         if ph.surfaces: flags.append(f"surface={ph.surfaces}")
         if ph.is_gate: flags.append(f"gate={ph.gate}")
+        if ph.iterate: flags.append(f"iterate ceiling={ph.ceiling}" + (f" progress={ph.iterate_progress!r}" if ph.iterate_progress else ""))
         print(f"  {ph.number}: {ph.name} ({ph.role}) timeout={ph.timeout} attempts={ph.attempts} {' '.join(flags)}")
     warnings = planmod.deliberation_warnings(pl)
     for w in warnings:

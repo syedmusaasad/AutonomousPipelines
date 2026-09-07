@@ -13,6 +13,9 @@ does not run.
     ATTEMPTS: <n>                  worker attempts before the phase burns (default 2)
     MODEL: <provider/model>        pin the model (trials only; seats otherwise come from the registry)
     EFFORT: low|medium|high        override the seat's effort/reasoning variant for this phase
+    ITERATE: on                    Ralph-loop: fresh session per iteration, no prompt/failure carryover;
+                                    requires CEILING and at least one EXIT; forbids LANES
+    PROGRESS: <shell predicate>    optional; exit 0 = iteration advanced (default: built-in signal)
 
 Everything else under a phase heading is the brief: task facts handed to the worker.
 Free text before the first heading is the plan preamble (shared context). The
@@ -24,8 +27,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 HEADING = re.compile(r"^##\s*Phase\s+(\d+)\s*:\s*(.+?)\s*\((\w[\w-]*)\)\s*$")
-DIRECTIVE = re.compile(r"^([A-Z]+):\s*(.*?)\s*$")
-KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL", "EFFORT"}
+DIRECTIVE = re.compile(r"^([A-Z][A-Z-]*):\s*(.*?)\s*$")
+KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL", "EFFORT",
+         "ITERATE", "PROGRESS", "COST-CEILING"}
 
 DEFAULT_TIMEOUT = 1800
 DEFAULT_ATTEMPTS = 2
@@ -52,12 +56,15 @@ class Phase:
     timeout: int = DEFAULT_TIMEOUT
     lanes: str = None
     ceiling: int = DEFAULT_CEILING
+    ceiling_explicit: bool = False
     review: str = None
     surfaces: list = field(default_factory=list)  # [(glob, surface)]
     gate: str = None
     attempts: int = DEFAULT_ATTEMPTS
     model: str = None
     effort: str = None
+    iterate: bool = False
+    iterate_progress: str = None
     line: int = 0
 
     @property
@@ -166,6 +173,7 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
         ph.lanes = val
     elif key == "CEILING":
         ph.ceiling = _int(val, lineno, "CEILING", minimum=1)
+        ph.ceiling_explicit = True
     elif key == "REVIEW":
         if val != "cross":
             raise PlanError(f"line {lineno}: REVIEW supports only 'cross', got {val!r}")
@@ -187,6 +195,16 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
         if val not in ("low", "medium", "high"):
             raise PlanError(f"line {lineno}: EFFORT must be low|medium|high, got {val!r}")
         ph.effort = val
+    elif key == "ITERATE":
+        if val != "on":
+            raise PlanError(f"line {lineno}: ITERATE supports only 'on', got {val!r}")
+        ph.iterate = True
+    elif key == "PROGRESS":
+        if not val:
+            raise PlanError(f"line {lineno}: PROGRESS wants a shell predicate")
+        ph.iterate_progress = val
+    elif key == "COST-CEILING":
+        raise PlanError(f"line {lineno}: COST-CEILING is reserved for a future directive")
 
 
 def _int(val, lineno, key, minimum):
@@ -217,9 +235,18 @@ def _resolve(plan: Plan) -> None:
                 raise PlanError(f"phase {p.number}: gate phases take no EXIT/LANES/REVIEW/SURFACE")
             if not p.gate:
                 p.gate = str(p.default_gate_sentinel(plan.dir))
+            if p.iterate:
+                raise PlanError(f"phase {p.number}: ITERATE not allowed on gate phases")
         else:
             if p.gate:
                 raise PlanError(f"phase {p.number}: GATE only applies to (gate) phases")
+        if p.iterate:
+            if p.lanes:
+                raise PlanError(f"phase {p.number}: ITERATE and LANES cannot be combined on a phase")
+            if not p.ceiling_explicit:
+                raise PlanError(f"phase {p.number}: ITERATE requires CEILING")
+            if not p.exits:
+                raise PlanError(f"phase {p.number}: ITERATE requires at least one EXIT")
         prev = p.number
     # cycle check
     order = topo_order(plan)
