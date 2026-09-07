@@ -393,7 +393,7 @@
     "reviewer-b": {
       "purpose": "Sealed reviewer, family B (must differ from reviewer-a for REVIEW: cross).",
       "model": "grok-4-6",
-      "fallback": "gpt-5.3-codex",
+      "fallback": "claude-sonnet-5",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -433,6 +433,18 @@
           "at": "2026-09-05T19:30:00+00:00",
           "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
           "evidence": "AA: Grok 4.6 high = 51, highest non-premium intelligence; TTFT 52.7s acceptable for detached review"
+        },
+        {
+          "from": {
+            "model": "grok-4-6",
+            "fallback": "gpt-5.3-codex"
+          },
+          "to": {
+            "model": "grok-4-6",
+            "fallback": "claude-sonnet-5"
+          },
+          "at": "2026-09-07T18:40:00+00:00",
+          "why": "DECISION reviewer-b-fallback swap (2026-09-07, operator-approved after audit): gpt-5.3-codex was constraint-satisficing, not next-best (chosen only because better models were seated as primaries; no-collision rule). claude-sonnet-5 is strictly better on 2 of 3 axes for the reviewer criterion (raw intelligence + responsiveness): AA 45 vs 37*, TTFT 2.9s vs 58.9s, LB code_completion 78.3 (codex's single win: 86.9 \u2014 code-completion specialist, not a generalist reviewer). anthropic family is distinct from grok's xai and collides with no seat's primary since the Terra swap freed sonnet-5. Sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv (retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md)."
         }
       ],
       "quota_fallback": "gpt-oss-120b@high"

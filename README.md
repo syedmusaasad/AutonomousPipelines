@@ -85,7 +85,7 @@ Roles are defined in `roles/registry.json`. Each role has a model seat and a fal
 | `document-writer` | gemini-3.8-flash | high | glm-5.3 | Prose artifacts scored against a register standard; expects SURFACE:. |
 | `frontend-worker` | gpt-5.6-terra | high | deepseek-v4-pro | Browser-facing work: HTML/CSS/JS/TS components and their tests. |
 | `reviewer-a` | gpt-5.6-terra | high | deepseek-v4-pro | Sealed reviewer, family A. Writes verdict to its own review directory only. |
-| `reviewer-b` | grok-4-6 | high | gpt-5.3-codex | Sealed reviewer, family B. Used for `REVIEW: cross` alongside reviewer-a. |
+| `reviewer-b` | grok-4-6 | high | claude-sonnet-5 | Sealed reviewer, family B. Used for `REVIEW: cross` alongside reviewer-a. |
 | `reviewer-c` | kimi-k3 | high | gemini-3.8-flash | Sealed reviewer, family C. Substitutes when A or B is unavailable. |
 
 All seats are standard-tier (non-premium) per the DevPass $5/$15 rule; seat changes happen only via `pipeline trial`.

@@ -33,3 +33,10 @@ Measured basis: sonnet-5 was 58% of estate spend ($127.71/$221.12, 328 dispatche
 implementer dispatches not landing ok. terra is 4.1x cheaper ($0.81 vs $3.31/task; $1.75/$7.00
 vs $2.00/$10.00 per M) with AA 47 vs 45, LB code_completion 80.4 vs 78.3; sonnet-5 keeps the
 from-scratch codegen edge (83.1 vs 76.1) — noted, re-checkable via pipeline trial.
+
+## Reviewer-b fallback swap, 2026-09-07 (operator-approved after audit)
+gpt-5.3-codex -> **claude-sonnet-5**: codex was chosen for no-collision (everything better was
+a seated primary), not for reviewer merit (AA 37* lowest on board, TTFT 58.9s slowest).
+sonnet-5: AA 45, TTFT 2.9s, anthropic family, freed by the Terra swap. Codex's single edge
+(LB code_completion 86.9) noted for a future dedicated code-review seat. 20/20 seats now
+justified by their use-case benchmarks.

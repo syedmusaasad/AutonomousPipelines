@@ -21,7 +21,7 @@ same tables, recorded as DECISION fallback-sweep in the registry history.
 - fast-worker: deepseek-v4-flash. 131 t/s, $0.14/task, TTFT 0.94s — best-in-class for the role.
 - lane-worker: gpt-5.6-luna. Same criterion; symmetric with fast-worker.
 - reviewer-a: deepseek-v4-pro (AA 42, strong analyst, deepseek family distinct from terra's openai).
-- reviewer-b: gpt-5.3-codex (AA 37*, LB code_completion 87.0 — the code-review specialist shape).
+- reviewer-b: claude-sonnet-5 (superseded 2026-09-07: codex was constraint-satisficing; sonnet-5 strictly better on AA 45 vs 37* and TTFT 2.9s vs 58.9s; anthropic family free since the Terra swap).
 - reviewer-c: gemini-3.8-flash (AA 47, TTFT 6.2s at high — fine for detached review; google family).
 
 Note: two seats now share glm-5.3 as fallback with the interactive primary. That is deliberate:
