@@ -1,0 +1,25 @@
+GPT-5.3 Codex (xhigh)
+
+400k
+
+![OpenAI](/img/logos/openai_small.svg)OpenAI
+
+37\*
+
+\--
+
+134
+--
+[Model](/models/gpt-5-3-codex)
+
+[Providers](/models/gpt-5-3-codex/providers)
+
+Motif 3 (Beta)
+
+262k
+
+![Motif Technologies](/img/logos/motif_small.svg)Motif Technologies
+
+37\*
+
+\--

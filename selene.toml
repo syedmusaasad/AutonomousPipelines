@@ -1,0 +1,9 @@
+# selene config for Roblox Luau. `std = "roblox"` is required: without it
+# selene parses as plain Lua and rejects Luau type-annotation syntax
+# (`local x: number`), which every strict-typed file in this repo uses.
+# Verified against selene 0.31.0's actual TOML schema (`config`, `lints`,
+# `std`, `exclude`, `roblox-std-source` — no `[lint]`/`[roblox]` sections).
+std = "roblox"
+
+[lints]
+# keep defaults; strictness comes from luau types + review

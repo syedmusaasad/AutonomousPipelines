@@ -5,6 +5,8 @@ Date: 2026-09-04
 
 ## Checks
 
+(superseded: repo hooks removed per operator decision 2026-09-07; the suite runs via plan EXITs instead)
+
 PASS .githooks/pre-commit is executable: `test -x .githooks/pre-commit` → exit 0
 PASS hook runs `bin/pipeline check-agents`: line 7 of pre-commit contains `bin/pipeline check-agents`
 PASS hook runs `python3 tests/run.py`: line 8 of pre-commit contains `python3 tests/run.py`
