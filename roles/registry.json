@@ -71,8 +71,8 @@
     },
     "implementer": {
       "purpose": "Code changes with tests, exact ceremony (commit subject, verification grep).",
-      "model": "claude-sonnet-5",
-      "fallback": "gpt-5.6-luna",
+      "model": "gpt-5.6-terra",
+      "fallback": "deepseek-v4-pro",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -98,6 +98,18 @@
           },
           "at": "2026-09-04T20:20:00+00:00",
           "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
+        },
+        {
+          "from": {
+            "model": "claude-sonnet-5",
+            "fallback": "gpt-5.6-luna"
+          },
+          "to": {
+            "model": "gpt-5.6-terra",
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-09-07T08:30:00+00:00",
+          "why": "DECISION cost-swap implementer->terra (2026-09-07, operator-approved): measured journal spend showed claude-sonnet-5 at 58% of all estate cost ($127.71 of $221.12 across 328 dispatches), with 34 of its 75 implementer dispatches not landing ok (the timeout class). gpt-5.6-terra@high is published-cheaper by 4.1x ($0.81 vs $3.31/task blended; $1.75/$7.00 vs $2.00/$10.00 per M in/out, gateway pricing) with comparable-or-better evidence: AA Intelligence 47 vs 45, LiveBench code_completion 80.4 vs 78.3, typescript 46.7 vs 50.0 (sonnet slightly ahead), code_generation 76.1 vs 83.1 (sonnet's edge, from-scratch work; the implementer role here is mostly completing/fixing code). Sources: artificialanalysis.ai/leaderboards/models and livebench.ai/table_2026_06_25.csv, both retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md. Same swap applied to frontend-worker (same seat, zero dispatches so far, identical criteria). Sonnet-5 remains seated as interactive-fallback and reviewer fallbacks; the from-scratch codegen edge is noted and re-checkable via pipeline trial if implementer quality regresses."
         }
       ],
       "quota_fallback": "claude-haiku-4-5@high"
@@ -288,8 +300,8 @@
     },
     "frontend-worker": {
       "purpose": "Browser-facing work: HTML/CSS/JS/TS components and their tests.",
-      "model": "claude-sonnet-5",
-      "fallback": "gemini-3.1-pro-preview",
+      "model": "gpt-5.6-terra",
+      "fallback": "deepseek-v4-pro",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -303,7 +315,21 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "claude-haiku-4-5@high"
+      "quota_fallback": "claude-haiku-4-5@high",
+      "history": [
+        {
+          "from": {
+            "model": "claude-sonnet-5",
+            "fallback": "gemini-3.1-pro-preview"
+          },
+          "to": {
+            "model": "gpt-5.6-terra",
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-09-07T08:30:00+00:00",
+          "why": "DECISION cost-swap implementer->terra (2026-09-07, operator-approved): measured journal spend showed claude-sonnet-5 at 58% of all estate cost ($127.71 of $221.12 across 328 dispatches), with 34 of its 75 implementer dispatches not landing ok (the timeout class). gpt-5.6-terra@high is published-cheaper by 4.1x ($0.81 vs $3.31/task blended; $1.75/$7.00 vs $2.00/$10.00 per M in/out, gateway pricing) with comparable-or-better evidence: AA Intelligence 47 vs 45, LiveBench code_completion 80.4 vs 78.3, typescript 46.7 vs 50.0 (sonnet slightly ahead), code_generation 76.1 vs 83.1 (sonnet's edge, from-scratch work; the implementer role here is mostly completing/fixing code). Sources: artificialanalysis.ai/leaderboards/models and livebench.ai/table_2026_06_25.csv, both retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md. Same swap applied to frontend-worker (same seat, zero dispatches so far, identical criteria). Sonnet-5 remains seated as interactive-fallback and reviewer fallbacks; the from-scratch codegen edge is noted and re-checkable via pipeline trial if implementer quality regresses."
+        }
+      ]
     },
     "reviewer-a": {
       "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",

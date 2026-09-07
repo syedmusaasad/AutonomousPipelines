@@ -26,3 +26,10 @@ Caveats, honestly: AA intelligence is a general index, not our workload; LB is o
 release; per-effort LB rows are sparse (many `--`); and none of this measures our
 exact EXIT-ceremony behavior. These are the best available published numbers, not
 proof of optimality. The trials path remains for anyone we later want to displace.
+
+## Cost swap, 2026-09-07 (operator-approved)
+implementer and frontend-worker: claude-sonnet-5 -> **gpt-5.6-terra @high** (fb deepseek-v4-pro).
+Measured basis: sonnet-5 was 58% of estate spend ($127.71/$221.12, 328 dispatches) with 34/75
+implementer dispatches not landing ok. terra is 4.1x cheaper ($0.81 vs $3.31/task; $1.75/$7.00
+vs $2.00/$10.00 per M) with AA 47 vs 45, LB code_completion 80.4 vs 78.3; sonnet-5 keeps the
+from-scratch codegen edge (83.1 vs 76.1) — noted, re-checkable via pipeline trial.

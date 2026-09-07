@@ -78,12 +78,12 @@ Roles are defined in `roles/registry.json`. Each role has a model seat and a fal
 | Role | Model | Effort | Fallback | Purpose |
 |---|---|---|---|---|
 | `interactive` | glm-5.3 | high | claude-sonnet-5 | The one agent the operator talks to. Routes asks into quick or plan; never does the work itself. |
-| `implementer` | claude-sonnet-5 | high | gpt-5.6-luna | Code changes with tests and exact ceremony (commit subject, verification grep). |
+| `implementer` | gpt-5.6-terra | high | deepseek-v4-pro | Code changes with tests and exact ceremony (commit subject, verification grep). |
 | `fast-worker` | gpt-5.6-luna | low | deepseek-v4-flash | Small, well-specified work: a fetch, a one-line fix, a file rename. |
 | `lane-worker` | deepseek-v4-flash | medium | gpt-5.6-luna | One item of a fan-out; writes only under $LANE_OUT. |
 | `researcher` | gemini-3.8-flash | medium | glm-5.3 | Reads and fetches; writes findings to files with sources. Never edits code. |
 | `document-writer` | gemini-3.8-flash | high | glm-5.3 | Prose artifacts scored against a register standard; expects SURFACE:. |
-| `frontend-worker` | claude-sonnet-5 | high | gemini-3.1-pro-preview | Browser-facing work: HTML/CSS/JS/TS components and their tests. |
+| `frontend-worker` | gpt-5.6-terra | high | deepseek-v4-pro | Browser-facing work: HTML/CSS/JS/TS components and their tests. |
 | `reviewer-a` | gpt-5.6-terra | high | deepseek-v4-pro | Sealed reviewer, family A. Writes verdict to its own review directory only. |
 | `reviewer-b` | grok-4-6 | high | gpt-5.3-codex | Sealed reviewer, family B. Used for `REVIEW: cross` alongside reviewer-a. |
 | `reviewer-c` | kimi-k3 | high | gemini-3.8-flash | Sealed reviewer, family C. Substitutes when A or B is unavailable. |
