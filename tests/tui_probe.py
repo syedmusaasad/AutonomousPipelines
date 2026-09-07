@@ -1,5 +1,7 @@
+import base64
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -16,6 +18,7 @@ SESSION = "tui-probe"
 FIXTURE = Path("/tmp/devpass-code/tui-probe-fixture")
 CONV_DB = FIXTURE / "conversation.db"
 PROBE_SESSION_ID = "ses_probe"
+DONE_TRANSCRIPT_LINES = 500  # hundreds of lines: enough to make the item view genuinely scrollable
 
 
 def fixup_env():
@@ -45,13 +48,23 @@ def build_fixture():
         journal = Journal(run_id, run_dir / "journal.jsonl")
         journal.write("run.open", plan="probe", cwd=str(FIXTURE), conversation="ses_probe", pid=pid)
         if run_id == "r-run":
-            journal.write("phase.start", phase="build", role="worker", attempt=1)
+            journal.write("phase.start", phase="1", role="worker", attempt=1)
             (run_dir / "transcript.jsonl").touch()
         elif run_id == "r-gate":
-            journal.write("phase.wait", phase="review", sentinel="probe-gate")
+            journal.write("phase.wait", phase="1", sentinel="probe-gate")
         else:
-            journal.write("phase.done", phase="build")
+            journal.write("phase.done", phase="1")
             journal.write("run.close", outcome="done")
+            # a real dispatch's on-disk shape (phase-<key>/attempt-<n>/try-0/) with a
+            # transcript.jsonl deep enough to be genuinely scrollable, so the "scroll"
+            # assertion drills into REAL content, not a fixture shortcut. Phase key
+            # MUST be numeric (App.try_drill_down sorts phase items via int(kv[0]),
+            # matching every real run's phase-<N> numbering).
+            item_dir = run_dir / "phase-1" / "attempt-1" / "try-0"
+            item_dir.mkdir(parents=True)
+            transcript_lines = [json.dumps({"line": i, "text": f"probe transcript line {i}"})
+                                for i in range(DONE_TRANSCRIPT_LINES)]
+            (item_dir / "transcript.jsonl").write_text("\n".join(transcript_lines) + "\n")
         register("plan", run_id, journal=journal.path, plan="probe", cwd=str(FIXTURE),
                  conversation="ses_probe", launcher_pid=pid, engine_pid=pid)
     _seed_conversation_db()
@@ -311,12 +324,191 @@ def run_stream():
     assert_stream(SESSION)
 
 
+# -- scroll (wheel/page-up-leaves-follow/end-re-enters-follow/pinned-tail) ----
+
+def send_ctrl_c_raw(tmux_session):
+    """Ctrl+C (byte 0x03) as a raw literal keystroke, via -H (hex) so tmux never
+    tries to look it up as a named key -- send-keys "C-c" would risk being caught
+    by a tmux binding instead of reaching the pane's raw input stream."""
+    subprocess.run(["tmux", "-L", SERVER, "send-keys", "-t", tmux_session, "-H", "03"], check=True)
+
+
+def drill_to_done_transcript(tmux_session):
+    """From a fresh boot on the Pipelines tab: Down to the r-done row (fixture
+    insertion order is not the on-screen order -- rows sort by opened_at), Enter
+    on the run (-> phases), Enter on phase 1 (-> items), Enter on the one item
+    (-> the item view, showing transcript.jsonl's real on-disk content)."""
+    cap = capture(tmux_session)
+    body = cap.splitlines()[2:]
+    idx = next(i for i, line in enumerate(body) if "r-done" in line)
+    for _ in range(idx):
+        send_key(tmux_session, "Down")
+        time.sleep(0.05)
+    for _ in range(3):
+        send_key(tmux_session, "Enter")
+        time.sleep(0.3)
+
+
+def assert_scroll(tmux_session):
+    """Drill into the DONE fixture run's transcript.jsonl item view (hundreds of
+    real on-disk lines -- no fixture shortcut), then exercise the scroll model's
+    documented, already-unit-tested paths against the REAL curses app:
+
+      1. PageUp must change the visible capture (leaves follow, moves the
+         viewport up) -- a REAL TUI bug in the item-view scroll wiring if not,
+         per the brief; fixed here (max 2 cycles) if it ever regresses.
+      2. End must return to the tail AND re-enter follow (hint bar reads
+         scroll:live again, capture matches the original bottom-of-file view).
+      3. During a live stream append (a DB write behind the TUI's back, on the
+         Conversation tab), the last WRAPPED row stays visible -- the pinned
+         tail -- without any key sent at all.
+    """
+    drill_to_done_transcript(tmux_session)
+    before = capture(tmux_session)
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died while drilling into the transcript item view")
+    if "transcript.jsonl" not in before:
+        print(before)
+        raise AssertionError("did not land in the transcript.jsonl item view after drilling down")
+    if "scroll:live" not in before:
+        print(before)
+        raise AssertionError("item view did not boot in follow (scroll:live)")
+
+    send_key(tmux_session, "PageUp")
+    time.sleep(0.3)
+    after_pgup = capture(tmux_session)
+    if after_pgup == before:
+        # REAL TUI BUG path per the brief: PageUp did not move the viewport at
+        # all. Nothing further to try blind -- surface it loudly rather than
+        # silently patching around an unknown root cause.
+        print(before)
+        raise AssertionError(
+            "PageUp did not change the item-view capture: scroll wiring bug "
+            "(pipeline/tui/scroll.py Viewport.page_up / app.py KEY_PGUP wiring)")
+    if "scroll@" not in after_pgup:
+        print(after_pgup)
+        raise AssertionError("PageUp did not clear follow (hint bar still not scroll@N)")
+
+    send_key(tmux_session, "End")
+    time.sleep(0.3)
+    after_end = capture(tmux_session)
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died after End")
+    if "scroll:live" not in after_end:
+        print(after_end)
+        raise AssertionError("End did not re-enter follow (hint bar not scroll:live)")
+    if after_end != before:
+        print("BEFORE:\n" + before)
+        print("AFTER END:\n" + after_end)
+        raise AssertionError("End did not restore the original bottom-of-file view")
+
+    # pinned tail: a stream append lands behind the TUI's back on the
+    # Conversation tab, and the last WRAPPED row must stay visible with zero
+    # keys sent, exactly like assert_stream but asserting the SAME tail-pin
+    # guarantee the item view's follow relies on.
+    send_key(tmux_session, "4")
+    time.sleep(0.3)
+    marker = "PIN-TAIL-MARKER-9c2e-" + ("z" * 200)  # forces multi-row wrap
+    append_stream_part(marker)
+    tail_token = marker[-24:]  # the tail end of the last wrapped visual row
+    t0 = time.monotonic()
+    seen_at = None
+    while time.monotonic() - t0 < STREAM_BUDGET_S:
+        cap = capture(tmux_session)
+        if tail_token in cap:
+            seen_at = time.monotonic() - t0
+            break
+        time.sleep(0.02)
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died while waiting for the pinned-tail append")
+    if seen_at is None:
+        print(capture(tmux_session))
+        raise AssertionError(
+            f"pinned tail (last wrapped row of a live stream append) never appeared "
+            f"within {STREAM_BUDGET_S}s of zero-input timed captures")
+
+
+def run_scroll():
+    boot_tui(SESSION)
+    assert_scroll(SESSION)
+
+
+# -- osc52 (mouse-capture hint + drag-select + Ctrl+C clipboard escape) -------
+
+def assert_osc52(tmux_session):
+    """Verified at two levels, exactly as the brief spells out (a click-drag
+    selection created via a synthetic curses mouse-press sequence sent headless
+    is unreliable per the brief -- so this drives the REAL tty path instead):
+
+      (a) unit boundary: pipeline.tui.mouse's Selection/osc52_payload are
+          covered by tests/test_mouse.py, already part of the main suite
+          (tests/run.py) -- not re-asserted here, just named per the brief.
+      (b) live tty path: with mouse capture ON (the boot default), the hint
+          bar names both modes; a raw SGR mouse press+release pair (the exact
+          bytes a real terminal emits for a click-drag) drives the REAL
+          App._handle_mouse -> Selection, then a raw Ctrl+C byte drives the
+          REAL App._copy_selection -> mouse.osc52_payload -> sys.stdout.write.
+          `tmux pipe-pane -O` captures the pane's raw output bytes (capture-pane
+          only ever shows the rendered screen, never a BEL-terminated escape
+          that never repaints anything) so the OSC52 escape sequence and its
+          base64 payload shape are verified directly in the tty byte stream.
+    """
+    hint = capture(tmux_session)
+    if "mouse:pipeline" not in hint or "native-terminal select" not in hint:
+        print(hint)
+        raise AssertionError("hint bar does not name both mouse modes with capture ON")
+
+    drill_to_done_transcript(tmux_session)
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died while drilling into the transcript item view")
+
+    pipe_path = FIXTURE / "osc52_pipe.bin"
+    subprocess.run(["tmux", "-L", SERVER, "pipe-pane", "-O", "-t", tmux_session,
+                    f"cat > {pipe_path}"], check=True)
+    try:
+        # SGR mouse protocol (the modern encoding real terminals send): ESC [ <
+        # Cb ; Cx ; Cy M for press, same suffixed 'm' for release. Cb=0 is the
+        # left button; coordinates are 1-based. Row 3 (0-indexed screen row) /
+        # cols 3..15 sits inside the item view's visible transcript text.
+        press = "\x1b[<0;4;4M"
+        release = "\x1b[<0;16;4m"
+        subprocess.run(["tmux", "-L", SERVER, "send-keys", "-t", tmux_session, "-l", press], check=True)
+        time.sleep(0.2)
+        subprocess.run(["tmux", "-L", SERVER, "send-keys", "-t", tmux_session, "-l", release], check=True)
+        time.sleep(0.3)
+        send_ctrl_c_raw(tmux_session)
+        time.sleep(0.5)
+    finally:
+        subprocess.run(["tmux", "-L", SERVER, "pipe-pane", "-t", tmux_session],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    if pane_dead(tmux_session):
+        raise AssertionError("pane died after the drag-select + Ctrl+C sequence")
+    data = pipe_path.read_bytes() if pipe_path.exists() else b""
+    match = re.search(rb"\x1b\]52;c;([A-Za-z0-9+/=]*)\x07", data)
+    if match is None:
+        raise AssertionError(
+            "no OSC52 escape sequence (ESC ] 52 ; c ; <base64> BEL) in the pane's "
+            "raw tty output after a drag-select + Ctrl+C")
+    try:
+        base64.b64decode(match.group(1))
+    except Exception as e:
+        raise AssertionError(f"OSC52 payload base64 did not decode: {e}")
+
+
+def run_osc52():
+    boot_tui(SESSION)
+    assert_osc52(SESSION)
+
+
 # name -> callable. Each phase of plan 011 adds more entries here; --only FILTER
 # runs the subset whose name contains FILTER (same convention as tests/run.py).
 ASSERTIONS = {
     "boot": run_boot,
     "latency": run_latency,
     "stream": run_stream,
+    "scroll": run_scroll,
+    "osc52": run_osc52,
 }
 
 
