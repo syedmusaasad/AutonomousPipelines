@@ -234,6 +234,110 @@ def cmd_validate_shows_iterate_flag():
         assert "iterate" in r.stdout and "ceiling=5" in r.stdout
 
 
+# ---------------------------------------------------------------- ITERATE loop
+
+@test
+def iterate_two_fresh_iterations_pass_and_review_once():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: loop (implementer)
+ITERATE: on
+CEILING: 3
+EXIT: test "$(wc -l < steps.txt)" -ge 2
+REVIEW: cross
+FAKE: append steps.txt <<iteration work>>
+FAKE: verdict PASS
+FAKE: record
+""")
+        assert st["closed"] == "done", r.stdout + r.stderr
+        rows = jmod.Journal(rid).rows()
+        iterations = [x for x in rows if x["event"] == "iterate.end"]
+        assert len(iterations) == 2
+        assert [x["exit_ok"] for x in iterations] == [False, True]
+        assert iterations[0]["progress"] is None and iterations[1]["progress"] is None
+        for row in iterations:
+            for field in ("phase", "iteration", "exit_ok", "progress", "stall_count", "wall_s", "tokens", "cost",
+                          "cumulative_tokens", "cumulative_cost"):
+                assert field in row
+        assert (E.estate / "runs" / rid / "phase-1" / "iterate" / "exit-1-0.log").exists()
+        assert not [x for x in rows if x["event"] == "phase.fail"]
+        workers = [x for x in E.fake_calls() if x["agent"] == "pl-implementer"]
+        assert len(workers) == 2
+        assert workers[0]["brief"] == workers[1]["brief"]
+        assert "Previous attempt failed" not in workers[1]["brief"]
+        reviewers = [x for x in E.fake_calls() if x["agent"].startswith("pl-reviewer")]
+        assert len(reviewers) == 2  # one cross-review pair, after the final EXIT only
+
+
+@test
+def iterate_ceiling_stops_after_progressing_iterations():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: loop (implementer)
+ITERATE: on
+CEILING: 3
+EXIT: test -f never
+FAKE: append changes.txt <<advanced>>
+""")
+        assert st["closed"] == "stopped" and st["stopped"] == "burned"
+        assert st["stop_detail"].startswith("ITERATE-CEILING:")
+        rows = [x for x in jmod.Journal(rid).rows() if x["event"] == "iterate.end"]
+        assert len(rows) == 3 and all(x["progress"] in (None, True) for x in rows)
+        rep = status.run_report(rid)
+        assert any(x.startswith("ITERATE-CEILING:") and "raise CEILING" in x for x in rep["waiting_on_operator"])
+
+
+@test
+def iterate_builtin_stall_stops_after_two_unchanged_iterations():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: loop (implementer)
+ITERATE: on
+CEILING: 4
+EXIT: false
+FAKE: record
+""")
+        assert st["closed"] == "stopped" and st["stop_detail"].startswith("ITERATE-STALLED:")
+        rows = [x for x in jmod.Journal(rid).rows() if x["event"] == "iterate.end"]
+        assert len(rows) == 3
+        assert [x["progress"] for x in rows] == [None, False, False]
+        assert rows[-1]["stall_count"] == 2
+        assert len(E.fake_calls()) == 3
+        assert any(x.startswith("ITERATE-STALLED:") and "fix the phase brief" in x
+                   for x in status.run_report(rid)["waiting_on_operator"])
+
+
+@test
+def iterate_progress_predicate_overrides_file_changes():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: loop (implementer)
+ITERATE: on
+CEILING: 4
+PROGRESS: false
+EXIT: test -f never
+FAKE: append changed-despite-progress.txt <<work>>
+""")
+        assert st["closed"] == "stopped" and st["stop_detail"].startswith("ITERATE-STALLED:")
+        rows = [x for x in jmod.Journal(rid).rows() if x["event"] == "iterate.end"]
+        assert len(rows) == 2 and [x["progress"] for x in rows] == [False, False]
+        assert (p.parent / "changed-despite-progress.txt").exists()
+
+
+@test
+def iterate_review_runs_once_after_three_iterations():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: loop (implementer)
+ITERATE: on
+CEILING: 3
+EXIT: test "$(wc -l < steps.txt)" -ge 3
+REVIEW: cross
+FAKE: append steps.txt <<iteration work>>
+FAKE: verdict PASS
+""")
+        assert st["closed"] == "done", r.stdout + r.stderr
+        calls = E.fake_calls()
+        assert len([x for x in calls if x["agent"] == "pl-implementer"]) == 3
+        assert len([x for x in calls if x["agent"].startswith("pl-reviewer")]) == 2
+        assert len([x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]) == 2
+
+
 # ---------------------------------------------------------------- registry
 
 @test

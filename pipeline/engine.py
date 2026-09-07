@@ -232,8 +232,8 @@ class Engine:
         prior = [r for r in self.journal.rows() if r.get("event") == "iterate.end" and r.get("phase") == ph.key]
         start_iter = len(prior) + 1
         stall_count = prior[-1]["stall_count"] if prior else 0
-        cum_tokens = prior[-1]["cumulative_tokens"] if prior else 0
-        cum_cost = prior[-1]["cumulative_cost"] if prior else 0.0
+        cum_tokens = prior[-1].get("cumulative_tokens", 0) if prior else 0
+        cum_cost = prior[-1].get("cumulative_cost", 0.0) if prior else 0.0
         if not prior:
             self.journal.write("phase.start", phase=ph.key, role=ph.role, attempt=1, name=ph.name)
         progress_check = self._make_progress_check(plan, ph, iterate_dir)
@@ -242,21 +242,30 @@ class Engine:
             # (1) fresh session, unchanged phase body: previous_failure=None, always.
             brief = dsp.build_brief(task=ph.brief, role=ph.role, cwd=plan.workdir, exits=ph.exits,
                                     preamble=plan.preamble, previous_failure=None,
-                                    extras={"PHASE": f"{ph.number}: {ph.name}", "RUN": self.run_id},
+                                    extras={"PHASE": f"{ph.number}: {ph.name}", "RUN": self.run_id,
+                                            "ITERATE_PROGRESS_FILE": f".pipeline/phase-{ph.number}/progress.md "
+                                                                     "(maintain unchecked - [ ] boxes here)"},
                                     budget_s=ph.timeout)
             res = self._dispatch(plan, ph, attempt=iteration, brief=brief, out_dir=pdir / f"iter-{iteration}")
             # (2) run all EXITs (engine-run, same as the attempt loop).
-            exit_ok = self._run_exits_iterate(plan, ph, iteration, iterate_dir)
+            try:
+                self._run_exits(plan, ph, env=None, iteration=iteration, failure_log_dir=iterate_dir)
+                exit_ok = True
+            except PhaseFailure:
+                exit_ok = False
             wall_s = time.time() - t0
             tokens = res.tokens.get("total", 0) or 0
-            cost = res.cost or 0.0
+            cost = res.cost
             cum_tokens += tokens
-            cum_cost += cost
+            cum_cost = None if cum_cost is None or cost is None else cum_cost + cost
             if exit_ok:
                 # (3) all pass -> phase done; REVIEW/SURFACE run once, only here.
                 self.journal.write("iterate.end", phase=ph.key, iteration=iteration, exit_ok=True, progress=None,
-                                    stall_count=stall_count, wall_s=round(wall_s, 2), tokens=tokens, cost=round(cost, 6),
-                                    cumulative_tokens=cum_tokens, cumulative_cost=round(cum_cost, 6), ceiling=ph.ceiling)
+                                    stall_count=stall_count, wall_s=round(wall_s, 2), tokens=tokens,
+                                    cost=round(cost, 6) if cost is not None else None,
+                                    cumulative_tokens=cum_tokens,
+                                    cumulative_cost=round(cum_cost, 6) if cum_cost is not None else None,
+                                    ceiling=ph.ceiling)
                 try:
                     self._run_surfaces(plan, ph, iteration)
                     self._run_review(plan, ph)
@@ -274,8 +283,9 @@ class Engine:
                 stall_count += 1
             self.journal.write("iterate.end", phase=ph.key, iteration=iteration, exit_ok=False,
                                 progress=(None if is_first else progressed), stall_count=stall_count,
-                                wall_s=round(wall_s, 2), tokens=tokens, cost=round(cost, 6),
-                                cumulative_tokens=cum_tokens, cumulative_cost=round(cum_cost, 6), ceiling=ph.ceiling)
+                                wall_s=round(wall_s, 2), tokens=tokens, cost=round(cost, 6) if cost is not None else None,
+                                cumulative_tokens=cum_tokens,
+                                cumulative_cost=round(cum_cost, 6) if cum_cost is not None else None, ceiling=ph.ceiling)
             # (6) 2 consecutive no-progress -> deliberate stop ITERATE-STALLED. Stall wins ties.
             if stall_count >= ITERATE_STALL_LIMIT:
                 raise DeliberateStop("burned", f"ITERATE-STALLED: phase {ph.number} ({ph.name}) made no progress "
@@ -301,25 +311,16 @@ class Engine:
                 return ok, False
             return check
 
+        signal = _build_builtin_progress_signal()
+
         def check():
-            is_first = not any((iterate_dir / n).exists() for n in ("checkbox_count.txt", "fingerprint.txt"))
-            progressed = builtin_progress_signal(iterate_dir, plan.workdir)
+            marker = iterate_dir / "progress-signal-started"
+            is_first = not marker.exists()
+            progressed = signal(iterate_dir, plan.workdir)
+            if is_first:
+                marker.touch()
             return progressed, is_first
         return check
-
-    def _run_exits_iterate(self, plan, ph, iteration, iterate_dir) -> bool:
-        """Same as _run_exits but never raises: failing EXIT output is written to
-        <rdir>/phase-<N>/iterate/exit-<iter>-<i>.log instead of feeding a retry brief
-        (there is no retry brief in iterate mode)."""
-        all_ok = True
-        for i, pred in enumerate(ph.exits):
-            ok, out = run_predicate(pred, cwd=plan.workdir, timeout=EXIT_TIMEOUT_S)
-            self.journal.write("exit.check", phase=ph.key, predicate=pred, ok=ok, output=out[-800:], lane=None,
-                                iteration=iteration)
-            if not ok:
-                all_ok = False
-                (iterate_dir / f"exit-{iteration}-{i}.log").write_text(out)
-        return all_ok
 
     def _run_gate(self, plan, ph):
         sentinel = Path(ph.gate)
@@ -436,14 +437,17 @@ class Engine:
 
     # ---- verification --------------------------------------------------------
 
-    def _run_exits(self, plan, ph, env: dict, lane=None):
+    def _run_exits(self, plan, ph, env: dict, lane=None, *, iteration=None, failure_log_dir: Path = None):
         """EXIT predicates run BY THE ENGINE, in the plan workdir, with $ITEM/$LANE_OUT
         exported for lanes. The phase cannot complete while any fails."""
         fails = []
-        for pred in ph.exits:
+        for i, pred in enumerate(ph.exits):
             ok, out = run_predicate(pred, cwd=plan.workdir, env=env, timeout=EXIT_TIMEOUT_S)
-            self.journal.write("exit.check", phase=ph.key, predicate=pred, ok=ok, output=out[-800:], lane=lane)
+            self.journal.write("exit.check", phase=ph.key, predicate=pred, ok=ok, output=out[-800:], lane=lane,
+                               **({"iteration": iteration} if iteration is not None else {}))
             if not ok:
+                if failure_log_dir is not None:
+                    (failure_log_dir / f"exit-{iteration}-{i}.log").write_text(out)
                 fails.append(f"EXIT failed: `{pred}`\n{out[-1500:]}")
         if fails:
             raise PhaseFailure("\n\n".join(fails))
@@ -636,6 +640,15 @@ def builtin_progress_signal(state_dir: Path, workdir: Path) -> bool:
         f.write_text(fp)
         return True
     return False
+
+
+def _build_builtin_progress_signal():
+    """Build the default PROGRESS predicate with its durable state supplied by callers."""
+    return builtin_progress_signal
+
+
+# Kept as a named builder-compatible alias for callers from the iterate rollout.
+_builtin_progress = builtin_progress_signal
 
 
 def run_predicate(pred: str, *, cwd: Path, env: dict = None, timeout: int = 600):
