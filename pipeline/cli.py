@@ -8,6 +8,7 @@
   conv [ID]                     what did this conversation set in motion
   resume <run>                  lift a deliberate stop after judging; relaunch
   stop <run>                    write a deliberate-stop receipt and SIGTERM the engine
+  adopt <run>                   transfer a run's registry custody to this conversation
   render-agents / check-agents  regenerate generated config / drift guard
   roblox-skills [--check]       sync roblox/skills -> the global skills dir / drift guard
   tui [--conv ID] [--all]       read-only terminal UI (journal-backed; curses)
@@ -47,6 +48,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("conv"); p.add_argument("id", nargs="?")
     p = sub.add_parser("resume"); p.add_argument("run")
     p = sub.add_parser("stop"); p.add_argument("run"); p.add_argument("--reason", default="operator")
+    p = sub.add_parser("adopt"); p.add_argument("run")
     sub.add_parser("render-agents"); sub.add_parser("check-agents")
     p = sub.add_parser("roblox-skills"); p.add_argument("--check", action="store_true")
     p = sub.add_parser("tui"); p.add_argument("--conv"); p.add_argument("--all", action="store_true")
@@ -132,6 +134,29 @@ def cmd_stop(a):
     j.write("run.close", outcome="stopped")
     print(f"stopped {a.run}")
     return 0
+
+
+def _short_conversation(conversation) -> str:
+    return str(conversation or "unknown")[:8]
+
+
+def cmd_adopt(a):
+    result = registry.adopt(a.run)
+    if result["action"] == "adopted":
+        print(f"adopted {result['run']} from {_short_conversation(result['from'])} -> "
+              f"{_short_conversation(result['to'])}")
+        return 0
+    if result["reason"] == "already-owned":
+        print("no-op: already yours")
+        return 0
+    if result["reason"] == "not-found":
+        print(f"not found: {a.run}")
+        return 3
+    if result["reason"] == "ambiguous":
+        print(f"ambiguous: {a.run} matches {', '.join(result['candidates'])}")
+        return 4
+    print(f"adopt refused: {result['reason']}")
+    return 2
 
 
 def cmd_render_agents(a):

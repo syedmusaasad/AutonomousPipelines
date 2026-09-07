@@ -666,6 +666,105 @@ def runs_registry_keys_to_conversation_and_scopes_custody():
         assert registry.lookup("runB")["conversation"] == "ses_B"
 
 
+@test
+def adopt_rekeys_row_and_appends_receipt():
+    with Estate() as E:
+        registry.register("plan", "adopt-chain", journal=E.estate / "runs" / "adopt-chain" / "journal.jsonl",
+                          conversation="ses_A")
+        assert registry.adopt("adopt-chain", "ses_B") == {
+            "action": "adopted", "from": "ses_A", "to": "ses_B", "run": "adopt-chain"}
+        assert registry.lookup("adopt-chain")["conversation"] == "ses_B"
+        assert registry.adopt("adopt-chain", "ses_C") == {
+            "action": "adopted", "from": "ses_B", "to": "ses_C", "run": "adopt-chain"}
+        receipts = [r for r in jmod.Journal("adopt-chain").rows() if r["event"] == "adopted"]
+        assert [(r["from"], r["by"]) for r in receipts] == [("ses_A", "ses_B"), ("ses_B", "ses_C")]
+
+
+@test
+def adopt_refusals():
+    with Estate() as E:
+        missing = E.cli("adopt", "no-such-run")
+        assert missing.returncode == 3 and "not found" in missing.stdout
+        registry.register("plan", "ambiguous-one", journal=Path("/j"), conversation="ses_A")
+        registry.register("plan", "ambiguous-two", journal=Path("/j"), conversation="ses_A")
+        before = registry.all_rows()
+        ambiguous = E.cli("adopt", "ambiguous-")
+        assert ambiguous.returncode == 4 and "ambiguous-one" in ambiguous.stdout and "ambiguous-two" in ambiguous.stdout
+        assert registry.all_rows() == before
+        registry.register("plan", "already-owned", journal=E.estate / "runs" / "already-owned" / "journal.jsonl",
+                          conversation="ses_test_conv")
+        before = registry.lookup("already-owned")
+        no_op = E.cli("adopt", "already-owned")
+        assert no_op.returncode == 0 and no_op.stdout.strip() == "no-op: already yours"
+        assert registry.lookup("already-owned") == before
+        assert not [r for r in jmod.Journal("already-owned").rows() if r["event"] == "adopted"]
+        assert registry.resolve_run("ambiguous-one")[0] == "ambiguous-one"  # exact match wins over prefix ambiguity
+
+
+@test
+def adopt_does_not_touch_execution_state():
+    with Estate() as E:
+        run = "adopt-state"
+        rdir = E.estate / "runs" / run
+        (rdir / "phase-1").mkdir(parents=True)
+        (rdir / "phase-1" / "result.txt").write_text("complete\n")
+        registry.register("plan", run, journal=rdir / "journal.jsonl", conversation="ses_A")
+        j = jmod.Journal(run)
+        j.write("run.open", plan="p", cwd="c", conversation="ses_A", pid=1)
+        j.write("phase.start", phase="1", role="implementer", attempt=1)
+        j.write("phase.done", phase="1")
+        j.write("run.close", outcome="done")
+        before_rows = j.rows()
+        before_state = j.state()
+        before_files = {p.relative_to(rdir): (p.read_bytes(), p.stat().st_mtime_ns)
+                        for p in rdir.rglob("*") if p.is_file() and p.name != "journal.jsonl"}
+        assert registry.adopt(run, "ses_B")["action"] == "adopted"
+        after_rows = j.rows()
+        after_files = {p.relative_to(rdir): (p.read_bytes(), p.stat().st_mtime_ns)
+                       for p in rdir.rglob("*") if p.is_file() and p.name != "journal.jsonl"}
+        assert after_files == before_files
+        assert after_rows[:-1] == before_rows
+        assert after_rows[-1]["event"] == "adopted" and after_rows[-1]["from"] == "ses_A" and after_rows[-1]["by"] == "ses_B"
+        assert j.state() == before_state
+
+
+@test
+def adopt_rolls_back_registry_when_receipt_fails():
+    with Estate() as E:
+        run = "adopt-rollback"
+        registry.register("plan", run, journal=E.estate / "runs" / run / "journal.jsonl", conversation="ses_A")
+        original_write = registry.Journal.write
+
+        def fail_receipt(self, event, **fields):
+            raise OSError("journal unavailable")
+
+        registry.Journal.write = fail_receipt
+        try:
+            try:
+                registry.adopt(run, "ses_B")
+            except OSError:
+                pass
+            else:
+                raise AssertionError("adopt accepted a missing receipt")
+        finally:
+            registry.Journal.write = original_write
+        assert registry.lookup(run)["conversation"] == "ses_A"
+        assert not [r for r in jmod.Journal(run).rows() if r["event"] == "adopted"]
+
+
+@test
+def status_shows_adopted_run_in_scope():
+    with Estate() as E:
+        run = "adopt-scope"
+        registry.register("plan", run, journal=E.estate / "runs" / run / "journal.jsonl", conversation="ses_A")
+        jmod.Journal(run).write("run.open", plan="p", cwd="c", conversation="ses_A", pid=999999)
+        all_before = {r["run"] for r in status.all_reports()}
+        assert run not in {r["run"] for r in status.all_reports("ses_B")}
+        registry.adopt(run, "ses_B")
+        assert run in {r["run"] for r in status.all_reports("ses_B")}
+        assert {r["run"] for r in status.all_reports()} == all_before
+
+
 # ---------------------------------------------------------------- engine core
 
 @test
