@@ -37,6 +37,7 @@ def main(argv):
     only = [a for a in argv[1:] if not a.startswith("-")]
     tests = [t for t in test_suite.TESTS if not only or any(o in t.__name__ for o in only)]
     passed, failed = 0, []
+    hygiene_failures = []
     t0 = time.time()
     for t in tests:
         s = time.time()
@@ -74,7 +75,7 @@ def main(argv):
             ledger["required"] = sorted({*ledger["required"], *(t.__name__ for t in tests)})
             ledger_p.write_text(json.dumps(ledger, indent=1) + "\n")
             print(f"ratchet raised to {len(tests)}")
-    return 1 if failed else 0
+    return 1 if (failed or hygiene_failures) else 0
 
 
 if __name__ == "__main__":

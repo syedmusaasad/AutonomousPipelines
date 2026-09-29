@@ -2975,3 +2975,39 @@ def tui_parity_fixtures():
     files = tmodel.project_files_tab("none", project_root=root)
     names = sorted(f["path"] for f in files)
     assert names == ["a.py", "sub/b.md"], names
+
+
+@test
+def hygiene_gates_fail_on_poisoned_fixtures():
+    import importlib
+    import tests.hygiene as hy
+    import tempfile, shutil
+    from pathlib import Path as P
+    tmp = P(tempfile.mkdtemp())
+    (tmp / "README.md").write_text("# Suite runs the landing lock\n")
+    (tmp / "tests").mkdir()
+    (tmp / "tests" / "ratchet.json").write_text(json.dumps({"required": ["unrelated_test"], "min_tests": 1}))
+    orig = hy.HERE
+    try:
+        hy.HERE = tmp
+        fails = hy.readme_claims_failures()
+        assert fails, "README claims gate must fail on unmapped behavioral sentence"
+        (tmp / "roles").mkdir()
+        (tmp / "roles" / "verbose-role.md").write_text("word " * 5000)
+        fails = hy.verbosity_failures()
+        assert any("over ceiling" in f for f in fails), fails
+        (tmp / "leak.txt").write_text(str(P.home()) + "/secret")
+        import subprocess as sp
+        def fake_ls(*a, **k):
+            class R: stdout = "leak.txt"
+            return R()
+        orig_run = sp.run
+        hy.subprocess.run = fake_ls
+        try:
+            fails = hy.leak_failures()
+        finally:
+            hy.subprocess.run = orig_run
+        assert any("home path" in f for f in fails), fails
+    finally:
+        hy.HERE = orig
+        shutil.rmtree(tmp, ignore_errors=True)
