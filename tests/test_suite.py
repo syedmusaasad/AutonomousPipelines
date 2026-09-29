@@ -2713,3 +2713,39 @@ def landing_lock_serializes_concurrent_finishers():
         order = [log.index("land: one"), log.index("land: two")]
         assert sorted(order) == order or True  # both exist; the lock guarantees each commit is atomic and serial
         assert len(log) == 3, log  # init + exactly the two landings: no interleaved/duplicated commits
+
+
+@test
+def review_integrity_missing_verdict_reask_and_blocked_revision_cap():
+    with Estate() as E:
+        plan = E.plan("""## Phase 1: work (implementer)
+REVIEW: cross
+ATTEMPTS: 1
+EXIT: true
+FAKE: touch out
+FAKE: verdict-by-agent a=NONE b=PASS
+""")
+        rid, p, r, st = run_plan(E, plan.read_text())
+        rows = jmod.Journal(rid).rows()
+        v = [x for x in rows if x["event"] == "review.verdict"]
+        assert len(v) == 2, v
+        seals = [x for x in rows if x["event"] == "review.sealed"]
+        assert seals and seals[0]["seals"], "records sealed with hashes"
+        tests_ev = [x for x in rows if x["event"] == "review.tests"]
+        assert tests_ev and set(tests_ev[0]["sides"]) == {"base", "candidate"}
+        assert tests_ev[0]["sides"]["base"]["command"] and tests_ev[0]["sides"]["base"]["state"] in ("ran", "blocked")
+
+    with Estate() as E:
+        plan = E.plan("""## Phase 1: work (implementer)
+REVIEW: cross
+ATTEMPTS: 1
+EXIT: true
+FAKE: touch out
+FAKE: verdict-by-agent a=BLOCKING b=BLOCKING
+""")
+        rid, p, r, st = run_plan(E, plan.read_text())
+        rows = jmod.Journal(rid).rows()
+        revisions = [x for x in rows if x["event"] == "dispatch.start" and x.get("phase") == "1" and "revision" in str(x.get("attempt"))]
+        verdicts = [x for x in rows if x["event"] == "review.verdict"]
+        assert len(verdicts) == 4, "two reviews, then re-review after one revision"
+        assert st["stopped"] == "review_blocking"

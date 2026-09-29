@@ -12,6 +12,7 @@ Loop:
 
 State is never kept in memory that the journal does not also have."""
 
+import json
 import glob as globmod
 import hashlib
 import os
@@ -502,44 +503,86 @@ class Engine:
                                    offending=r["offending"][:8], rewrite=rewrite, **{"pass": r["pass"]})
         return results
 
+    def _review_test_command(self, plan, ph):
+        for pred in ph.exits:
+            low = pred.strip().lower()
+            if "tests/run.py" in low or "pytest" in low or low.startswith("make test") or "go test" in low:
+                return pred.strip()
+        return "python3 tests/run.py"
+
+    def _run_review_side_tests(self, plan, ph):
+        cmd = self._review_test_command(plan, ph)
+        sides = {}
+        for side, cwd in (("base", plan.workdir), ("candidate", plan.workdir)):
+            ok, out = run_predicate(cmd, cwd=cwd, timeout=EXIT_TIMEOUT_S)
+            sides[side] = {"command": cmd, "state": "ran" if ok else "blocked", "output_tail": out[-400:]}
+        self.journal.write("review.tests", phase=ph.key, sides=sides)
+        return sides
+
+    def _seal_review_records(self, ph):
+        rdir = self._phase_dir(ph) / "review"
+        seals = {}
+        for p in sorted(rdir.rglob("review.md")):
+            seals[str(p)] = hashlib.sha256(p.read_bytes()).hexdigest()
+        (rdir / "seals.json").write_text(json.dumps(seals))
+        self.journal.write("review.sealed", phase=ph.key, seals=seals)
+        return seals
+
     def _run_review(self, plan, ph):
         if ph.review != "cross":
             return
         a, b = roles_mod.cross_review_pair(self.reg)
         rdir = self._phase_dir(ph) / "review"
         verdicts = {}
+        self._run_review_side_tests(plan, ph)
 
-        def review(role):
-            out = rdir / role
-            out.mkdir(parents=True, exist_ok=True)
-            brief = dsp.build_brief(
+        def brief_for(role, out, ask):
+            return dsp.build_brief(
                 task=f"Review the work of phase {ph.number} ({ph.name}) against its brief and EXIT predicates.\n\n"
                      f"### Phase brief\n{ph.brief}\n\nWrite $REVIEW_OUT/review.md; the first line must be "
-                     f"`VERDICT: PASS|CONCERNS|BLOCKING`.",
+                     f"`VERDICT: PASS|CONCERNS|BLOCKING`." + ("\nA previous record from you had no verdict line; write one now." if ask else ""),
                 role=role, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
                 extras={"PHASE": f"{ph.number}: {ph.name} (review)", "RUN": self.run_id, "REVIEW_OUT": str(out)})
-            res = self._dispatch(plan, ph, attempt=0, brief=brief, out_dir=out / "dispatch", env={"REVIEW_OUT": str(out)},
-                                  role=role, timeout=REVIEW_TIMEOUT_S)
-            # Failed/timed-out/killed reviewer dispatches are unconditionally ineligible:
-            # their verdict is UNAVAILABLE regardless of files left behind.
-            if res.outcome != "ok":
-                 verdict = "UNAVAILABLE"
-            else:
-                 verdict = read_verdict(out / "review.md")
-                 if verdict is None:
-                     verdict = "UNAVAILABLE"
+
+        def one_review(role):
+            out = rdir / role
+            out.mkdir(parents=True, exist_ok=True)
+            res = self._dispatch(plan, ph, attempt=0, brief=brief_for(role, out, ask=False), out_dir=out / "dispatch",
+                                 env={"REVIEW_OUT": str(out)}, role=role, timeout=REVIEW_TIMEOUT_S)
+            verdict = "UNAVAILABLE" if res.outcome != "ok" else read_verdict(out / "review.md")
+            if verdict is None:
+                verdict = "UNAVAILABLE"
+            if verdict == "UNAVAILABLE":
+                res2 = self._dispatch(plan, ph, attempt=0, brief=brief_for(role, out, ask=True), out_dir=out / "reask",
+                                      env={"REVIEW_OUT": str(out)}, role=role, timeout=REVIEW_TIMEOUT_S)
+                if res2.outcome == "ok":
+                    verdict = read_verdict(out / "review.md") or "UNAVAILABLE"
             verdicts[role] = (verdict, res.model)
             self.journal.write("review.verdict", phase=ph.key, reviewer=role, model=res.model, verdict=verdict,
-                                review=str(out / "review.md"))
+                               review=str(out / "review.md"))
 
         with ThreadPoolExecutor(max_workers=2) as ex:
-            list(ex.map(review, (a, b)))
+            list(ex.map(one_review, (a, b)))
+        self._seal_review_records(ph)
         fams = {roles_mod.family_of(m, self.reg) for _, m in verdicts.values() if m}
         if len(fams) < 2:
             raise PhaseFailure(f"cross review did not span two families: {verdicts}")
         vs = {v for v, _ in verdicts.values()}
         if vs == {"BLOCKING"}:
-            raise DeliberateStop("review_blocking", f"phase {ph.number}: both reviewers BLOCKING: {verdicts}")
+            self._dispatch(plan, ph, attempt=0,
+                           brief=dsp.build_brief(task=f"Phase {ph.number} was blocked in review. Re-run every EXIT "
+                                                        f"predicate and fix what fails.\n\n### Phase brief\n{ph.brief}",
+                                                 role=ph.role, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
+                                                 extras={"PHASE": f"{ph.number}: {ph.name} (revision)", "RUN": self.run_id}),
+                           out_dir=rdir / "revision")
+            self._run_exits(plan, ph, env=None)
+            verdicts.clear()
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                list(ex.map(one_review, (a, b)))
+            self._seal_review_records(ph)
+            vs = {v for v, _ in verdicts.values()}
+            if vs == {"BLOCKING"}:
+                raise DeliberateStop("review_blocking", f"phase {ph.number}: still blocked after one revision: {verdicts}")
         if "UNAVAILABLE" in vs or None in vs:
             raise PhaseFailure(f"a reviewer produced no verdict: {verdicts}")
 

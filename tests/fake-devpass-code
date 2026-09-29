@@ -160,7 +160,10 @@ def main():
             out = env.get("REVIEW_OUT")
             if out:
                 os.makedirs(out, exist_ok=True)
-                open(os.path.join(out, "review.md"), "w").write(f"VERDICT: {v}\n\n## Findings\n- none\n\n## Rationale\nfake by {agent}\n")
+                if v == "NONE":
+                    open(os.path.join(out, "review.md"), "w").write("no verdict line here\n")
+                else:
+                    open(os.path.join(out, "review.md"), "w").write(f"VERDICT: {v}\n\n## Findings\n- none\n\n## Rationale\nfake by {agent}\n")
                 text_out = f"VERDICT: {v}"
         elif cmd == "fix-surface":
             if "SURFACE scoring failed" in brief:
