@@ -1,5 +1,5 @@
 {
- "min_tests": 254,
+ "min_tests": 255,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -99,6 +99,7 @@
   "registry_models_table_and_quota_fallback_never_premium",
   "registry_validates_families_and_seals",
   "rendered_agents_deny_external_channels_and_questions",
+  "resume_restores_cwd_and_exit_stopped_run_resumes",
   "review_integrity_missing_verdict_reask_and_blocked_revision_cap",
   "review_provenance_test_both_reviewers_blocking_stops_phase",
   "review_provenance_test_failed_dispatch_unavailable_verdict",

@@ -818,10 +818,10 @@ def relaunch(run_id: str, *, by: str = "sentry", cleared: bool = False) -> int:
         stopped = rdir / "STOPPED"
         if stopped.exists():
             stopped.unlink()
-        # remove closure so the engine treats the run as open again
         j.write("run.resume", pid=None, cleared=True, by=by)
+    run_cwd = st.get("cwd") or str(plan_path.parent)
     pid = launch_detached([sys.executable, "-m", "pipeline.cli", "engine", run_id, str(plan_path)],
-                          log_path=rdir / "engine.log", cwd=str(plan_path.parent),
+                          log_path=rdir / "engine.log", cwd=run_cwd,
                           env={"PIPELINE_CONVERSATION": st.get("conversation") or registry.UNKNOWN})
     j.write("relight", by=by, old_pid=old, new_pid=pid)
     return pid

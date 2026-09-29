@@ -2874,3 +2874,32 @@ def materialize_and_plan_check_workflows():
         assert any("TIMEOUT" in f for f in fails), fails
         r = E.cli("run", str(p))
         assert r.returncode != 0 and "plan-check" in (r.stdout + r.stderr), r.stdout + r.stderr
+
+
+@test
+def resume_restores_cwd_and_exit_stopped_run_resumes():
+    with Estate() as E:
+        workdir = E.work / "projdir"
+        workdir.mkdir()
+        (workdir / "sentinel.txt").write_text("x")
+        p = E.plan("""## Phase 1: x (implementer)
+ATTEMPTS: 1
+EXIT: test -f sentinel.txt
+FAKE: touch done.txt
+""", sub="projdir")
+        rid = "resumecwd"
+        rdir = E.estate / "runs" / rid
+        rdir.mkdir(parents=True)
+        (rdir / "plan.path").write_text(str(p))
+        j = jmod.Journal(rid)
+        j.write("run.open", plan=str(p), cwd=str(workdir), conversation="ses", pid=999999)
+        j.write("phase.start", phase="1", role="implementer", attempt=1)
+        j.write("phase.fail", phase="1", reason="EXIT failed: test -f sentinel.txt", attempt=1)
+        j.write("run.stop", reason="burned", detail="x")
+        j.write("run.close", outcome="stopped")
+        engine.relaunch(rid, by="operator", cleared=True)
+        wait_for(lambda: j.state()["closed"] == "done", timeout=40)
+        rows = j.rows()
+        assert any(r["event"] == "run.resume" and r.get("cleared") for r in rows)
+        new_open = [r for r in rows if r["event"] == "run.open"][-1]
+        assert new_open["cwd"] == str(workdir)
