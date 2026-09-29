@@ -121,6 +121,9 @@ class ConversationState:
         self.parts = {}             # part_id -> {"lines": [...], "time_updated": int}
         self._offset = 0
         self._last_update_ts = 0
+        self._compaction_pending = False
+        self._last_context_pct = None
+        self.compaction_notices = []
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -191,6 +194,9 @@ class ConversationState:
 
     # -- chunked backlog load --------------------------------------------------
 
+    def replaying_title(self) -> str:
+        return "replaying history" if self.status == STATUS_LOADING else ""
+
     def load_more(self) -> bool:
         """Load exactly one chunk. Returns True while more of the backlog remains
         (caller should call again next tick); False once fully loaded (status is
@@ -230,6 +236,24 @@ class ConversationState:
         self._ingest_rows(rows)
 
     # -- render -----------------------------------------------------------------
+
+    def note_status_event(self, data: dict):
+        """Record compaction evidence: a status event with a compaction notice, or a
+        context-percent drop of more than 20 points while a notice is pending."""
+        text = (data.get("text") or "") + " " + json.dumps(data)[:0]
+        if "compact" in text.lower():
+            self._compaction_pending = True
+        pct = data.get("context_pct")
+        if pct is not None:
+            if self._compaction_pending and self._last_context_pct is not None:
+                drop = self._last_context_pct - pct
+                if drop > 20:
+                    self.compaction_notices.append({"context_pct": pct, "trigger": "percent-drop"})
+                    self._compaction_pending = False
+            self._last_context_pct = pct
+        if pct is not None and "compacted" in text.lower():
+            self.compaction_notices.append({"context_pct": pct, "trigger": "status-event"})
+            self._compaction_pending = False
 
     def lines(self) -> list:
         """The full logical-line turn history, in order: a role header per turn,

@@ -116,9 +116,11 @@ def pipeline_row_view(reg_row: dict) -> dict:
     }
 
 
-def pipelines_tab(conversation: str, all_sessions: bool = False) -> list:
+def pipelines_tab(conversation: str, all_sessions: bool = False, show_dead: bool = False) -> list:
     rows = [r for r in rows_for(conversation, all_sessions) if r.get("kind") == "plan"]
     views = [pipeline_row_view(r) for r in rows]
+    if not show_dead:
+        views = [v for v in views if v.get("engine_alive") or v.get("state") != "dead-engine"]
     views.sort(key=lambda v: v.get("opened_at") or 0, reverse=True)
     return views
 
@@ -181,6 +183,32 @@ def files_tab(conversation: str, all_sessions: bool = False) -> list:
     return out
 
 
+def project_files_tab(conversation: str, all_sessions: bool = False, project_root: Path = None) -> list:
+    """Every file under the project root of the conversation's most recent run,
+    excluding the engine's own output directories, newest-first."""
+    rows = rows_for(conversation, all_sessions)
+    root = project_root
+    if root is None:
+        for r in rows:
+            cwd = Journal(r["run"]).state().get("cwd")
+            if cwd and Path(cwd).is_dir():
+                root = Path(cwd)
+                break
+    if root is None:
+        return []
+    out = []
+    for p in root.rglob("*"):
+        s = str(p)
+        if any(part in (".git", "__pycache__", ".pipeline", "node_modules") for part in p.parts):
+            continue
+        if p.is_file():
+            st = p.stat()
+            out.append({"path": str(p.relative_to(root)), "abs_path": s,
+                        "size": st.st_size, "mtime": st.st_mtime})
+    out.sort(key=lambda f: f["mtime"], reverse=True)
+    return out
+
+
 # ---------------------------------------------------------------- Conversation tab (stub)
 
 def conversation_stub_text(conversation: str) -> str:
@@ -223,6 +251,31 @@ def phase_listing(run_id: str, phase_key: str) -> dict:
     return {"phase": phase_key, "dir": str(pdir), "items": items}
 
 
+def join_streamed_deltas(raw: str) -> str:
+    """Join a transcript's streamed text deltas into paragraphs: consecutive text
+    parts from the same message merge with a blank line between messages."""
+    paragraphs = []
+    current = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        part = ev.get("part") or {}
+        if ev.get("type") == "text" and part.get("text"):
+            current.append(part["text"])
+        elif ev.get("type") == "step_start":
+            if current:
+                paragraphs.append("".join(current))
+                current = []
+    if current:
+        paragraphs.append("".join(current))
+    return "\n\n".join(paragraphs)
+
+
 def read_item(path, max_bytes: int = 200000) -> str:
     """Read a drilled-into file for the item view. Truncates from the tail (the most
     recent, most relevant content) rather than the head; never raises."""
@@ -231,6 +284,8 @@ def read_item(path, max_bytes: int = 200000) -> str:
         text = p.read_text(errors="replace")
     except OSError as e:
         return f"(could not read {path}: {e})"
+    if p.name == "transcript.jsonl":
+        return join_streamed_deltas(text)
     if len(text) > max_bytes:
         text = "...(truncated, showing tail)...\n" + text[-max_bytes:]
     return text

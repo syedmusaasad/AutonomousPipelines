@@ -2922,3 +2922,56 @@ def interactive_seat_guard_refuses_writes():
     for other in ("implementer", "fast-worker"):
         agent = rmod.render_agent(other, reg)
         assert '"*": "allow"' in agent, other + " must keep full bash"
+
+
+@test
+def tui_parity_fixtures():
+    import json as _json
+    from pipeline.tui import conversation as conv, model as tmodel
+
+    # (a) consecutive assistant turns each start their own paragraph
+    st = conv.ConversationState("s1", None)
+    st.turns = [{"message_id": "m1", "role": "assistant", "part_ids": ["p1", "p2"]},
+                {"message_id": "m2", "role": "assistant", "part_ids": []}]
+    st.parts = {"p1": {"lines": ["hello"], "time_updated": 1},
+                "p2": {"lines": [], "time_updated": 1}}
+    lines = st.lines()
+    assert lines.count(conv.role_header("assistant")) == 2
+    assert lines[-1] == "" and "" in lines, "blank separator between turns"
+
+    # (b) compaction banner: status event with notice, then 25-point drop
+    st2 = conv.ConversationState("s2", None)
+    st2.note_status_event({"text": "conversation compacted", "context_pct": 80})
+    assert st2.compaction_notices and st2.compaction_notices[-1]["trigger"] == "status-event"
+    st3 = conv.ConversationState("s3", None)
+    st3.note_status_event({"text": "compaction pending", "context_pct": 90})
+    assert not st3.compaction_notices
+    st3.note_status_event({"context_pct": 60})
+    assert st3.compaction_notices and st3.compaction_notices[-1]["trigger"] == "percent-drop"
+
+    # (c) replay title while draining
+    st3.status = conv.STATUS_LOADING
+    assert st3.replaying_title() == "replaying history"
+
+    # (e) streamed deltas join into paragraphs
+    raw = "\n".join([
+        _json.dumps({"type": "step_start"}),
+        _json.dumps({"type": "text", "part": {"text": "Hello "}}),
+        _json.dumps({"type": "text", "part": {"text": "world"}}),
+        _json.dumps({"type": "step_start"}),
+        _json.dumps({"type": "text", "part": {"text": "Second paragraph"}}),
+    ])
+    joined = tmodel.join_streamed_deltas(raw)
+    assert joined == "Hello world\n\nSecond paragraph", joined
+
+    # (f) project files lists every file under the root
+    import tempfile
+    root = Path(tempfile.mkdtemp())
+    (root / "a.py").write_text("x")
+    (root / "sub").mkdir()
+    (root / "sub" / "b.md").write_text("y")
+    (root / ".git").mkdir()
+    (root / ".git" / "ignore.txt").write_text("z")
+    files = tmodel.project_files_tab("none", project_root=root)
+    names = sorted(f["path"] for f in files)
+    assert names == ["a.py", "sub/b.md"], names
