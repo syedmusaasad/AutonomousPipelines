@@ -115,7 +115,7 @@ class TestTuiModel(unittest.TestCase):
             j.write("phase.start", phase="1", role="fast-worker", attempt=1)
             registry.register("plan", rid, journal=Path(E.estate) / "runs" / rid / "journal.jsonl",
                                plan=str(p), cwd=str(p.parent), conversation=registry.current_conversation())
-            views = tm.pipelines_tab(registry.current_conversation())
+            views = tm.pipelines_tab(show_dead=True, registry.current_conversation())
             self.assertEqual(len(views), 1)
             self.assertEqual(views[0]["state"], "dead-engine")
             self.assertFalse(views[0]["engine_alive"])
