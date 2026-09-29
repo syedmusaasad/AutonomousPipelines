@@ -59,6 +59,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("trial-report"); p.add_argument("run")
     p = sub.add_parser("sentry"); p.add_argument("--once", action="store_true")
     sub.add_parser("suite")
+    p = sub.add_parser("defects"); p.add_argument("-C", "--cwd", default=os.getcwd())
     p = sub.add_parser("validate"); p.add_argument("plan")
     p = sub.add_parser("gc"); p.add_argument("--dry-run", action="store_true"); p.add_argument("--sweep", action="store_true")
     p.add_argument("--buffer-hours", type=float, default=72.0); p.add_argument("--quick-only", action="store_true")
@@ -314,6 +315,16 @@ def cmd_sentry(a):
 def cmd_suite(a):
     import subprocess
     return subprocess.call([sys.executable, str(paths.repo_root() / "tests" / "run.py")])
+
+
+def cmd_defects(a):
+    from . import defects
+    from pathlib import Path as _P
+    wd = _P(a.cwd)
+    print(f"open: {defects.open_count(wd)}")
+    for e in defects.entries(wd):
+        print(f"[{e['section']}] {e['header']}")
+    return 0
 
 
 def cmd_validate(a):

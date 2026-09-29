@@ -2775,3 +2775,28 @@ FAKE: ran python3 tests/run.py
         rid, p, r, st = run_plan(E, plan.read_text())
         assert st["closed"] == "done", st
         assert not [x for x in jmod.Journal(rid).rows() if x["event"] == "evidence.gate.refused"]
+
+
+@test
+def defect_log_concurrent_appends_and_count():
+    with Estate() as E:
+        import threading
+        from pipeline import defects as dmod
+        wd = E.work / "proj"
+        wd.mkdir()
+        errs = []
+        def appender(i):
+            try:
+                dmod.append_defect(wd, f"ses_{i}", "engine", f"fault {i}", f"mitigated {i}")
+            except Exception as ex:
+                errs.append(ex)
+        threads = [threading.Thread(target=appender, args=(i,)) for i in range(8)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        assert not errs, errs
+        assert dmod.open_count(wd) == 8
+        text = (wd / "DEFECTS.md").read_text()
+        assert text.count("fault ") == 8
+        assert dmod.fix_entry(wd, "ses_3", "abc1234")
+        assert dmod.open_count(wd) == 7
+        assert "fixed-by: abc1234" in (wd / "DEFECTS.md").read_text()
