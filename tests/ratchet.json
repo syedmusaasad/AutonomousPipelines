@@ -1,5 +1,5 @@
 {
- "min_tests": 250,
+ "min_tests": 251,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -24,6 +24,7 @@
   "config_mismatch_is_deliberate_stop",
   "cost_ceiling_is_reserved_and_rejected",
   "cross_review_two_families_blocking_stops",
+  "defect_log_concurrent_appends_and_count",
   "deliberation_warnings_flag_markers_not_clean_briefs",
   "dispatch_as_row_backcompat_no_deliverables_key_when_none",
   "dispatch_deliverables_chat_chatter_never_matched",

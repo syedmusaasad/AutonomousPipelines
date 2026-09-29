@@ -79,21 +79,21 @@ def fix_entry(workdir: Path, header_prefix: str, landing_hash: str) -> bool:
     if not p.exists():
         return False
     text = p.read_text()
-    blocks = re.split(r"(?=^## )", text, flags=re.M)
+    open_text = text.split("# Fixed", 1)[0] if "# Fixed" in text else text
+    fixed_text = text.split("# Fixed", 1)[1] if "# Fixed" in text else ""
+    open_blocks = [b for b in re.split(r"(?=^## )", open_text, flags=re.M) if b.strip()]
     target = None
-    for b in blocks:
-        if b.startswith("## " + header_prefix):
+    for b in open_blocks:
+        header_line = b.splitlines()[0] if b.splitlines() else ""
+        if header_prefix in header_line:
             target = b.rstrip() + f"\nfixed-by: {landing_hash}\n"
             break
     if target is None:
         return False
-    kept = [b for b in blocks if not b.startswith("## " + header_prefix)]
-    kept = [b for b in kept if b.strip() not in ("# Open", "# Fixed", "")]
-    fixed_header = "# Fixed\n"
-    rebuilt = "# Open\n"
-    for b in kept:
-        if not b.startswith("#"):
-            rebuilt += "\n" + b if not rebuilt.endswith("\n\n") else b
-    rebuilt += "\n" + fixed_header + "\n" + target + "\n"
-    p.write_text(rebuilt)
+    kept_open = [b for b in open_blocks if header_prefix not in (b.splitlines()[0] if b.splitlines() else "")]
+    out = "# Open\n"
+    for b in kept_open:
+        out += "\n" + b.rstrip() + "\n"
+    out += "\n# Fixed\n" + fixed_text.rstrip() + "\n\n" + target
+    p.write_text(out)
     return True
