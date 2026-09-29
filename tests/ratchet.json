@@ -1,5 +1,5 @@
 {
- "min_tests": 253,
+ "min_tests": 254,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -80,6 +80,7 @@
   "lanes_fan_out_with_ceiling_and_per_lane_exit",
   "launch_detached_survives_parent_death",
   "liveness_is_process_plus_transcript_never_journal",
+  "materialize_and_plan_check_workflows",
   "no_bypass_flags_anywhere",
   "non_iterate_plan_is_unchanged",
   "parse_arm_splits_model_and_effort",

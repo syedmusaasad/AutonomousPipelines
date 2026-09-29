@@ -2851,3 +2851,26 @@ FAKE: hang
         proc.wait(timeout=30)
         st = j.state()
         assert st["recoveries"] == {"1": 1}
+
+
+@test
+def materialize_and_plan_check_workflows():
+    import tempfile
+    from pipeline import workflows as wf
+    tmp = Path(tempfile.mkdtemp())
+    for name in wf.WORKFLOWS:
+        out = wf.materialize(name, tmp / f"{name}.md", workdir=str(tmp), brief="b", exit_predicate="true")
+        fails = wf.check_plan(out)
+        assert not fails, (name, fails)
+    bad = tmp / "dropped.md"
+    good = wf.materialize("feature", tmp / "f.md", workdir=str(tmp))
+    text = good.read_text().replace("## Phase 2: review (implementer)", "## Phase 2 review (implementer)")
+    bad.write_text(text)
+    fails = wf.check_plan(bad)
+    assert any(("dropped" in f or "headers in file" in f or "malformed or dropped" in f) for f in fails), fails
+    with Estate() as E:
+        p = E.plan("## Phase 1: x (implementer)\nEXIT: true\nTIMEOUT: 10\n")
+        fails = wf.check_plan(p)
+        assert any("TIMEOUT" in f for f in fails), fails
+        r = E.cli("run", str(p))
+        assert r.returncode != 0 and "plan-check" in (r.stdout + r.stderr), r.stdout + r.stderr

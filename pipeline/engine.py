@@ -783,6 +783,9 @@ def launch(plan_path: Path, *, run_id: str = None, conversation: str = None, kin
     from .util import launch_detached
     plan_path = Path(plan_path).resolve()
     plan = planmod.parse_file(plan_path)
+    from . import workflows as wf
+    for f in wf.check_plan(plan_path):
+        raise planmod.PlanError(f"plan-check: {f}")
     reg = roles_mod.load()
     planmod.validate_roles(plan, set(reg["roles"]) | {planmod.GATE_ROLE})
     for w in planmod.deliberation_warnings(plan):

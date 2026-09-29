@@ -59,6 +59,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("trial-report"); p.add_argument("run")
     p = sub.add_parser("sentry"); p.add_argument("--once", action="store_true")
     sub.add_parser("suite")
+    p = sub.add_parser("materialize"); p.add_argument("workflow"); p.add_argument("out"); p.add_argument("--workdir", default="."); p.add_argument("--brief", default=""); p.add_argument("--exit", default="true")
+    p = sub.add_parser("plan-check"); p.add_argument("plan")
     p = sub.add_parser("defects"); p.add_argument("-C", "--cwd", default=os.getcwd())
     p = sub.add_parser("validate"); p.add_argument("plan")
     p = sub.add_parser("gc"); p.add_argument("--dry-run", action="store_true"); p.add_argument("--sweep", action="store_true")
@@ -315,6 +317,33 @@ def cmd_sentry(a):
 def cmd_suite(a):
     import subprocess
     return subprocess.call([sys.executable, str(paths.repo_root() / "tests" / "run.py")])
+
+
+def cmd_materialize(a):
+    from . import workflows as wf
+    from pathlib import Path as _P
+    out = wf.materialize(a.workflow, _P(a.out), workdir=a.workdir, brief=a.brief, exit_predicate=a.exit)
+    fails = wf.check_plan(out)
+    if fails:
+        print("template self-check FAILED:")
+        for f in fails:
+            print("  " + f)
+        return 1
+    print(f"materialized {a.workflow} -> {out}")
+    return 0
+
+
+def cmd_plan_check(a):
+    from . import workflows as wf
+    from pathlib import Path as _P
+    fails = wf.check_plan(_P(a.plan))
+    if fails:
+        print("plan-check FAILED:")
+        for f in fails:
+            print("  " + f)
+        return 1
+    print("plan-check: pass")
+    return 0
 
 
 def cmd_defects(a):
