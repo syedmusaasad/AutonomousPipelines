@@ -24,6 +24,7 @@ from . import engine, paths
 from .journal import Journal, run_ids
 from .util import FileLock, fs_probe, liveness, log, now_ts, pid_alive
 
+_STALL_SEEN = {}
 TICK_S = int(os.environ.get("PIPELINE_SENTRY_TICK_S", "60"))
 STALL_S = int(os.environ.get("PIPELINE_STALL_S", "900"))
 RELIGHT_MAX = int(os.environ.get("PIPELINE_RELIGHT_MAX", "3"))
@@ -80,14 +81,44 @@ def _tend(rid: str, now: float, summary: dict):
         if st["recoveries"].get(phase, 0) >= 1:
             continue  # bounded: once per phase
         lv = liveness(d.get("pid"), Path(d.get("transcript") or "/nonexistent"), STALL_S)
-        if lv["alive"] and lv["stalled"]:
-            log(f"sentry: {rid} dispatch {d['id']} phase {phase} stalled (transcript age {lv['age']}); killing pgid {d['pid']}")
-            try:
-                os.killpg(int(d["pid"]), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-            j.write("recover.stall", phase=phase, by="sentry", dispatch=d["id"], action="killpg", transcript_age=lv["age"])
-            summary["recovered"].append((rid, d["id"]))
+        if not (lv["alive"] and lv["stalled"]):
+            continue
+        seen = _STALL_SEEN.setdefault(d["id"], 0) + 1
+        _STALL_SEEN[d["id"]] = seen
+        if seen == 1:
+            busy = descendant_cpu_used(int(d["pid"]))
+            reason = f"first stalled tick{' ; descendant cpu busy (' + busy + ')' if busy else ' ; idle'}"
+            j.write("stall-deferred", phase=phase, by="sentry", dispatch=d["id"], reason=reason)
+            summary.setdefault("deferred", []).append((rid, d["id"]))
+            continue
+        log(f"sentry: {rid} dispatch {d['id']} phase {phase} stalled (transcript age {lv['age']}); killing pgid {d['pid']}")
+        try:
+            os.killpg(int(d["pid"]), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        j.write("recover.stall", phase=phase, by="sentry", dispatch=d["id"], action="killpg", transcript_age=lv["age"])
+        summary["recovered"].append((rid, d["id"]))
+
+
+
+def descendant_cpu_used(root_pid: int) -> str:
+    """True-ish (a description) when any descendant of root_pid, excluding root_pid
+    itself (the launcher) and kernel threads, used CPU recently. Reads /proc psutil-free."""
+    try:
+        children = subprocess.run(["ps", "-o", "pid=", "--ppid", str(root_pid)],
+                                  capture_output=True, text=True, timeout=10).stdout.split()
+    except Exception:
+        return ""
+    for c in children:
+        try:
+            with open(f"/proc/{c}/stat") as f:
+                parts = f.read().split(")", 1)[1].split()
+            utime, stime = int(parts[11]), int(parts[12])
+            if utime + stime > 0:
+                return f"pid {c} used cpu"
+        except (OSError, IndexError, ValueError):
+            continue
+    return ""
 
 
 def main_loop():

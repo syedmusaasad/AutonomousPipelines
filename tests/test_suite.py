@@ -2819,3 +2819,32 @@ FAKE: touch done.txt
         assert rep["dispatch_rows"], "status shows dispatch rows"
         dr = rep["dispatch_rows"][0]
         assert dr["model"] and dr["tokens"] == 1234 and dr["wall_s"] is not None
+
+
+@test
+def stall_sentry_defers_once_then_kills_ignoring_launcher_cpu():
+    with Estate() as E:
+        p = E.plan("""## Phase 1: hang (fast-worker)
+TIMEOUT: 120
+ATTEMPTS: 1
+FAKE: hang
+""")
+        rid = "stallcpu"
+        (E.estate / "runs" / rid).mkdir(parents=True)
+        (E.estate / "runs" / rid / "plan.path").write_text(str(p))
+        proc = subprocess.Popen([sys.executable, "-m", "pipeline.cli", "engine", rid, str(p)], env=os.environ, cwd=str(E.work), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        j = jmod.Journal(rid)
+        wait_for(lambda: j.state()["open_dispatches"])
+        d = j.state()["open_dispatches"][0]
+        time.sleep(float(os.environ.get("PIPELINE_STALL_S", "2")) + 0.4)
+        s1 = sentry.tick()
+        assert (rid, d["id"]) in s1.get("deferred", []), s1
+        rows = j.rows()
+        sd = [x for x in rows if x["event"] == "stall-deferred"]
+        assert sd and "reason" in sd[0]
+        time.sleep(0.4)
+        s2 = sentry.tick()
+        assert (rid, d["id"]) in s2["recovered"], s2
+        proc.wait(timeout=30)
+        st = j.state()
+        assert st["recoveries"] == {"1": 1}
