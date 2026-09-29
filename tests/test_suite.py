@@ -1414,6 +1414,9 @@ def sentry_recovers_stalled_worker_once_per_phase():
         wait_for(lambda: j.state()["open_dispatches"])
         d = j.state()["open_dispatches"][0]
         time.sleep(2.5)  # exceed PIPELINE_STALL_S=2 with no transcript movement
+        s1 = sentry.tick()
+        assert s1.get("deferred") == [(rid, d["id"])]
+        time.sleep(0.3)
         s = sentry.tick()
         assert s["recovered"] == [(rid, d["id"])]
         proc.wait(timeout=30)

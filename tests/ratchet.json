@@ -1,5 +1,5 @@
 {
- "min_tests": 252,
+ "min_tests": 253,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -123,6 +123,7 @@
   "sentry_relights_dead_engine_max_three_and_skips_deliberate_stops",
   "sentry_stands_down_on_fs_outage",
   "sequence_default_never_overlaps",
+  "stall_sentry_defers_once_then_kills_ignoring_launcher_cpu",
   "status_first_sentence_and_waiting_list_always_present",
   "status_names_premium_allowance_hit_once_in_waiting_list",
   "status_shows_adopted_run_in_scope",
