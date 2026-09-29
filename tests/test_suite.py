@@ -2749,3 +2749,29 @@ FAKE: verdict-by-agent a=BLOCKING b=BLOCKING
         verdicts = [x for x in rows if x["event"] == "review.verdict"]
         assert len(verdicts) == 4, "two reviews, then re-review after one revision"
         assert st["stopped"] == "review_blocking"
+
+
+@test
+def evidence_gate_refuses_unverified_claims():
+    with Estate() as E:
+        plan = E.plan("""## Phase 1: worker (implementer)
+ATTEMPTS: 1
+EXIT: python3 tests/run.py
+FAKE: touch out
+""")
+        rid, p, r, st = run_plan(E, plan.read_text())
+        rows = jmod.Journal(rid).rows()
+        ref = [x for x in rows if x["event"] == "evidence.gate.refused"]
+        assert ref, "claimed test run never recorded in transcript must refuse"
+        assert "python3 tests/run.py" in ref[0]["missing"][0]
+        assert st["phases"]["1"]["status"] == "failed"
+
+    with Estate() as E:
+        plan = E.plan("""## Phase 1: worker (implementer)
+ATTEMPTS: 1
+EXIT: true
+FAKE: ran python3 tests/run.py
+""")
+        rid, p, r, st = run_plan(E, plan.read_text())
+        assert st["closed"] == "done", st
+        assert not [x for x in jmod.Journal(rid).rows() if x["event"] == "evidence.gate.refused"]

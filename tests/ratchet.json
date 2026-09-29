@@ -1,5 +1,5 @@
 {
- "min_tests": 249,
+ "min_tests": 250,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -46,6 +46,7 @@
   "engine_refuses_to_continue_a_deliberate_stop_until_cleared",
   "engine_resumes_idempotently_from_journal",
   "engine_runs_phase_and_engine_runs_exit",
+  "evidence_gate_refuses_unverified_claims",
   "exit_failure_feeds_retry_with_failure_text_then_burns",
   "fallback_model_is_on_another_family_and_used_on_failure",
   "finisher_lands_exact_commit_and_exit_proves_it",

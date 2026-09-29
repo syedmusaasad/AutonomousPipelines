@@ -401,6 +401,24 @@ class Engine:
         res = self._dispatch(plan, ph, attempt=attempt, brief=brief, out_dir=pdir)
         if res.outcome != "ok":
             raise PhaseFailure(f"worker outcome {res.outcome}: {res.error or ''}\n--- worker tail ---\n{res.final_text[-1500:]}")
+        self._evidence_gate(ph, res)
+
+    def _evidence_gate(self, ph, res):
+        claimed = claimed_commands(ph)
+        if not claimed or not res.transcript:
+            return
+        ran = ran_commands(Path(res.transcript))
+        missing = []
+        for cmd in claimed:
+            stem = command_stem(cmd)
+            if not any(stem in r for r in ran):
+                missing.append(cmd)
+        if missing:
+            self.journal.write("evidence.gate.refused", phase=ph.key, missing=missing,
+                               receipt=f"phase {ph.number}: brief claimed verification the worker never ran: " +
+                                       "; ".join(missing))
+            raise PhaseFailure("evidence gate: claimed verification not present in worker transcript: " +
+                               "; ".join(missing))
 
     def _run_lanes(self, plan, ph, attempt, failure_text):
         items_path = Path(ph.lanes)
@@ -585,6 +603,48 @@ class Engine:
                 raise DeliberateStop("review_blocking", f"phase {ph.number}: still blocked after one revision: {verdicts}")
         if "UNAVAILABLE" in vs or None in vs:
             raise PhaseFailure(f"a reviewer produced no verdict: {verdicts}")
+
+
+
+_VERIFICATION_HINTS = ("tests/run.py", "pytest", "go test", "make test", "npm test", "cargo test")
+
+
+def claimed_commands(ph):
+    claimed = []
+    for pred in ph.exits:
+        low = pred.strip().lower()
+        if any(h in low for h in _VERIFICATION_HINTS):
+            claimed.append(pred.strip())
+    return claimed
+
+
+def command_stem(cmd):
+    parts = cmd.strip().split()
+    return " ".join(parts[:2]) if len(parts) > 1 else (parts[0] if parts else "")
+
+
+def ran_commands(transcript_path):
+    import json as _json
+    cmds = []
+    try:
+        raw = transcript_path.read_text(errors="replace")
+    except OSError:
+        return cmds
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+        part = ev.get("part") or {}
+        if ev.get("type") == "tool_use" and part.get("tool") == "bash":
+            inp = part.get("state", {}).get("input", {}) or {}
+            c = inp.get("command", "") if isinstance(inp, dict) else ""
+            if c:
+                cmds.append(c)
+    return cmds
 
 
 class PhaseFailure(Exception):
