@@ -2800,3 +2800,22 @@ def defect_log_concurrent_appends_and_count():
         assert dmod.fix_entry(wd, "ses_3", "abc1234")
         assert dmod.open_count(wd) == 7
         assert "fixed-by: abc1234" in (wd / "DEFECTS.md").read_text()
+
+
+@test
+def journal_rows_carry_stream_sourced_cost_model_wall():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: quick (fast-worker)
+FAKE: touch done.txt
+""")
+        rows = jmod.Journal(rid).rows()
+        ends = [x for x in rows if x["event"] == "dispatch.end"]
+        assert ends, "dispatch row missing"
+        row = ends[0]
+        assert row["model"], "model from stream"
+        assert row["tokens"]["total"] == 1234, "tokens from stream"
+        assert row["wall_s"] >= 0, "wall from stream"
+        rep = status.run_report(rid)
+        assert rep["dispatch_rows"], "status shows dispatch rows"
+        dr = rep["dispatch_rows"][0]
+        assert dr["model"] and dr["tokens"] == 1234 and dr["wall_s"] is not None

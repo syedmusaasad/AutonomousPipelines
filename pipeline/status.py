@@ -40,6 +40,11 @@ def run_report(run_id: str) -> dict:
         verdict = "running" if engine_alive else "dead-engine"
     else:
         verdict = "unknown"
+    dispatch_rows = [
+        {"id": d["id"], "phase": d.get("phase"), "role": d.get("role"), "model": d.get("model"),
+         "wall_s": d.get("wall_s"), "tokens": (d.get("tokens") or {}).get("total"), "cost": d.get("cost")}
+        for d in st["dispatches"].values() if d.get("outcome")
+    ]
     waiting = [f"phase {k}: write sentinel {p['waiting_on']}" for k, p in phases.items() if p.get("status") == "waiting"]
     if st.get("stopped") and st["closed"]:
         detail = st.get("stop_detail") or ""
@@ -69,7 +74,7 @@ def run_report(run_id: str) -> dict:
     return {
         "run": run_id, "verdict": verdict, "plan": st.get("plan"), "conversation": st.get("conversation"),
         "engine_pid": st.get("engine_pid"), "engine_alive": engine_alive, "stopped_receipt": stopped_receipt,
-        "phases": phases, "workers": workers, "waiting_on_operator": waiting,
+        "phases": phases, "workers": workers, "dispatch_rows": dispatch_rows, "waiting_on_operator": waiting,
         "tokens_total": st["tokens_total"], "cost_total": round(st["cost_total"], 4), "relights": st["relights"],
         "opened_at": st.get("opened_at"), "closed_at": st.get("closed_at"),
     }

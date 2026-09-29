@@ -1,5 +1,5 @@
 {
- "min_tests": 251,
+ "min_tests": 252,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -72,6 +72,7 @@
   "iterate_two_fresh_iterations_pass_and_review_once",
   "iterate_without_ceiling_is_rejected",
   "iterate_without_exit_is_rejected",
+  "journal_rows_carry_stream_sourced_cost_model_wall",
   "journal_state_derivation",
   "journal_tolerates_torn_tail",
   "landing_lock_serializes_concurrent_finishers",
