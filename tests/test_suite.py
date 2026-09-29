@@ -3,6 +3,7 @@ ratchet forbids the count going down."""
 
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -2672,3 +2673,41 @@ def ratchet_ledger_never_goes_down():
     assert len(TESTS) >= ledger["min_tests"], f"{len(TESTS)} tests < ledger floor {ledger['min_tests']}: gates only ratchet"
     for name in ledger["required"]:
         assert name in {t.__name__ for t in TESTS}, f"required test {name} removed"
+
+
+@test
+def landing_lock_serializes_concurrent_finishers():
+    with Estate() as E:
+        import subprocess as sp
+        repo = E.work / "landrepo"
+        repo.mkdir()
+        def g(*a):
+            return sp.run(["git"] + list(a), cwd=repo, capture_output=True, text=True)
+        g("init", "-q", "-b", "main")
+        g("config", "user.name", "t"); g("config", "user.email", "t@t")
+        (repo / "f.txt").write_text("base\n")
+        g("add", "-A"); g("commit", "-q", "-m", "init")
+        for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"):
+            os.environ[k] = "t" if "NAME" in k else "t@t"
+        from pipeline.quick import launch_quick
+        from pipeline.journal import Journal
+        rows = []
+        for i, subj in enumerate(("land: one", "land: two")):
+            (repo / f"file{i}.txt").write_text(subj + "\n")
+            task = f"Land the commit.\nFAKE: commit {subj} -- file{i}.txt"
+            rows.append(launch_quick(task, role="implementer", cwd=repo,
+                                     exits=[f"git log --format=%s | grep -qxF {shlex.quote(subj)}"],
+                                     timeout=120, landing=True))
+        ids = [r["run"] for r in rows]
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            if all(Journal(i).state()["closed"] for i in ids):
+                break
+            time.sleep(1)
+        log = [l for l in g("log", "--format=%s").stdout.splitlines()]
+        assert "land: one" in log and "land: two" in log, log
+        assert g("status", "--porcelain").stdout.strip() == "", g("status", "--porcelain").stdout
+        from pipeline.util import landing_lock_path
+        assert landing_lock_path().exists()
+        # order proof: one precedes two in the log (serialized landings land sequentially)
+        assert log.index("land: one") < log.index("land: two"), log

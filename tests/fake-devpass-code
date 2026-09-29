@@ -28,6 +28,7 @@ FAKE directives (in the brief task text):
 import json
 import os
 import re
+import shlex
 import sys
 import time
 
@@ -93,7 +94,14 @@ def main():
         parts = d.split(None, 1)
         cmd = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
-        if cmd == "touch":
+        if cmd == "commit":
+            m = re.match(r"(.+?)\s+--\s+(.+)$", rest)
+            if m:
+                subject, fence = m.group(1), m.group(2)
+                os.system("git add -- " + fence + " && git commit -q -m " + shlex.quote(subject))
+            else:
+                os.system("git add -A && git commit -q -m " + shlex.quote(rest))
+        elif cmd == "touch":
             p = path(rest)
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
             open(p, "a").close()

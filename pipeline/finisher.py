@@ -40,4 +40,4 @@ def finisher_brief(*, subject: str, add_paths: list, verify: str = None, push: s
 def launch_finisher(*, cwd: Path, subject: str, add_paths: list, verify: str = None, push: str = None,
                     suite: str = None, conversation: str = None) -> dict:
     task, exits = finisher_brief(subject=subject, add_paths=add_paths, verify=verify, push=push, suite=suite)
-    return launch_quick(task, role="implementer", cwd=cwd, exits=exits, timeout=1200, conversation=conversation)
+    return launch_quick(task, role="implementer", cwd=cwd, exits=exits, timeout=1200, conversation=conversation, landing=True)

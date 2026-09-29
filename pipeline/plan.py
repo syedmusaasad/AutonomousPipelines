@@ -29,7 +29,7 @@ from pathlib import Path
 HEADING = re.compile(r"^##\s*Phase\s+(\d+)\s*:\s*(.+?)\s*\((\w[\w-]*)\)\s*$")
 DIRECTIVE = re.compile(r"^([A-Z][A-Z-]*):\s*(.*?)\s*$")
 KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL", "EFFORT",
-         "ITERATE", "PROGRESS", "COST-CEILING"}
+         "ITERATE", "PROGRESS", "COST-CEILING", "LANDING"}
 
 DEFAULT_TIMEOUT = 1800
 DEFAULT_ATTEMPTS = 2
@@ -61,6 +61,7 @@ class Phase:
     surfaces: list = field(default_factory=list)  # [(glob, surface)]
     gate: str = None
     attempts: int = DEFAULT_ATTEMPTS
+    landing: bool = False
     model: str = None
     effort: str = None
     iterate: bool = False
@@ -203,6 +204,10 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
         if not val:
             raise PlanError(f"line {lineno}: PROGRESS wants a shell predicate")
         ph.iterate_progress = val
+    elif key == "LANDING":
+        if val != "on":
+            raise PlanError(f"line {lineno}: LANDING accepts only 'on'")
+        ph.landing = True
     elif key == "COST-CEILING":
         raise PlanError(f"line {lineno}: COST-CEILING is reserved for a future directive")
 

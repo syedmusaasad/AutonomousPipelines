@@ -11,13 +11,15 @@ from .util import new_id
 
 
 def launch_quick(task: str, *, role: str, cwd: Path, exits: list = (), timeout: int = 1800,
-                 conversation: str = None, review: bool = False) -> dict:
+                 conversation: str = None, review: bool = False, landing: bool = False) -> dict:
     paths.ensure_layout()
     run_id = new_id("q")
     qdir = paths.quick_dir() / run_id
     qdir.mkdir(parents=True, exist_ok=True)
     lines = [f"# quick: {task.strip().splitlines()[0][:80]}", f"WORKDIR: {Path(cwd).resolve()}", "",
              f"## Phase 1: quick ({role})", f"TIMEOUT: {timeout}", "ATTEMPTS: 2"]
+    if landing:
+        lines.append("LANDING: on")
     lines += [f"EXIT: {e}" for e in exits]
     if review:
         lines.append("REVIEW: cross")

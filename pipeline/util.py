@@ -217,3 +217,61 @@ class FileLock:
             fcntl.flock(self.fh, fcntl.LOCK_UN)
             self.fh.close()
             self.fh = None
+
+
+class LandingLock:
+    """Blocking landing lock: serializes landing ceremony across processes. A stale lock
+    (holder pid dead) is reclaimed. FileLock cannot block; this one waits."""
+
+    def __init__(self, path: Path, poll_s: float = 0.2):
+        self.path = path
+        self.poll_s = poll_s
+        self.fh = None
+
+    def _holder_pid(self):
+        try:
+            return int(self.path.read_text().strip() or 0)
+        except (OSError, ValueError):
+            return 0
+
+    def acquire(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        while True:
+            self.fh = open(self.path, "a+")
+            try:
+                fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.fh.seek(0)
+                self.fh.truncate()
+                self.fh.write(str(os.getpid()))
+                self.fh.flush()
+                return self
+            except OSError:
+                self.fh.close()
+                self.fh = None
+                holder = self._holder_pid()
+                if holder and not pid_alive(holder):
+                    try:
+                        stale = self.path.with_suffix(".reclaim")
+                        os.replace(self.path, stale)
+                        stale.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                    continue
+                time.sleep(self.poll_s)
+
+    def release(self):
+        if self.fh:
+            fcntl.flock(self.fh, fcntl.LOCK_UN)
+            self.fh.close()
+            self.fh = None
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+def landing_lock_path() -> Path:
+    from . import paths
+    return paths.state_dir() / "landing.lock"

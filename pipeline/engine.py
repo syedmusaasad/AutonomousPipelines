@@ -196,6 +196,13 @@ class Engine:
     def _run_phase(self, plan, ph):
         if ph.is_gate:
             return self._run_gate(plan, ph)
+        if ph.landing:
+            from .util import LandingLock, landing_lock_path
+            with LandingLock(landing_lock_path()):
+                return self._run_phase_inner(plan, ph)
+        return self._run_phase_inner(plan, ph)
+
+    def _run_phase_inner(self, plan, ph):
         if ph.iterate:
             return self._run_iterate(plan, ph)
         st = self.journal.state().get("phases", {}).get(ph.key, {})
