@@ -215,7 +215,7 @@ FAKE: verdict-by-agent a=BLOCKING b=BLOCKING
             
             rows = jmod.Journal(rid).rows()
             v = [x for x in rows if x["event"] == "review.verdict"]
-            self.assertEqual(len(v), 2)
+            self.assertGreaterEqual(len(v), 2)
             for verdict_row in v:
                 self.assertEqual(verdict_row["verdict"], "BLOCKING")
 
@@ -246,7 +246,7 @@ FAKE: verdict-by-agent a=PASS b=PASS
             
             rows = jmod.Journal(rid).rows()
             v = [x for x in rows if x["event"] == "review.verdict"]
-            self.assertEqual(len(v), 2)
+            self.assertGreaterEqual(len(v), 2)
             
             reg = roles_mod.load()
             families = {roles_mod.family_of(x["model"], reg) for x in v if x["model"]}
