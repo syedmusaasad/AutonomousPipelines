@@ -5,74 +5,96 @@ Every number below is measured; none is asserted. Regenerate: `pipeline bench > 
 
 ## Runs
 
-- runs recorded: 4
-- done: 4; stopped: 0; open: 0
-- median run wall clock (closed runs): 55.0 s
-- relights by sentry: 0; stall recoveries: 0
+- runs recorded: 77
+- done: 58; stopped: 19; open: 0
+- median run wall clock (closed runs): 95.0 s
+- relights by sentry: 46; stall recoveries: 0
 
 ## Dispatch outcomes
 
-- dispatches: 8
-- ok: 8 (100.0%)
-- machine failures (failed/timeout): 0 (0.0%)
-- host-outage stalls (outage/stalled/killed), separated from machine failures: 0 (0.0%)
-- ok rate excluding host stalls: 100.0%
+- dispatches: 381
+- ok: 292 (76.6%)
+- machine failures (failed/timeout): 69 (18.1%)
+- host-outage stalls (outage/stalled/killed), separated from machine failures: 20 (5.2%)
+- premium quota hits (neither machine failure nor host outage): 0 (0.0%)
+- ok rate excluding host stalls: 80.9%
 
 ## Wall clock
 
-- median dispatch wall: 44.9 s
-- p90 dispatch wall: 73.1 s
+- median dispatch wall: 80.2 s
+- p90 dispatch wall: 1200.1 s
 
 ## Tokens
 
-- total tokens: 171880
-- tokens per dispatch (median): 16878.0
-- tokens per landed outcome (total tokens / done phases): 28647
-- cost total: 0.9489
+- total tokens: 43906854
+- tokens per dispatch (median): 24169.5
+- tokens per landed outcome (total tokens / done phases): 330127
+- cost total: 269.4684
 
 ### Tokens by role
 
 | role | dispatches | tokens | ok rate |
 |---|---|---|---|
-| document-writer | 1 | 50034 | 100.0% |
-| fast-worker | 2 | 24492 | 100.0% |
-| implementer | 3 | 56619 | 100.0% |
-| reviewer-a | 1 | 27344 | 100.0% |
-| reviewer-b | 1 | 13391 | 100.0% |
+| document-writer | 6 | 952241 | 100.0% |
+| fast-worker | 73 | 2265329 | 83.6% |
+| implementer | 157 | 24145271 | 59.2% |
+| lane-worker | 85 | 1099948 | 91.8% |
+| researcher | 14 | 2947166 | 92.9% |
+| reviewer-a | 23 | 5081009 | 95.7% |
+| reviewer-b | 23 | 7415890 | 82.6% |
 
 ### Tokens by model
 
 | model | dispatches | tokens | ok rate |
 |---|---|---|---|
-| llmgateway-devpass/claude-haiku-4-5 | 2 | 24492 | 100.0% |
-| llmgateway-devpass/claude-opus-4-6 | 1 | 27344 | 100.0% |
-| llmgateway-devpass/claude-sonnet-4-6 | 4 | 106653 | 100.0% |
-| llmgateway-devpass/gpt-5.5 | 1 | 13391 | 100.0% |
+| llmgateway-devpass/claude-haiku-4-5 | 131 | 3010260 | 88.5% |
+| llmgateway-devpass/claude-opus-4-6 | 8 | 3734826 | 100.0% |
+| llmgateway-devpass/claude-sonnet-4-6 | 39 | 4222060 | 56.4% |
+| llmgateway-devpass/claude-sonnet-5 | 79 | 15984007 | 55.7% |
+| llmgateway-devpass/deepseek-v4-flash | 5 | 62247 | 100.0% |
+| llmgateway-devpass/gemini-3.1-pro-preview | 13 | 2615769 | 92.3% |
+| llmgateway-devpass/gemini-3.5-flash | 4 | 0 | 0.0% |
+| llmgateway-devpass/gemini-3.8-flash | 5 | 1213142 | 100.0% |
+| llmgateway-devpass/gpt-5.3-codex | 4 | 134201 | 100.0% |
+| llmgateway-devpass/gpt-5.4 | 11 | 0 | 0.0% |
+| llmgateway-devpass/gpt-5.5 | 8 | 610372 | 100.0% |
+| llmgateway-devpass/gpt-5.6-luna | 24 | 355896 | 91.7% |
+| llmgateway-devpass/gpt-5.6-terra | 39 | 5292757 | 100.0% |
+| llmgateway-devpass/grok-4-6 | 11 | 6671317 | 63.6% |
+
+### Premium quota hits by model
+
+This is how the premium-tier list confirms itself over time: a 402 journaled here
+against a model the registry does not yet tag `premium: true` is evidence to fix the tag.
+
+| model | quota hits | dispatches |
+|---|---|---|
+| (none) | 0 | - |
 
 ## Phases
 
-- phases seen: 6; done: 6; failed/burned: 0
-- first-attempt landing rate: 100.0%
+- phases seen: 152; done: 133; failed/burned: 16
+- first-attempt landing rate: 91.7%
 
 ## Surface register
 
-- scorings: 1; pass: 1 (100.0%)
-- rewrite passes: 0 of 0 rewrites
+- scorings: 7; pass: 5 (71.4%)
+- rewrite passes: 2 of 2 rewrites
 
 ## Cross review
 
-- verdicts: 2
-- PASS: 2
-- CONCERNS: 0
-- BLOCKING: 0
-- UNAVAILABLE: 0
+- verdicts: 46
+- PASS: 16
+- CONCERNS: 5
+- BLOCKING: 21
+- UNAVAILABLE: 4
 
 ## Characterization suite (last run)
 
-- when: 2026-09-04T05:02:38+00:00
-- tests: 53 passed: 53 failed: 0
-- wall: 27.2 s
-- ratchet: 53 tests vs ledger floor 53
+- when: 2026-09-29T03:37:11+00:00
+- tests: 258 passed: 259 failed: 0
+- wall: 59.7 s
+- ratchet: 258 tests vs ledger floor 258
 - regenerate: `pipeline suite`
 
 ## Regeneration
