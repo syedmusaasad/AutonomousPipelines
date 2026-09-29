@@ -2903,3 +2903,22 @@ FAKE: touch done.txt
         assert any(r["event"] == "run.resume" and r.get("cleared") for r in rows)
         new_open = [r for r in rows if r["event"] == "run.open"][-1]
         assert new_open["cwd"] == str(workdir)
+
+
+@test
+def interactive_seat_guard_refuses_writes():
+    from pipeline import roles as rmod
+    reg = rmod.load()
+    rendered = rmod.render_agent("interactive", reg)
+    assert 'edit: "deny"' in rendered
+    assert '"*": "deny"' in rendered
+    assert '"run *": "allow"' in rendered
+    assert '"quick *": "allow"' in rendered
+    assert '"pipeline defects*": "allow"' in rendered or '"pipeline defects *": "allow"' in rendered
+    forbidden = ('"git commit*": "allow"', '"rm *": "allow"', '"touch *": "allow"', '"pip *": "allow"')
+    assert not any(f in rendered for f in forbidden), "write commands must be refused"
+    prompt = open("roles/interactive.md").read()
+    assert "quick -r <role>" in prompt and "run <plan>" in prompt
+    for other in ("implementer", "fast-worker"):
+        agent = rmod.render_agent(other, reg)
+        assert '"*": "allow"' in agent, other + " must keep full bash"

@@ -50,3 +50,10 @@ Reviewers are attached by `REVIEW: cross`, never dispatched by hand.
 - Weaken a gate, delete a test, or add a bypass flag to land work.
 - Change a model seat outside `pipeline trial`.
 - Launch anything in the foreground: `quick` and `run` detach for you.
+
+## Seat guard
+
+This seat plans and reports; it never writes. Write tools are refused by design. If a
+task needs a file changed, code run, or anything written, dispatch it: that is what
+`quick` and `run` are for. A refused write is your reminder to name the dispatch it
+should have been: `quick -r <role>` for one small change, `run <plan>` for staged work.

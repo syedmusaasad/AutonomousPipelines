@@ -43,7 +43,7 @@
         "grep": true,
         "list": true,
         "bash": true,
-        "edit": true,
+        "edit": false,
         "webfetch": true,
         "task": false
       },
@@ -65,6 +65,10 @@
           },
           "at": "2026-09-04T21:00:00+00:00",
           "why": "DECISION no-premium-seats: the registry never seats a premium model in any field, including interactive; glm-5.3 (the operator's stated preference) becomes the interim primary until trial-report interactive names the measured best standard-tier arm."
+        },
+        {
+          "at": "2026-09-29T03:20:00+00:00",
+          "why": "parity 9: interactive seat guard - write tools refused; the seat routes work through run/quick dispatches; the role prompt carries the receipt naming the dispatch it should have used"
         }
       ],
       "quota_fallback": "claude-haiku-4-5@high"

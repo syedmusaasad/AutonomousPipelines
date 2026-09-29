@@ -1,5 +1,5 @@
 {
- "min_tests": 255,
+ "min_tests": 256,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -58,6 +58,7 @@
   "gc_eligibility_matrix",
   "gc_plan_on_fixture_estate_running_and_recent_kept_closed_old_eligible",
   "gc_sweep_deletes_artifacts_keeps_journal_and_stopped_writes_manifest_first",
+  "interactive_seat_guard_refuses_writes",
   "interrupted_attempt_is_not_charged_against_budget",
   "iterate_and_lanes_together_is_rejected",
   "iterate_builtin_stall_stops_after_two_unchanged_iterations",

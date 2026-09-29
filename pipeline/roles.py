@@ -13,6 +13,14 @@ REVIEWERS = ("reviewer-a", "reviewer-b", "reviewer-c")
 DISPATCHABLE = ("implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker") + REVIEWERS
 AGENT_PREFIX = "pl-"
 
+INTERACTIVE_ALLOWED_BASH = (
+    "run *", "run", "quick *", "quick", "status *", "status", "pipeline defects *", "pipeline defects",
+    "pipeline status *", "pipeline status", "pipeline conv *", "pipeline conv",
+    "ls *", "ls", "cat *", "cat", "grep *", "grep", "head *", "head", "tail *", "tail",
+    "git status*", "git log*", "git diff*", "git show*", "wc *", "wc", "find *", "find", "echo *", "echo",
+    "ps *", "ps", "which *", "which", "df *", "df", "du *", "du",
+)
+
 EXTERNAL_CHANNEL_PATTERNS = (
     # No role can post to external channels. Denied at the bash-permission level and
     # restated in every role prompt.
@@ -149,6 +157,10 @@ def render_agent(role: str, reg: dict) -> str:
     bash_rules = {"*": "allow"}
     if s.get("sealed"):
         bash_rules = {"*": "allow", "git commit*": "deny", "git push*": "deny", "rm *": "deny", "mv *": "deny"}
+    if role == "interactive":
+        bash_rules = {"*": "deny"}
+        for verb in INTERACTIVE_ALLOWED_BASH:
+            bash_rules[verb] = "allow"
     for pat in EXTERNAL_CHANNEL_PATTERNS:
         bash_rules[pat] = "deny"
     perm["bash"] = bash_rules if tools.get("bash") else "deny"
