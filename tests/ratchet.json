@@ -1,5 +1,5 @@
 {
- "min_tests": 256,
+ "min_tests": 257,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -204,6 +204,7 @@
   "tui_mouse_test_starts_empty_and_inactive",
   "tui_mouse_test_toggle_flips_and_returns_new_state",
   "tui_mouse_test_unicode_text_roundtrips_through_base64",
+  "tui_parity_fixtures",
   "tui_scroll_test_bounds_of_first_line",
   "tui_scroll_test_bounds_of_second_line_accounts_for_first_lines_wrap",
   "tui_scroll_test_clamp_keeps_offset_in_range",
