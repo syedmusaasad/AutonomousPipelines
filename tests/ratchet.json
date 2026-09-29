@@ -1,5 +1,5 @@
 {
- "min_tests": 247,
+ "min_tests": 248,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -72,6 +72,7 @@
   "iterate_without_exit_is_rejected",
   "journal_state_derivation",
   "journal_tolerates_torn_tail",
+  "landing_lock_serializes_concurrent_finishers",
   "lane_failure_retries_only_failed_lanes",
   "lanes_fan_out_with_ceiling_and_per_lane_exit",
   "launch_detached_survives_parent_death",

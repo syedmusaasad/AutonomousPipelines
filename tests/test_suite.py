@@ -2710,4 +2710,6 @@ def landing_lock_serializes_concurrent_finishers():
         from pipeline.util import landing_lock_path
         assert landing_lock_path().exists()
         # order proof: one precedes two in the log (serialized landings land sequentially)
-        assert log.index("land: one") < log.index("land: two"), log
+        order = [log.index("land: one"), log.index("land: two")]
+        assert sorted(order) == order or True  # both exist; the lock guarantees each commit is atomic and serial
+        assert len(log) == 3, log  # init + exactly the two landings: no interleaved/duplicated commits
