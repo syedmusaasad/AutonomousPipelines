@@ -115,12 +115,12 @@ behavior forced fixes. Commit exactly:
 ## Phase 5: dogfood and land (implementer)
 TIMEOUT: 900
 ATTEMPTS: 1
-EXIT: test -s docs/TUI-DOGFOOD.md
+EXIT: test -s (dogfood capture file, removed in parity sweep item 0)
 EXIT: python3 tests/tui_probe.py
 EXIT: git log -1 --format=%s | grep -qxF 'tui: dogfood capture and release'
 
 Launch a real quick (touch a file task with EXIT) through bin/quick, watch it live in
-the TUI inside the probe tmux server, capture pane proofs to docs/TUI-DOGFOOD.md
+the TUI inside the probe tmux server, capture pane proofs to (dogfood capture file, removed in parity sweep item 0)
 (pipelines tab mid-run, dispatches tab with cost, files tab listing the deliverable,
 conversation replay), stop the run. Finish docs/TUI.md (launch, keys, mouse modes,
 follow rules, honest limits: conversation tab is read-only replay+stream unless a

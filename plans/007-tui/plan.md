@@ -149,7 +149,7 @@ EXIT: git log -1 --format=%s | grep -qxF 'tui: dogfood capture and release'
 
 Dogfood: launch a real quick (`echo probe > /tmp/devpass-code/tui-dogfood.txt` style
 task with EXIT), watch it live in the TUI inside the probe tmux server, capture pane
-proofs to docs/TUI-DOGFOOD.md (pane captures for: pipelines tab mid-run, dispatches tab
+proofs to (dogfood capture file, removed in parity sweep item 0) (pane captures for: pipelines tab mid-run, dispatches tab
 with cost, files tab listing the deliverable, conversation tab replay), then stop.
 Write docs/TUI.md: launch (bin/pit, bin/pipesess attach), keys, mouse modes, the
 follow rules, and the honest limits (conversation tab is read-only replay+stream unless
