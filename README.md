@@ -51,15 +51,15 @@ failing plan.
 | Role | Model | Effort | Fallback |
 |---|---|---|---|
 | interactive | glm-5.3 | high | claude-sonnet-5 |
-| implementer | gpt-5.6-terra | high | deepseek-v4-pro |
-| fast-worker | gpt-5.6-luna | low | deepseek-v4-flash |
-| lane-worker | deepseek-v4-flash | medium | gpt-5.6-luna |
+| implementer | claude-sonnet-5-5 | high | deepseek-v4.1-flash |
+| fast-worker | gpt-6-luna | low | deepseek-v4.1-flash |
+| lane-worker | deepseek-v4.1-flash | medium | gpt-6-luna |
 | researcher | gemini-3.8-flash | medium | glm-5.3 |
 | document-writer | gemini-3.8-flash | high | glm-5.3 |
-| frontend-worker | gpt-5.6-terra | high | deepseek-v4-pro |
-| reviewer-a | gpt-5.6-terra | high | deepseek-v4-pro |
-| reviewer-b | grok-4-6 | high | claude-sonnet-5 |
-| reviewer-c | kimi-k3 | high | gemini-3.8-flash |
+| frontend-worker | claude-sonnet-5-5 | high | deepseek-v4.1-flash |
+| reviewer-a | gpt-6-sol | high | deepseek-v4-pro |
+| reviewer-b | grok-4-7 | high | gpt-6-sol |
+| reviewer-c | claude-sonnet-5-5 | high | gemini-3.8-flash |
 
 All seats are standard-tier per the DevPass $5/$15 rule; seats change only via
 `pipeline trial`. The interactive seat is read-only: writes are refused with a receipt

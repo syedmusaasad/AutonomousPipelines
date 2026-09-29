@@ -71,12 +71,12 @@
           "why": "parity 9: interactive seat guard - write tools refused; the seat routes work through run/quick dispatches; the role prompt carries the receipt naming the dispatch it should have used"
         }
       ],
-      "quota_fallback": "claude-haiku-4-5@high"
+      "quota_fallback": "claude-sonnet-5-5@high"
     },
     "implementer": {
       "purpose": "Code changes with tests, exact ceremony (commit subject, verification grep).",
-      "model": "gpt-5.6-terra",
-      "fallback": "deepseek-v4-pro",
+      "model": "claude-sonnet-5-5",
+      "fallback": "deepseek-v4.1-flash",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -114,14 +114,26 @@
           },
           "at": "2026-09-07T08:30:00+00:00",
           "why": "DECISION cost-swap implementer->terra (2026-09-07, operator-approved): measured journal spend showed claude-sonnet-5 at 58% of all estate cost ($127.71 of $221.12 across 328 dispatches), with 34 of its 75 implementer dispatches not landing ok (the timeout class). gpt-5.6-terra@high is published-cheaper by 4.1x ($0.81 vs $3.31/task blended; $1.75/$7.00 vs $2.00/$10.00 per M in/out, gateway pricing) with comparable-or-better evidence: AA Intelligence 47 vs 45, LiveBench code_completion 80.4 vs 78.3, typescript 46.7 vs 50.0 (sonnet slightly ahead), code_generation 76.1 vs 83.1 (sonnet's edge, from-scratch work; the implementer role here is mostly completing/fixing code). Sources: artificialanalysis.ai/leaderboards/models and livebench.ai/table_2026_06_25.csv, both retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md. Same swap applied to frontend-worker (same seat, zero dispatches so far, identical criteria). Sonnet-5 remains seated as interactive-fallback and reviewer fallbacks; the from-scratch codegen edge is noted and re-checkable via pipeline trial if implementer quality regresses."
+        },
+        {
+          "from": {
+            "model": "gpt-5.6-terra",
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "model": "claude-sonnet-5-5",
+            "fallback": "deepseek-v4.1-flash"
+          },
+          "at": "2026-09-29T18:06:12+00:00",
+          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
         }
       ],
-      "quota_fallback": "claude-haiku-4-5@high"
+      "quota_fallback": "gpt-6-luna@high"
     },
     "fast-worker": {
       "purpose": "Small, well-specified, cheap: a fetch, a one-line fix, a file rename.",
-      "model": "gpt-5.6-luna",
-      "fallback": "deepseek-v4-flash",
+      "model": "gpt-6-luna",
+      "fallback": "deepseek-v4.1-flash",
       "effort": "low",
       "band": "tolerant",
       "tools": {
@@ -135,7 +147,7 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "claude-haiku-4-5@low",
+      "quota_fallback": "gpt-6-luna@low",
       "history": [
         {
           "from": {
@@ -149,13 +161,25 @@
           "at": "2026-09-05T19:30:00+00:00",
           "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
           "evidence": "AA: Luna low=26* max=43 vs Haiku=22; 107 vs 100 t/s; 1M vs 200k ctx"
+        },
+        {
+          "from": {
+            "model": "gpt-5.6-luna",
+            "fallback": "deepseek-v4-flash"
+          },
+          "to": {
+            "model": "gpt-6-luna",
+            "fallback": "deepseek-v4.1-flash"
+          },
+          "at": "2026-09-29T18:06:12+00:00",
+          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
         }
       ]
     },
     "lane-worker": {
       "purpose": "One item of a fan-out; writes only under $LANE_OUT.",
-      "model": "deepseek-v4-flash",
-      "fallback": "gpt-5.6-luna",
+      "model": "deepseek-v4.1-flash",
+      "fallback": "gpt-6-luna",
       "effort": "medium",
       "band": "tolerant",
       "tools": {
@@ -169,7 +193,7 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "claude-haiku-4-5@medium",
+      "quota_fallback": "gpt-6-luna@medium",
       "history": [
         {
           "from": {
@@ -183,6 +207,18 @@
           "at": "2026-09-05T19:30:00+00:00",
           "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
           "evidence": "AA: DS-Flash 41 vs Haiku 22; $0.14/task; TTFT 0.94s; 131 t/s"
+        },
+        {
+          "from": {
+            "model": "deepseek-v4-flash",
+            "fallback": "gpt-5.6-luna"
+          },
+          "to": {
+            "model": "deepseek-v4.1-flash",
+            "fallback": "gpt-6-luna"
+          },
+          "at": "2026-09-29T18:06:12+00:00",
+          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
         }
       ]
     },
@@ -300,12 +336,12 @@
           "why": "DECISION fallback-sweep (2026-09-06, completed by the interactor after two worker timeouts left the analysis unfinished): criterion = same as the primary's. For researcher/document-writer (reading/digesting, prose) the published numbers rank glm-5.3 above claude-sonnet-5 on every axis of the role's criterion: LiveBench summarize 74.55 vs 71.22, AA intelligence 49 vs 45, TTFT 2.0s vs 2.9s (sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv, both retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md). kimi-k3's AA 50 is beaten here by its LB summarize 69.35 (below sonnet's 71.22) and TTFT 28.5s. Interactive KEEPS claude-sonnet-5: conversational TTFT 2.9s beats kimi-k3's 28.5s; glm-5.3 is unusable as its own fallback (same model as the primary). No other seat's fallback changed: each current one already wins its role's criterion (implementer gpt-5.6-luna on code speed/cost, reviewers deepseek-v4-pro/gpt-5.3-codex/gemini-3.8-flash on intelligence+TTFT)."
         }
       ],
-      "quota_fallback": "claude-haiku-4-5@medium"
+      "quota_fallback": "gemini-3.8-flash@high"
     },
     "frontend-worker": {
       "purpose": "Browser-facing work: HTML/CSS/JS/TS components and their tests.",
-      "model": "gpt-5.6-terra",
-      "fallback": "deepseek-v4-pro",
+      "model": "claude-sonnet-5-5",
+      "fallback": "deepseek-v4.1-flash",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -319,7 +355,7 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "claude-haiku-4-5@high",
+      "quota_fallback": "gpt-6-luna@high",
       "history": [
         {
           "from": {
@@ -332,12 +368,24 @@
           },
           "at": "2026-09-07T08:30:00+00:00",
           "why": "DECISION cost-swap implementer->terra (2026-09-07, operator-approved): measured journal spend showed claude-sonnet-5 at 58% of all estate cost ($127.71 of $221.12 across 328 dispatches), with 34 of its 75 implementer dispatches not landing ok (the timeout class). gpt-5.6-terra@high is published-cheaper by 4.1x ($0.81 vs $3.31/task blended; $1.75/$7.00 vs $2.00/$10.00 per M in/out, gateway pricing) with comparable-or-better evidence: AA Intelligence 47 vs 45, LiveBench code_completion 80.4 vs 78.3, typescript 46.7 vs 50.0 (sonnet slightly ahead), code_generation 76.1 vs 83.1 (sonnet's edge, from-scratch work; the implementer role here is mostly completing/fixing code). Sources: artificialanalysis.ai/leaderboards/models and livebench.ai/table_2026_06_25.csv, both retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md. Same swap applied to frontend-worker (same seat, zero dispatches so far, identical criteria). Sonnet-5 remains seated as interactive-fallback and reviewer fallbacks; the from-scratch codegen edge is noted and re-checkable via pipeline trial if implementer quality regresses."
+        },
+        {
+          "from": {
+            "model": "gpt-5.6-terra",
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "model": "claude-sonnet-5-5",
+            "fallback": "deepseek-v4.1-flash"
+          },
+          "at": "2026-09-29T18:06:12+00:00",
+          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
         }
       ]
     },
     "reviewer-a": {
       "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",
-      "model": "gpt-5.6-terra",
+      "model": "gpt-6-sol",
       "fallback": "deepseek-v4-pro",
       "effort": "high",
       "band": "critical",
@@ -390,14 +438,26 @@
           },
           "at": "2026-09-05T19:45:00+00:00",
           "why": "DECISION reviewer-distinct-from-interactive (2026-09-05): operator rule - no reviewer may share a model with the interactive agent. reviewer-a was glm-5.3 (same as interactive). Next in line by published evidence: gpt-5.6-terra - AA Intelligence 47 (xhigh 44 with published $0.50/task), openai family so reviewers span openai/xai/moonshot, LiveBench 2026-06-25: code_completion 80.4, typos 86, typescript 46.7 (terra-max). Fallback deepseek-v4-pro (AA 42, deepseek family) unchanged. Sources: https://artificialanalysis.ai/leaderboards/models, https://livebench.ai/table_2026_06_25.csv. No model tokens spent."
+        },
+        {
+          "from": {
+            "model": "gpt-5.6-terra",
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "model": "gpt-6-sol",
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-09-29T18:06:12+00:00",
+          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
         }
       ],
-      "quota_fallback": "claude-haiku-4-5@high"
+      "quota_fallback": "deepseek-v4-pro@high"
     },
     "reviewer-b": {
       "purpose": "Sealed reviewer, family B (must differ from reviewer-a for REVIEW: cross).",
-      "model": "grok-4-6",
-      "fallback": "claude-sonnet-5",
+      "model": "grok-4-7",
+      "fallback": "gpt-6-sol",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -449,13 +509,25 @@
           },
           "at": "2026-09-07T18:40:00+00:00",
           "why": "DECISION reviewer-b-fallback swap (2026-09-07, operator-approved after audit): gpt-5.3-codex was constraint-satisficing, not next-best (chosen only because better models were seated as primaries; no-collision rule). claude-sonnet-5 is strictly better on 2 of 3 axes for the reviewer criterion (raw intelligence + responsiveness): AA 45 vs 37*, TTFT 2.9s vs 58.9s, LB code_completion 78.3 (codex's single win: 86.9 \u2014 code-completion specialist, not a generalist reviewer). anthropic family is distinct from grok's xai and collides with no seat's primary since the Terra swap freed sonnet-5. Sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv (retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md)."
+        },
+        {
+          "from": {
+            "model": "grok-4-6",
+            "fallback": "claude-sonnet-5"
+          },
+          "to": {
+            "model": "grok-4-7",
+            "fallback": "gpt-6-sol"
+          },
+          "at": "2026-09-29T18:06:12+00:00",
+          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
         }
       ],
-      "quota_fallback": "gpt-oss-120b@high"
+      "quota_fallback": "deepseek-v4-pro@high"
     },
     "reviewer-c": {
       "purpose": "Sealed reviewer, family C. Substitutes when A or B is unavailable so cross-review still spans two families.",
-      "model": "kimi-k3",
+      "model": "claude-sonnet-5-5",
       "fallback": "gemini-3.8-flash",
       "effort": "high",
       "band": "critical",
@@ -471,7 +543,7 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "gemini-3.8-flash@high",
+      "quota_fallback": "deepseek-v4-pro@high",
       "history": [
         {
           "from": {
@@ -485,6 +557,18 @@
           "at": "2026-09-05T19:30:00+00:00",
           "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
           "evidence": "AA: Kimi K3 = 50; LiveBench code_completion 82.6"
+        },
+        {
+          "from": {
+            "model": "kimi-k3",
+            "fallback": "gemini-3.8-flash"
+          },
+          "to": {
+            "model": "claude-sonnet-5-5",
+            "fallback": "gemini-3.8-flash"
+          },
+          "at": "2026-09-29T18:06:12+00:00",
+          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
         }
       ]
     }
@@ -506,6 +590,9 @@
       "premium": true
     },
     "claude-opus-5": {
+      "premium": true
+    },
+    "claude-opus-5-5": {
       "premium": true
     },
     "claude-sonnet-4-5": {
@@ -532,7 +619,13 @@
     "claude-sonnet-5": {
       "premium": false
     },
+    "claude-sonnet-5-5": {
+      "premium": false
+    },
     "deepseek-v4-flash": {
+      "premium": false
+    },
+    "deepseek-v4.1-flash": {
       "premium": false
     },
     "deepseek-v4-pro": {
@@ -568,6 +661,15 @@
     "gpt-5.6-terra": {
       "premium": false
     },
+    "gpt-6-astra": {
+      "premium": true
+    },
+    "gpt-6-luna": {
+      "premium": false
+    },
+    "gpt-6-sol": {
+      "premium": false
+    },
     "gpt-oss-120b": {
       "premium": false
     },
@@ -575,6 +677,9 @@
       "premium": false
     },
     "grok-4-6": {
+      "premium": false
+    },
+    "grok-4-7": {
       "premium": false
     },
     "grok-build-0-1": {
