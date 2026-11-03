@@ -269,7 +269,7 @@
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
       "model": "gemini-3.8-flash",
-      "fallback": "grok-4-6",
+      "fallback": "grok-4-7",
       "effort": "medium",
       "band": "critical",
       "tools": {
@@ -332,14 +332,26 @@
           },
           "at": "2026-11-03T18:07:00+00:00",
           "why": "DECISION fallback-refresh (2026-11-03, operator directed): glm-5.3 was seated on 2026-09-05 fallback-sweep numbers that have since been renormed twice to AA 32; grok-4-6 prose avg 72.7 (summarize 68.1, story 78.3, paraphrase 71.8) beats glm-5.3 approx 70.5, freed from seats since grok-4-7 took reviewer-b (no collision with any seat primary or other fallback), xai family distinct from google primary. Note: reviewer-b primary is grok-4-7 (xai family), which overlaps this fallback's family but is NOT a collision-rule violation (the rule is per-role fallback-differs-from-own-primary). quota_fallback also corrected from the fall-to-self gemini-3.8-flash to grok-4-6@high. Evidence: docs/model-selection/UPDATE-LATEST.md."
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "fallback": "grok-4-6"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "fallback": "grok-4-7"
+          },
+          "at": "2026-11-03T18:19:58+00:00",
+          "why": "DECISION fallback-grok-4-7 (2026-11-03, operator directed): audit confirmed grok-4-6 was the only seat subordinating quality to avoid cross-seat collision; the rest of the board shares models across seats freely, so the operator standardized on quality-first. grok-4-7 prose composite 77.05 beats grok-4-6 approx 72.7 (evidence: docs/model-selection/UPDATE-LATEST.md document-writer verdict). Collision note: grok-4-7 is reviewer-b primary; operator accepts the coupling, consistent with the rest of the board."
         }
       ],
-      "quota_fallback": "grok-4-6@high"
+      "quota_fallback": "grok-4-7@high"
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
       "model": "gemini-3.8-flash",
-      "fallback": "grok-4-6",
+      "fallback": "grok-4-7",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -402,9 +414,21 @@
           },
           "at": "2026-11-03T18:07:00+00:00",
           "why": "DECISION fallback-refresh (2026-11-03, operator directed): glm-5.3 was seated on 2026-09-05 fallback-sweep numbers that have since been renormed twice to AA 32; grok-4-6 prose avg 72.7 (summarize 68.1, story 78.3, paraphrase 71.8) beats glm-5.3 approx 70.5, freed from seats since grok-4-7 took reviewer-b (no collision with any seat primary or other fallback), xai family distinct from google primary. Note: reviewer-b primary is grok-4-7 (xai family), which overlaps this fallback's family but is NOT a collision-rule violation (the rule is per-role fallback-differs-from-own-primary). quota_fallback also corrected from the fall-to-self gemini-3.8-flash to grok-4-6@high. Evidence: docs/model-selection/UPDATE-LATEST.md."
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "fallback": "grok-4-6"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "fallback": "grok-4-7"
+          },
+          "at": "2026-11-03T18:19:58+00:00",
+          "why": "DECISION fallback-grok-4-7 (2026-11-03, operator directed): audit confirmed grok-4-6 was the only seat subordinating quality to avoid cross-seat collision; the rest of the board shares models across seats freely, so the operator standardized on quality-first. grok-4-7 prose composite 77.05 beats grok-4-6 approx 72.7 (evidence: docs/model-selection/UPDATE-LATEST.md document-writer verdict). Collision note: grok-4-7 is reviewer-b primary; operator accepts the coupling, consistent with the rest of the board."
         }
       ],
-      "quota_fallback": "grok-4-6@high"
+      "quota_fallback": "grok-4-7@high"
     },
     "frontend-worker": {
       "purpose": "Browser-facing work: HTML/CSS/JS/TS components and their tests.",
