@@ -478,7 +478,7 @@
     "reviewer-a": {
       "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",
       "model": "gpt-6.1-sol",
-      "fallback": "deepseek-v4-pro",
+      "fallback": "kimi-k3.1-pro",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -554,6 +554,16 @@
           },
           "at": "2026-11-03T17:44:36+00:00",
           "why": "DECISION benchmark-update (2026-11-03): gpt-6.1-sol is AA 55 max / 50 high (vs gpt-6-sol 48/43), now the #1 standard-tier model; full evidence in docs/model-selection/UPDATE-LATEST.md."
+        },
+        {
+          "from": {
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "fallback": "kimi-k3.1-pro"
+          },
+          "at": "2026-11-03T19:21:44+00:00",
+          "why": "DECISION operator-fallback (2026-11-03): operator set this fallback directly, outside pipeline trial."
         }
       ],
       "quota_fallback": "deepseek-v4-pro@high"
@@ -561,7 +571,7 @@
     "reviewer-b": {
       "purpose": "Sealed reviewer, family B (must differ from reviewer-a for REVIEW: cross).",
       "model": "grok-4-7",
-      "fallback": "gpt-6-sol",
+      "fallback": "deepseek-v4-pro",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -625,6 +635,16 @@
           },
           "at": "2026-09-29T18:06:12+00:00",
           "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
+        },
+        {
+          "from": {
+            "fallback": "gpt-6-sol"
+          },
+          "to": {
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-11-03T19:21:44+00:00",
+          "why": "DECISION operator-fallback (2026-11-03): operator set this fallback directly, outside pipeline trial."
         }
       ],
       "quota_fallback": "deepseek-v4-pro@high"

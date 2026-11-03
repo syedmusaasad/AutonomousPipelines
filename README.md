@@ -57,8 +57,8 @@ failing plan.
 | researcher | gemini-3.8-flash | medium | grok-4-7 |
 | document-writer | gemini-3.8-flash | high | grok-4-7 |
 | frontend-worker | claude-sonnet-5-5 | high | deepseek-v4.1-flash |
-| reviewer-a | gpt-6.1-sol | high | deepseek-v4-pro |
-| reviewer-b | grok-4-7 | high | gpt-6-sol |
+| reviewer-a | gpt-6.1-sol | high | kimi-k3.1-pro |
+| reviewer-b | grok-4-7 | high | deepseek-v4-pro |
 | reviewer-c | claude-sonnet-5-5 | high | gemini-3.8-flash |
 
 All seats are standard-tier per the DevPass $5/$15 rule; seats change only via
