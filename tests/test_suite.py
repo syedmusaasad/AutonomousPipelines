@@ -2233,6 +2233,49 @@ def dispatch_run_dispatch_journals_deliverables():
         assert row.get("deliverables") == []
 
 
+@test
+def dispatch_argv_uses_model_variant_and_attached_brief():
+    argv = dsp.build_argv(binary="devpass-code", agent="pl-implementer", model="p/m", effort="high",
+                          brief_path=Path("/tmp/x/brief.md"))
+    assert argv[1:3] == ["run", "--format"]
+    assert argv[argv.index("--model") + 1] == "p/m#high"
+    assert "--variant" not in argv and "--dir" not in argv
+    assert argv[argv.index("--file") + 1] == "/tmp/x/brief.md"
+    assert "--auto" in argv
+    assert dsp.model_arg("p/m#low", "high") == "p/m#low"
+    assert dsp.model_arg("p/m", None) == "p/m"
+
+
+@test
+def dispatch_runs_current_cli_with_effort_in_model_and_process_cwd():
+    with Estate() as E:
+        s = roles_mod.seat("implementer", roles_mod.load())
+        out_dir = E.tmp / "d_current_cli"
+        res = dsp.run_dispatch(brief="FAKE: record\nFAKE: touch cwd_probe\n", role="implementer",
+                               cwd=E.work, out_dir=out_dir, timeout=20, model=s["model_q"], effort="medium")
+        assert res.outcome == "ok", res.error
+        call = E.fake_calls()[-1]
+        argv = call["argv"]
+        assert argv[argv.index("--model") + 1] == f"{s['model_q']}#medium"
+        assert "--variant" not in argv and "--dir" not in argv
+        assert call["model"] == s["model_q"] and call["variant"] == "medium"
+        assert Path(call["cwd"]).resolve() == Path(E.work).resolve()
+        assert (Path(E.work) / "cwd_probe").exists()
+        assert "FAKE: touch cwd_probe" in call["brief"]
+        assert (out_dir / "brief.md").read_text() == call["brief"]
+
+
+@test
+def fake_current_cli_rejects_obsolete_flags():
+    with Estate() as E:
+        for flag in ("--variant", "--dir"):
+            r = subprocess.run([sys.executable, str(FAKE), "run", "--format", "json", "--agent", "pl-x",
+                                "--model", "p/m", flag, "low", "--auto"],
+                               capture_output=True, text=True, cwd=str(E.work), input="")
+            assert r.returncode == 1, flag
+            assert f"Unrecognized flag: {flag}" in r.stdout, r.stdout
+
+
 # Load and run all test_review_provenance tests as part of the full suite
 def register_review_provenance_tests():
     """Register the review provenance tests in the full suite."""

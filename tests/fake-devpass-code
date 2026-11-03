@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Fake devpass-code worker for the characterization suite.
 
-Accepts the same argv as `devpass-code run --format json --agent X --model M ...`,
-reads the brief on stdin, and behaves according to `FAKE:` lines found in the brief
+Accepts the same argv as the installed `devpass-code run --format json --agent X
+--model provider/model#variant --auto --file BRIEF MESSAGE`, rejects the obsolete
+--variant and --dir flags as the real CLI does, takes its working directory from the
+process cwd, reads the brief from --file, and behaves according to `FAKE:` lines found in the brief
 (or the FAKE_DEFAULT env). Emits a devpass-code-shaped JSON event stream to stdout.
 
 FAKE directives (in the brief task text):
-  FAKE: touch <path>            create file (relative to --dir); $ITEM/$LANE_OUT/$REVIEW_OUT expanded
+  FAKE: touch <path>            create file (relative to the process cwd); $ITEM/$LANE_OUT/$REVIEW_OUT expanded
   FAKE: write <path> <<text>>   write text (single line, \\n escapes)
   FAKE: append <path> <<text>>
   FAKE: touch-on-call <n> <path>       create file only on this agent/cwd invocation
@@ -52,10 +54,15 @@ def main():
     for i, a in enumerate(argv):
         if a.startswith("--") and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
             args[a[2:]] = argv[i + 1]
-    cwd = args.get("dir", os.getcwd())
-    model = args.get("model", "")
+    for obsolete in ("--variant", "--dir"):
+        if any(a == obsolete or a.startswith(obsolete + "=") for a in argv):
+            print(f"ERRORS\n  Unrecognized flag: {obsolete} in command devpass-code run", flush=True)
+            sys.exit(1)
+    cwd = os.getcwd()
+    model, _, variant = args.get("model", "").partition("#")
     agent = args.get("agent", "")
-    brief = sys.stdin.read()
+    brief_file = args.get("file")
+    brief = open(brief_file).read() if brief_file else ""
     is_retry = "Previous attempt failed" in brief
     env = os.environ
 
@@ -78,7 +85,8 @@ def main():
             pass
     if log:
         with open(log, "a") as f:
-            f.write(json.dumps({"agent": agent, "model": model, "variant": args.get("variant"), "cwd": cwd,
+            f.write(json.dumps({"agent": agent, "model": model, "variant": variant or None, "cwd": cwd,
+                                "argv": argv,
                                 "ITEM": env.get("ITEM"), "LANE": env.get("LANE"), "LANE_OUT": env.get("LANE_OUT"),
                                 "REVIEW_OUT": env.get("REVIEW_OUT"), "retry": is_retry, "brief_len": len(brief),
                                 "brief": brief, "auto": "--auto" in argv, "invocation": invocation}) + "\n")

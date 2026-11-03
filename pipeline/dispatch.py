@@ -1,10 +1,12 @@
 """Dispatch: run one headless devpass-code session as a disposable worker.
 
-The worker binary is `devpass-code run --format json --agent pl-<role> --dir <cwd>`.
-Stdin carries the brief; the JSON event stream is written to a transcript file
-whose mtime is the liveness signal. Tokens and cost are summed from step_finish
-events. The brief is also saved next to the transcript so retries and finishers
-can read what was asked.
+The worker binary is `devpass-code run --format json --agent pl-<role>
+--model <provider/model#variant> --auto --file <brief.md> <message>`, spawned with the
+working directory as the process cwd. The brief is attached with the documented --file
+flag; the installed help documents no stdin input. The JSON event stream is written to
+a transcript file whose mtime is the liveness signal. Tokens and cost are summed from
+step_finish events. The brief is also saved next to the transcript so retries and
+finishers can read what was asked.
 
 PIPELINE_WORKER_BIN overrides the binary (the suite uses a fake)."""
 
@@ -21,6 +23,21 @@ from .util import now_iso, now_ts
 from .usage import UsageAccumulator
 
 DEFAULT_BIN = "devpass-code"
+
+BRIEF_MESSAGE = "Carry out the attached brief."
+
+
+def model_arg(model: str, effort: str = None) -> str:
+    """provider/model#variant, the documented --model format. A model that already
+    names its variant is left alone."""
+    if effort and "#" not in model:
+        return f"{model}#{effort}"
+    return model
+
+
+def build_argv(*, binary: str, agent: str, model: str, effort: str, brief_path: Path) -> list:
+    return [binary, "run", "--format", "json", "--agent", agent, "--model", model_arg(model, effort),
+            "--auto", "--file", str(Path(brief_path).resolve()), BRIEF_MESSAGE]
 
 QUOTA_SIGNATURE_WORDS = ("premium-tier", "allowance")
 
@@ -162,8 +179,8 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
         "role": role, "model": model, "cwd": str(cwd), "started": now_iso(), "timeout": timeout,
     }, indent=1))
 
-    argv = [worker_bin(), "run", "--format", "json", "--agent", s["agent"], "--model", model,
-            "--variant", effective_effort, "--dir", str(cwd), "--auto"]
+    argv = build_argv(binary=worker_bin(), agent=s["agent"], model=model, effort=effective_effort,
+                      brief_path=brief_path)
     full_env = dict(os.environ)
     full_env.update(env or {})
     full_env["PIPELINE_ROLE"] = role
@@ -172,16 +189,11 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     result = DispatchResult(model=model, transcript=str(transcript))
     try:
         with open(transcript, "wb") as tf:
-            proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=tf, stderr=subprocess.STDOUT,
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=tf, stderr=subprocess.STDOUT,
                                     cwd=str(cwd), env=full_env, start_new_session=True)
             result.pid = proc.pid
             if on_start:
                 on_start(proc.pid, transcript)
-            try:
-                proc.stdin.write(brief.encode())
-                proc.stdin.close()
-            except BrokenPipeError:
-                pass
             try:
                 code = proc.wait(timeout=timeout)
                 result.exit_code = code

@@ -1,5 +1,5 @@
 {
- "min_tests": 260,
+ "min_tests": 263,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -26,6 +26,7 @@
   "cross_review_two_families_blocking_stops",
   "defect_log_concurrent_appends_and_count",
   "deliberation_warnings_flag_markers_not_clean_briefs",
+  "dispatch_argv_uses_model_variant_and_attached_brief",
   "dispatch_as_row_backcompat_no_deliverables_key_when_none",
   "dispatch_deliverables_chat_chatter_never_matched",
   "dispatch_deliverables_dedup_and_last_block_only",
@@ -38,6 +39,7 @@
   "dispatch_parse_transcript_retains_legacy_tokens",
   "dispatch_result_as_row_includes_usage",
   "dispatch_run_dispatch_journals_deliverables",
+  "dispatch_runs_current_cli_with_effort_in_model_and_process_cwd",
   "dispatch_transcript_parsing_sums_tokens",
   "drift_guard_detects_hand_edits",
   "effort_parses_and_rejects_bad_values",
@@ -51,6 +53,7 @@
   "engine_runs_phase_and_engine_runs_exit",
   "evidence_gate_refuses_unverified_claims",
   "exit_failure_feeds_retry_with_failure_text_then_burns",
+  "fake_current_cli_rejects_obsolete_flags",
   "fallback_model_is_on_another_family_and_used_on_failure",
   "finisher_lands_exact_commit_and_exit_proves_it",
   "fs_probe_reports_outage",
