@@ -1205,6 +1205,50 @@ FAKE: touch a
 
 
 @test
+def effort_pinned_fallback_seat_validate_render():
+    import copy
+    reg = roles_mod.load()
+    bad = copy.deepcopy(reg)
+    bad["roles"]["implementer"]["fallback"] = "gpt-6-luna@low"
+    bad["roles"]["implementer"]["model"] = "claude-sonnet-5"
+    roles_mod.validate(bad)  # model@low accepted, family check on the bare model
+    s = roles_mod.seat("implementer", bad)
+    assert s["fallback_model_q"] == roles_mod.qualified("gpt-6-luna", bad) and s["fallback_effort"] == "low"
+    assert s["fallback_q"] == s["fallback_model_q"]
+    assert "@" not in roles_mod.render_agent("implementer", bad)
+    bad["roles"]["fast-worker"]["fallback"] = "deepseek-v4.1-flash@xhigh"
+    try:
+        roles_mod.validate(bad)
+    except roles_mod.RegistryError as e:
+        assert "fast-worker" in str(e) and "deepseek-v4.1-flash@xhigh" in str(e)
+    else:
+        raise AssertionError("bad fallback effort accepted")
+    # a bare fallback has no pinned effort
+    assert roles_mod.seat("implementer", reg)["fallback_effort"] is None
+    # registry pins
+    assert reg["roles"]["fast-worker"]["fallback"] == "deepseek-v4.1-flash@medium"
+    assert reg["roles"]["lane-worker"]["fallback"] == "gpt-6-luna@low"
+    for role in ("fast-worker", "lane-worker"):
+        assert "@" not in roles_mod.render_agent(role, reg)
+
+
+@test
+def engine_runs_fallback_at_pinned_effort():
+    with Estate() as E:
+        reg = roles_mod.load()
+        s = roles_mod.seat("fast-worker", reg)
+        assert s["effort"] == "low" and s["fallback_effort"] == "medium"
+        rid, p, r, st = run_plan(E, f"""## Phase 1: a (fast-worker)
+FAKE: fail-on-model {s['model']}
+FAKE: touch a
+""")
+        assert st["closed"] == "done", r.stderr
+        calls = E.fake_calls()
+        assert calls[0]["model"] == s["model_q"] and calls[0]["variant"] == "low"
+        assert calls[1]["model"] == s["fallback_model_q"] and calls[1]["variant"] == "medium"
+
+
+@test
 def quota_outcome_falls_to_quota_fallback_not_family_fallback():
     """A 402 premium-tier quota transcript sends the retry to the seat's
     quota_fallback (never the family fallback), and a quota hit alone does not

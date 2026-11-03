@@ -390,7 +390,8 @@ class Engine:
             return res  # the model ran and the task failed: that is a retry, not a seat change
         # the seat never completed a step (launch failure, provider error): fallback family once
         log(f"dispatch {did} on {s['model_q']} never completed a step ({res.error}); trying fallback")
-        return run_one(s["fallback_q"], effort_override, try_idx=1, family_fallback=True, quota_fallback=False)
+        fb_effort = s.get("fallback_effort") or effort_override
+        return run_one(s["fallback_model_q"], fb_effort, try_idx=1, family_fallback=True, quota_fallback=False)
 
     def _run_single(self, plan, ph, attempt, failure_text):
         pdir = self._phase_dir(ph) / f"attempt-{attempt}"

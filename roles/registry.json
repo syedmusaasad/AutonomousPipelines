@@ -157,7 +157,7 @@
     "fast-worker": {
       "purpose": "Small, well-specified, cheap: a fetch, a one-line fix, a file rename.",
       "model": "gpt-6-luna",
-      "fallback": "deepseek-v4.1-flash",
+      "fallback": "deepseek-v4.1-flash@medium",
       "effort": "low",
       "band": "tolerant",
       "tools": {
@@ -197,13 +197,23 @@
           },
           "at": "2026-09-29T18:06:12+00:00",
           "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
+        },
+        {
+          "from": {
+            "fallback": "deepseek-v4.1-flash"
+          },
+          "to": {
+            "fallback": "deepseek-v4.1-flash@medium"
+          },
+          "at": "2026-11-03T18:11:25+00:00",
+          "why": "DECISION fallback-effort-pin (2026-11-03, operator approved option 1): fallbacks inherit the primary effort when unpinned; pinning makes the rare-fire fallback run its validated profile (fast-worker fallback v4.1-flash@medium; lane-worker fallback luna@low). All other fallback arms stay bare (they inherit correctly)."
         }
       ]
     },
     "lane-worker": {
       "purpose": "One item of a fan-out; writes only under $LANE_OUT.",
       "model": "deepseek-v4.1-flash",
-      "fallback": "gpt-6-luna",
+      "fallback": "gpt-6-luna@low",
       "effort": "medium",
       "band": "tolerant",
       "tools": {
@@ -243,6 +253,16 @@
           },
           "at": "2026-09-29T18:06:12+00:00",
           "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
+        },
+        {
+          "from": {
+            "fallback": "gpt-6-luna"
+          },
+          "to": {
+            "fallback": "gpt-6-luna@low"
+          },
+          "at": "2026-11-03T18:11:25+00:00",
+          "why": "DECISION fallback-effort-pin (2026-11-03, operator approved option 1): fallbacks inherit the primary effort when unpinned; pinning makes the rare-fire fallback run its validated profile (fast-worker fallback v4.1-flash@medium; lane-worker fallback luna@low). All other fallback arms stay bare (they inherit correctly)."
         }
       ]
     },
@@ -568,7 +588,7 @@
             "fallback": "claude-sonnet-5"
           },
           "at": "2026-09-07T18:40:00+00:00",
-          "why": "DECISION reviewer-b-fallback swap (2026-09-07, operator-approved after audit): gpt-5.3-codex was constraint-satisficing, not next-best (chosen only because better models were seated as primaries; no-collision rule). claude-sonnet-5 is strictly better on 2 of 3 axes for the reviewer criterion (raw intelligence + responsiveness): AA 45 vs 37*, TTFT 2.9s vs 58.9s, LB code_completion 78.3 (codex's single win: 86.9 — code-completion specialist, not a generalist reviewer). anthropic family is distinct from grok's xai and collides with no seat's primary since the Terra swap freed sonnet-5. Sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv (retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md)."
+          "why": "DECISION reviewer-b-fallback swap (2026-09-07, operator-approved after audit): gpt-5.3-codex was constraint-satisficing, not next-best (chosen only because better models were seated as primaries; no-collision rule). claude-sonnet-5 is strictly better on 2 of 3 axes for the reviewer criterion (raw intelligence + responsiveness): AA 45 vs 37*, TTFT 2.9s vs 58.9s, LB code_completion 78.3 (codex's single win: 86.9 \u2014 code-completion specialist, not a generalist reviewer). anthropic family is distinct from grok's xai and collides with no seat's primary since the Terra swap freed sonnet-5. Sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv (retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md)."
         },
         {
           "from": {

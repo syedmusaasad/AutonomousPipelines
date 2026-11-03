@@ -52,8 +52,8 @@ failing plan.
 |---|---|---|---|
 | interactive | kimi-k3.1-pro | high | gpt-6.1-sol |
 | implementer | claude-sonnet-5-5 | high | deepseek-v4.1-flash |
-| fast-worker | gpt-6-luna | low | deepseek-v4.1-flash |
-| lane-worker | deepseek-v4.1-flash | medium | gpt-6-luna |
+| fast-worker | gpt-6-luna | low | deepseek-v4.1-flash@medium |
+| lane-worker | deepseek-v4.1-flash | medium | gpt-6-luna@low |
 | researcher | gemini-3.8-flash | medium | grok-4-6 |
 | document-writer | gemini-3.8-flash | high | grok-4-6 |
 | frontend-worker | claude-sonnet-5-5 | high | deepseek-v4.1-flash |

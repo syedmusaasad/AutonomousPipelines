@@ -68,7 +68,10 @@ def validate(reg: dict) -> None:
         for k in ("model", "fallback", "effort", "tools", "quota_fallback"):
             if k not in r:
                 raise RegistryError(f"role {name}: missing {k}")
-        if family_of(r["model"], reg) == family_of(r["fallback"], reg):
+        fb_model, fb_effort = _split_arm(r["fallback"])
+        if fb_effort is not None and fb_effort not in ("low", "medium", "high"):
+            raise RegistryError(f"role {name}: fallback arm {r['fallback']} has bad effort {fb_effort!r} (want low/medium/high)")
+        if family_of(r["model"], reg) == family_of(fb_model, reg):
             raise RegistryError(f"role {name}: fallback {r['fallback']} shares family with {r['model']}")
         if r.get("external_post", False):
             raise RegistryError(f"role {name}: external_post must be false")
@@ -107,9 +110,12 @@ def seat(role: str, reg: dict = None) -> dict:
     r = dict(reg["roles"][role])
     r["name"] = role
     r["model_q"] = qualified(r["model"], reg)
-    r["fallback_q"] = qualified(r["fallback"], reg)
+    fb_model, fb_effort = _split_arm(r["fallback"])
+    r["fallback_q"] = qualified(fb_model, reg)
+    r["fallback_model_q"] = qualified(fb_model, reg)
+    r["fallback_effort"] = fb_effort
     r["family"] = family_of(r["model"], reg)
-    r["fallback_family"] = family_of(r["fallback"], reg)
+    r["fallback_family"] = family_of(fb_model, reg)
     r["agent"] = AGENT_PREFIX + role
     if r.get("quota_fallback"):
         qf_model, qf_effort = _split_arm(r["quota_fallback"])

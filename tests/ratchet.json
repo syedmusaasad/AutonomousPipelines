@@ -1,5 +1,5 @@
 {
- "min_tests": 258,
+ "min_tests": 260,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -41,11 +41,13 @@
   "dispatch_transcript_parsing_sums_tokens",
   "drift_guard_detects_hand_edits",
   "effort_parses_and_rejects_bad_values",
+  "effort_pinned_fallback_seat_validate_render",
   "engine_lock_prevents_double_engines",
   "engine_passes_effort_to_worker",
   "engine_pins_model_without_fallback_for_trial_arms",
   "engine_refuses_to_continue_a_deliberate_stop_until_cleared",
   "engine_resumes_idempotently_from_journal",
+  "engine_runs_fallback_at_pinned_effort",
   "engine_runs_phase_and_engine_runs_exit",
   "evidence_gate_refuses_unverified_claims",
   "exit_failure_feeds_retry_with_failure_text_then_burns",
