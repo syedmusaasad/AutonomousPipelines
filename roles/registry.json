@@ -34,7 +34,7 @@
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
       "model": "glm-5.3",
-      "fallback": "claude-sonnet-5",
+      "fallback": "gpt-6.1-sol",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -69,6 +69,18 @@
         {
           "at": "2026-09-29T03:20:00+00:00",
           "why": "parity 9: interactive seat guard - write tools refused; the seat routes work through run/quick dispatches; the role prompt carries the receipt naming the dispatch it should have used"
+        },
+        {
+          "from": {
+            "model": "glm-5.3",
+            "fallback": "claude-sonnet-5"
+          },
+          "to": {
+            "model": "glm-5.3",
+            "fallback": "gpt-6.1-sol"
+          },
+          "at": "2026-11-03T17:44:36+00:00",
+          "why": "DECISION benchmark-update (2026-11-03): gpt-6.1-sol is AA 55 max / 50 high (vs gpt-6-sol 48/43), now the #1 standard-tier model; full evidence in docs/model-selection/UPDATE-LATEST.md. For the interactive fallback swap: gpt-6.1-sol at low effort gives AA 35 with TTFT 2.51s at $0.16/task, replacing claude-sonnet-5 as the conversational fallback per the same UPDATE-LATEST.md analysis."
         }
       ],
       "quota_fallback": "claude-sonnet-5-5@high"
@@ -385,7 +397,7 @@
     },
     "reviewer-a": {
       "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",
-      "model": "gpt-6-sol",
+      "model": "gpt-6.1-sol",
       "fallback": "deepseek-v4-pro",
       "effort": "high",
       "band": "critical",
@@ -450,6 +462,18 @@
           },
           "at": "2026-09-29T18:06:12+00:00",
           "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
+        },
+        {
+          "from": {
+            "model": "gpt-6-sol",
+            "fallback": "deepseek-v4-pro"
+          },
+          "to": {
+            "model": "gpt-6.1-sol",
+            "fallback": "deepseek-v4-pro"
+          },
+          "at": "2026-11-03T17:44:36+00:00",
+          "why": "DECISION benchmark-update (2026-11-03): gpt-6.1-sol is AA 55 max / 50 high (vs gpt-6-sol 48/43), now the #1 standard-tier model; full evidence in docs/model-selection/UPDATE-LATEST.md."
         }
       ],
       "quota_fallback": "deepseek-v4-pro@high"
@@ -508,7 +532,7 @@
             "fallback": "claude-sonnet-5"
           },
           "at": "2026-09-07T18:40:00+00:00",
-          "why": "DECISION reviewer-b-fallback swap (2026-09-07, operator-approved after audit): gpt-5.3-codex was constraint-satisficing, not next-best (chosen only because better models were seated as primaries; no-collision rule). claude-sonnet-5 is strictly better on 2 of 3 axes for the reviewer criterion (raw intelligence + responsiveness): AA 45 vs 37*, TTFT 2.9s vs 58.9s, LB code_completion 78.3 (codex's single win: 86.9 \u2014 code-completion specialist, not a generalist reviewer). anthropic family is distinct from grok's xai and collides with no seat's primary since the Terra swap freed sonnet-5. Sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv (retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md)."
+          "why": "DECISION reviewer-b-fallback swap (2026-09-07, operator-approved after audit): gpt-5.3-codex was constraint-satisficing, not next-best (chosen only because better models were seated as primaries; no-collision rule). claude-sonnet-5 is strictly better on 2 of 3 axes for the reviewer criterion (raw intelligence + responsiveness): AA 45 vs 37*, TTFT 2.9s vs 58.9s, LB code_completion 78.3 (codex's single win: 86.9 — code-completion specialist, not a generalist reviewer). anthropic family is distinct from grok's xai and collides with no seat's primary since the Terra swap freed sonnet-5. Sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv (retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md)."
         },
         {
           "from": {
@@ -705,6 +729,27 @@
     },
     "gemini-3.5-flash": {
       "premium": false
+    },
+    "gpt-6.1-sol": {
+      "premium": false
+    },
+    "gpt-6.1-terra": {
+      "premium": false
+    },
+    "claude-haiku-5-5": {
+      "premium": false
+    },
+    "kimi-k3.1-pro": {
+      "premium": false
+    },
+    "mistral-large-4": {
+      "premium": false
+    },
+    "gemini-4-argon": {
+      "premium": true
+    },
+    "muse-wonder-1.0": {
+      "premium": true
     }
   }
 }
