@@ -33,7 +33,7 @@
   "roles": {
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
-      "model": "glm-5.3",
+      "model": "kimi-k3.1-pro",
       "fallback": "gpt-6.1-sol",
       "effort": "high",
       "band": "standard",
@@ -82,8 +82,21 @@
           "at": "2026-11-03T17:44:36+00:00",
           "why": "DECISION benchmark-update (2026-11-03): gpt-6.1-sol is AA 55 max / 50 high (vs gpt-6-sol 48/43), now the #1 standard-tier model; full evidence in docs/model-selection/UPDATE-LATEST.md. For the interactive fallback swap: gpt-6.1-sol at low effort gives AA 35 with TTFT 2.51s at $0.16/task, replacing claude-sonnet-5 as the conversational fallback per the same UPDATE-LATEST.md analysis."
         }
+        ,
+        {
+          "from": {
+            "model": "glm-5.3",
+            "fallback": "gpt-6.1-sol"
+          },
+          "to": {
+            "model": "kimi-k3.1-pro",
+            "fallback": "gpt-6.1-sol"
+          },
+          "at": "2026-11-03T17:49:47+00:00",
+          "why": "DECISION interactive-kimi (2026-11-03, operator directed): operator wants the smartest Chinese frontier for the interactive seat; kimi-k3.1-pro is AA 46 vs GLM-5.3 AA 32 (+14), TTFT 3.45s within the 5s conversational fence, $3.68/task vs $5.01; trade-off accepted: 32 t/s vs GLM 90 t/s streaming. Collision status: no other seat currently uses a moonshot model (reviewer-c moved kimi-k3 -> claude-sonnet-5-5 on 2026-09-29; reviewers are openai/xai/anthropic), so there is no cross-seat collision; quota_fallback set to gpt-6.1-sol@high because same-family kimi is illegal. Evidence: docs/model-selection/UPDATE-LATEST.md."
+        }
       ],
-      "quota_fallback": "claude-sonnet-5-5@high"
+      "quota_fallback": "gpt-6.1-sol@high"
     },
     "implementer": {
       "purpose": "Code changes with tests, exact ceremony (commit subject, verification grep).",

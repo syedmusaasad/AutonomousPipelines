@@ -50,7 +50,7 @@ failing plan.
 
 | Role | Model | Effort | Fallback |
 |---|---|---|---|
-| interactive | glm-5.3 | high | gpt-6.1-sol |
+| interactive | kimi-k3.1-pro | high | gpt-6.1-sol |
 | implementer | claude-sonnet-5-5 | high | deepseek-v4.1-flash |
 | fast-worker | gpt-6-luna | low | deepseek-v4.1-flash |
 | lane-worker | deepseek-v4.1-flash | medium | gpt-6-luna |

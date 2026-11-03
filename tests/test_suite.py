@@ -471,7 +471,7 @@ def validate_rejects_premium_model_or_fallback_anywhere():
         for field in ("model", "fallback", "quota_fallback"):
             fmodel, _ = roles_mod._split_arm(r[field])
             assert fmodel not in prem, f"{name}.{field} = {r[field]!r} is premium-tier"
-    assert reg["roles"]["interactive"]["model"] == "glm-5.3"
+    assert reg["roles"]["interactive"]["model"] == "kimi-k3.1-pro"
 
 
 @test
