@@ -35,6 +35,7 @@ class Estate:
             "FAKE_RCLONE_ROOT": str(self.tmp / "fake-remote"),
             "PIPELINE_LOCAL_COLD": str(self.local_cold),
             "PIPELINE_AGENTS_DIR": str(self.agents),
+            "PIPELINE_CODEX_RULES_DIR": str(self.tmp / "codex-rules"),
             "PIPELINE_ROBLOX_SKILLS_DIR": str(self.roblox_skills),
             "PIPELINE_POLL_S": "0.2",
             "PIPELINE_GATE_POLL_S": "0.2",

@@ -1,8 +1,8 @@
 """UsageAccumulator: standalone accounting for token and cost usage from event streams.
 
 Accumulates usage metrics from worker JSON event streams: Claude Code stream-json
-`result` events, Codex `turn.completed` events, and legacy DevPass `step_finish`
-events (journals written before the move off DevPass still bench). Each is normalized
+`result` events, Codex `turn.completed` events, agy `result` events, and legacy
+DevPass `step_finish` events (journals written before the move off DevPass still bench). Each is normalized
 to one step part {id, tokens{total,input,output,reasoning,cache{read,write}}, cost}.
 Maintains separate tracking for provider-reported totals, component breakdowns,
 cache operations, and identifies missing or incomplete fields.
@@ -21,6 +21,20 @@ def _int(v):
 
 def normalize_event(event: dict):
     """One usage-bearing event -> a step part, or None for every other event."""
+    if event.get("event") == "result":  # agy: one cumulative result per run
+        res = event.get("result") or {}
+        u = res.get("usage")
+        if not isinstance(u, dict):
+            return None
+        inp, cached = _int(u.get("input_tokens")), _int(u.get("cache_read_tokens")) or 0
+        out, think = _int(u.get("output_tokens")), _int(u.get("thinking_tokens")) or 0
+        tokens = {"input": None if inp is None else inp - cached, "cache": {"read": cached}}
+        if out is not None:  # agy's output_tokens include thinking
+            tokens["output"] = out - think
+            tokens["reasoning"] = think
+        if _int(u.get("total_tokens")) is not None:
+            tokens["total"] = _int(u.get("total_tokens"))
+        return {"id": "agy:" + str(res.get("conversation_id") or ""), "tokens": tokens}  # no cost reported
     t = event.get("type")
     if t == "step_finish":  # legacy DevPass
         part = event.get("part")

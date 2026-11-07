@@ -123,6 +123,8 @@ class Engine:
 
     def _check_config(self, plan):
         drift = roles_mod.drift(reg=self.reg)
+        if os.environ.get("PIPELINE_WORKER_BIN") is None:
+            drift += roles_mod.codex_rules_drift()
         if drift and os.environ.get("PIPELINE_WORKER_BIN") is None:
             raise DeliberateStop("config_mismatch", f"generated agent files drifted: {drift}; run `pipeline render-agents`")
         try:

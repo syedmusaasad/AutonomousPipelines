@@ -370,7 +370,7 @@ def registry_validates_clis_seals_and_retired_fallbacks():
     for name, r in reg["roles"].items():
         assert "fallback" not in r and "quota_fallback" not in r, name
         assert not r.get("external_post")
-        assert roles_mod.cli_of(r["model"], reg) in ("claude", "codex"), name
+        assert roles_mod.cli_of(r["model"], reg) in ("claude", "codex", "agy"), name
     assert roles_mod.REVIEWERS == ("reviewer",)
     rv = reg["roles"]["reviewer"]
     assert rv["sealed"] and not rv["tools"]["edit"]
@@ -386,6 +386,8 @@ def registry_validates_clis_seals_and_retired_fallbacks():
         (lambda b: b["roles"]["implementer"].__setitem__("model", "grok-4-7"), "model with no CLI accepted"),
         (lambda b: b["roles"]["fast-worker"].__setitem__("effort", "ultra"), "bad effort accepted"),
         (lambda b: b["roles"]["interactive"].__setitem__("model", "gpt-6.1-sol"), "codex interactive accepted"),
+        (lambda b: b["roles"]["reviewer"].__setitem__("model", "gemini-3.8-flash"), "sealed agy seat accepted"),
+        (lambda b: b["roles"]["researcher"].__setitem__("effort", "minimal"), "codex-only effort on agy accepted"),
         (lambda b: b["roles"].pop("reviewer"), "missing reviewer accepted"),
     ):
         bad = copy.deepcopy(reg)
@@ -403,13 +405,13 @@ def registry_seats_match_operator_choice():
     reg = roles_mod.load()
     want = {
         "interactive": ("claude-opus-5-5", "high"), "implementer": ("claude-sonnet-5-5", "high"),
-        "fast-worker": ("claude-haiku-5-5", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
-        "researcher": ("claude-opus-5-5", "high"), "document-writer": ("claude-sonnet-5-5", "high"),
+        "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
+        "researcher": ("gemini-3.8-flash", "medium"), "document-writer": ("gemini-3.8-flash", "high"),
         "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer": ("gpt-6.1-sol", "high"),
     }
     got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}
     assert got == want, got
-    assert set(reg["clis"].values()) == {"claude", "codex"}
+    assert reg["clis"] == {"anthropic": "claude", "openai": "codex", "google": "agy"}
     assert "models" not in reg and "provider" not in reg
 
 @test
@@ -418,9 +420,10 @@ def render_agents_claude_seats_only_with_drift_guard():
     the interactive settings file; drift() names a hand-edited file."""
     reg = roles_mod.load()
     files = roles_mod.rendered_agents(reg)
-    assert "pl-reviewer.md" not in files
     for role, r in reg["roles"].items():
-        if role != "reviewer":
+        if roles_mod.cli_of(r["model"], reg) != "claude":
+            assert f"pl-{role}.md" not in files, role
+        else:
             text = files[f"pl-{role}.md"]
             assert f'name: "pl-{role}"' in text and f'model: "{r["model"]}"' in text
             assert f'effort: "{r["effort"]}"' in text
@@ -430,6 +433,11 @@ def render_agents_claude_seats_only_with_drift_guard():
         assert roles_mod.drift(E.agents, reg) == []
         (E.agents / "pl-implementer.md").write_text("hand edit\n")
         assert roles_mod.drift(E.agents, reg) == [str(E.agents / "pl-implementer.md")]
+        # a seat that moved off Claude: its old agent file is drift, and render removes it
+        (E.agents / "pl-researcher.md").write_text("stale\n")
+        assert str(E.agents / "pl-researcher.md") in roles_mod.drift(E.agents, reg)
+        roles_mod.write_agents(E.agents, reg)
+        assert not (E.agents / "pl-researcher.md").exists() and roles_mod.drift(E.agents, reg) == []
 
 @test
 def select_never_returns_premium_arm_even_when_it_scores_best():
@@ -1193,8 +1201,9 @@ def codex_reviewer_argv_is_sealed_read_only_on_stdin():
     assert 'model_reasoning_effort="high"' in argv
     assert argv[argv.index("--sandbox") + 1] == "read-only"
     assert argv[argv.index("--cd") + 1] == "/w" and argv[argv.index("-o") + 1] == "/o/last-message.md"
-    open_argv = dsp.build_argv(binary="codex", cli="codex", agent="x", model="gpt-6.1-sol", effort="high")
-    assert open_argv[open_argv.index("--sandbox") + 1] == "workspace-write"
+    # unsealed codex seats (fast-worker) run outside the sandbox: workspace-write makes .git read-only
+    open_argv = dsp.build_argv(binary="codex", cli="codex", agent="x", model="gpt-6-luna", effort="low")
+    assert "--dangerously-bypass-approvals-and-sandbox" in open_argv and "--sandbox" not in open_argv
     with Estate() as E:
         out = E.tmp / "d"
         res = dsp.run_dispatch(brief="FAKE: verdict PASS\n", role="reviewer", cwd=E.work, out_dir=out, timeout=30)
@@ -1433,9 +1442,9 @@ def sentry_never_restarts_config_mismatch_or_review_blocking():
 def config_mismatch_is_deliberate_stop():
     with Estate() as E:
         roles_mod.write_agents(E.agents)
-        f = E.agents / "pl-fast-worker.md"
+        f = E.agents / "pl-lane-worker.md"
         f.write_text(f.read_text() + "\n# drift\n")
-        p = E.plan("## Phase 1: a (fast-worker)\nFAKE: touch a\n")
+        p = E.plan("## Phase 1: a (lane-worker)\nFAKE: touch a\n")
         rid = "cfg1"
         (E.estate / "runs" / rid).mkdir(parents=True)
         del os.environ["PIPELINE_WORKER_BIN"]  # the drift check is skipped under the fake worker; force it
@@ -2236,6 +2245,48 @@ def codex_transcript_yields_commands_text_and_failure():
         assert p["tokens"]["total"] == 10 and engine.ran_commands(t) == ["python3 tests/run.py"]
         t.write_text(json.dumps({"type": "turn.failed", "error": {"message": "boom"}}) + "\n")
         assert dsp.parse_transcript(t)["is_error"] is True
+
+
+@test
+def agy_seat_argv_prompt_and_deny_rules():
+    reg = roles_mod.load()
+    assert roles_mod.seat("researcher", reg)["cli"] == "agy"
+    settings = roles_mod.agy_settings("researcher", reg)
+    assert "command(gh pr comment)" in settings["permissions"]["deny"]
+    argv = dsp.build_argv(binary="agy", cli="agy", agent="pl-researcher", model="gemini-3.8-flash", effort="medium",
+                          prompt="do it", settings=settings)
+    assert argv[argv.index("--output-format") + 1] == "stream-json"
+    assert argv[argv.index("--model") + 1] == "gemini-3.8-flash" and argv[argv.index("--effort") + 1] == "medium"
+    assert "--dangerously-skip-permissions" in argv and argv[-1] == "-p=do it"
+    assert json.loads(argv[argv.index("--settings") + 1]) == settings
+    # a prompt too large for one argv string is passed as a pointer to the saved file
+    assert dsp.agy_prompt("x" * (dsp.AGY_INLINE_MAX + 1), Path("/o/stdin.md")).startswith("Your full instructions are in /o/stdin.md")
+    with Estate() as E:
+        out = E.tmp / "agy"
+        res = dsp.run_dispatch(brief="FAKE: ran grep -r x .\nFAKE: touch notes.md\n", role="researcher",
+                               cwd=E.work, out_dir=out, timeout=30)
+        assert res.outcome == "ok" and res.model == "gemini-3.8-flash", res.as_row()
+        assert res.tokens == {"input": 1000, "output": 200, "reasoning": 34, "total": 1234}
+        assert res.session_id == "ses_fake" and (E.work / "notes.md").exists()
+        assert engine.ran_commands(out / "transcript.jsonl") == ["grep -r x ."]
+        call = E.fake_calls()[-1]
+        assert call["cli"] == "agy" and call["agent"] == "pl-researcher" and call["variant"] == "medium"
+        assert "Headless worker contract" in call["brief"]
+        res = dsp.run_dispatch(brief="FAKE: quota\n", role="document-writer", cwd=E.work, out_dir=E.tmp / "agyq", timeout=30)
+        assert res.outcome == "quota" and "resets in 4 hours" in res.error, res.as_row()
+
+
+@test
+def codex_rules_forbid_external_posting_and_drift_guard():
+    text = roles_mod.codex_rules()
+    assert 'prefix_rule(pattern = ["gh", "pr", "create"], decision = "forbidden"' in text
+    assert 'prefix_rule(pattern = ["curl", "-X", "POST"], decision = "forbidden"' in text
+    assert '"git"' not in text
+    with Estate() as E:
+        d = E.tmp / "rules"
+        assert roles_mod.codex_rules_drift(d) == [str(d / "pipeline.rules")]
+        roles_mod.write_codex_rules(d)
+        assert roles_mod.codex_rules_drift(d) == []
 
 
 @test

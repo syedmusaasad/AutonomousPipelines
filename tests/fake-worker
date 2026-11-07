@@ -5,6 +5,8 @@
           --model M --effort E ...` -> Claude Code stream-json events
   codex   `codex exec --json --model M -c model_reasoning_effort="E" ... -`
           -> Codex --json events (agent comes from $PIPELINE_ROLE)
+  agy     `agy --output-format stream-json --model M --effort E ... -p=<prompt>`
+          -> Antigravity stream-json events (agent comes from $PIPELINE_ROLE)
 
 Rejects the retired DevPass argv (`run`, --format, --file, --auto, --variant, --dir) as
 the real CLIs would. Reads the brief from stdin, takes its working directory from the
@@ -39,7 +41,8 @@ import shlex
 import sys
 import time
 
-MODE = "codex" if sys.argv[1:2] == ["exec"] else "claude"
+MODE = ("codex" if sys.argv[1:2] == ["exec"]
+        else "agy" if any(a.startswith("-p=") for a in sys.argv[1:]) else "claude")
 SESSION = "ses_fake"
 
 
@@ -48,6 +51,9 @@ def out(ev):
 
 
 def emit_start(model):
+    if MODE == "agy":
+        out({"event": "init", "conversation_id": SESSION, "init": {"model": model, "permission_mode": "always-proceed"}})
+        return
     if MODE == "claude":
         out({"type": "system", "subtype": "init", "session_id": SESSION, "model": model})
     else:
@@ -56,6 +62,10 @@ def emit_start(model):
 
 
 def emit_text(text):
+    if MODE == "agy":
+        out({"event": "step_update", "step_update": {"conversation_id": SESSION, "step_index": 9, "state": "ACTIVE",
+                                                     "step_type": "agent_response", "text_delta": text}})
+        return
     if MODE == "claude":
         out({"type": "assistant", "session_id": SESSION,
              "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}})
@@ -64,6 +74,11 @@ def emit_text(text):
 
 
 def emit_command(cmd, n):
+    if MODE == "agy":
+        out({"event": "step_update", "step_update": {"conversation_id": SESSION, "step_index": n, "state": "DONE",
+             "step_type": "tool", "tool_name": "run_command",
+             "tool_info": {"name": "run_command", "parameters": {"CommandLine": cmd}}}})
+        return
     if MODE == "claude":
         out({"type": "assistant", "session_id": SESSION, "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": f"toolu_ran_{n}", "name": "Bash", "input": {"command": cmd}}]}})
@@ -73,6 +88,14 @@ def emit_command(cmd, n):
 
 
 def emit_finish(text, code):
+    if MODE == "agy":
+        res = {"conversation_id": SESSION, "status": "SUCCESS" if code == 0 else "ERROR", "response": text,
+               "usage": {"input_tokens": 1000, "output_tokens": 234, "thinking_tokens": 34,
+                         "cache_read_tokens": 0, "total_tokens": 1234}}
+        if code != 0:
+            res["finished_reason"] = "error"
+        out({"event": "result", "result": res})
+        return
     if MODE == "claude":
         out({"type": "result", "subtype": "success" if code == 0 else "error_during_execution",
              "is_error": code != 0, "result": text, "session_id": SESSION, "num_turns": 1,
@@ -87,6 +110,10 @@ def emit_finish(text, code):
 
 
 def emit_quota_error():
+    if MODE == "agy":
+        out({"event": "result", "result": {"conversation_id": SESSION, "status": "ERROR", "finished_reason": "error",
+                                           "error": "RESOURCE_EXHAUSTED: quota exceeded; resets in 4 hours"}})
+        return
     if MODE == "claude":
         out({"type": "rate_limit_event", "session_id": SESSION,
              "rate_limit_info": {"status": "rejected", "rateLimitType": "five_hour", "resetsAt": 1794056400}})
@@ -130,13 +157,22 @@ def main():
             sys.exit(2)
         agent = args.get("agent", "")
         variant = args.get("effort")
-    else:
+    elif MODE == "codex":
         if argv[-1] != "-" or "--json" not in argv:
             print("error: codex exec needs --json and the prompt on stdin (-)", file=sys.stderr, flush=True)
             sys.exit(2)
         agent = "pl-" + os.environ.get("PIPELINE_ROLE", "")
         variant = args.get("c:model_reasoning_effort")
-    brief = sys.stdin.read()
+    else:
+        if args.get("output-format") != "stream-json":
+            print("error: agy headless runs need --output-format stream-json", file=sys.stderr, flush=True)
+            sys.exit(2)
+        agent = "pl-" + os.environ.get("PIPELINE_ROLE", "")
+        variant = args.get("effort")
+    if MODE == "agy":
+        brief = next(a[3:] for a in argv if a.startswith("-p="))
+    else:
+        brief = sys.stdin.read()
     is_retry = "Previous attempt failed" in brief
     env = os.environ
 

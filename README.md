@@ -3,8 +3,9 @@
 A plan-driven engine that dispatches headless coding workers. The operator talks to one
 interactive agent; everything else is machinery. Work outside the journal did not happen.
 
-Workers run on two CLIs: Claude Code (`claude -p`, a Claude subscription) for every
-Anthropic seat, and Codex (`codex exec`, a ChatGPT subscription) for the reviewer.
+Workers run on three CLIs: Claude Code (`claude -p`, a Claude subscription) for the
+Anthropic seats, Codex (`codex exec`, a ChatGPT subscription) for the OpenAI seats, and
+Antigravity (`agy -p`) for the Gemini seats.
 
 ## Install
 
@@ -13,12 +14,14 @@ git clone <this repo> && cd pipeline
 ./bootstrap.sh
 export PATH="$HOME/.system/bin:$PATH"
 claude          # sign in once (Claude subscription)
-codex login     # sign in once (ChatGPT subscription; the reviewer seat)
+codex login     # sign in once (ChatGPT subscription; fast-worker and reviewer)
+agy             # sign in once (Antigravity; researcher and document-writer)
 pl              # the interactive seat
 ```
 
 Bootstrap records the estate (state root) on the most reliable local disk, installs
-launchers, renders Claude Code agent files into `~/.claude/agents`, adds a SessionStart
+launchers, renders Claude Code agent files into `~/.claude/agents` and the Codex
+execpolicy rules into `~/.codex/rules/pipeline.rules`, adds a SessionStart
 hook that keys runs to the conversation, and starts the sentry as a systemd user unit.
 
 ## The two shapes
@@ -59,10 +62,10 @@ failing plan.
 |---|---|---|---|
 | interactive | claude | claude-opus-5-5 | high |
 | implementer | claude | claude-sonnet-5-5 | high |
-| fast-worker | claude | claude-haiku-5-5 | low |
+| fast-worker | codex | gpt-6-luna | low |
 | lane-worker | claude | claude-haiku-5-5 | low |
-| researcher | claude | claude-opus-5-5 | high |
-| document-writer | claude | claude-sonnet-5-5 | high |
+| researcher | agy | gemini-3.8-flash | medium |
+| document-writer | agy | gemini-3.8-flash | high |
 | frontend-worker | claude | claude-sonnet-5-5 | high |
 | reviewer | codex | gpt-6.1-sol | high |
 

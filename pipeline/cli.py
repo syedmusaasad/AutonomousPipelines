@@ -167,11 +167,12 @@ def cmd_adopt(a):
 def cmd_render_agents(a):
     for p in roles_mod.write_agents():
         print(p)
+    print(roles_mod.write_codex_rules())
     return 0
 
 
 def cmd_check_agents(a):
-    d = roles_mod.drift()
+    d = roles_mod.drift() + roles_mod.codex_rules_drift()
     if d:
         print("DRIFT: generated agent files differ from registry rendering:")
         for x in d:

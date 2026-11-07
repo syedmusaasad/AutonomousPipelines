@@ -1,5 +1,5 @@
 {
-  "_comment": "Role -> model seat. Each model family maps to the CLI that runs it (`clis`): anthropic seats run as headless Claude Code (`claude -p`), openai seats as headless Codex (`codex exec`). There are no fallback models. Model changes happen only through `pipeline trial`; vendor benchmarks nominate, never decide. `pipeline render-agents` regenerates the Claude Code agent files from this registry and the suite diffs them (drift guard).",
+  "_comment": "Role -> model seat. Each model family maps to the CLI that runs it (`clis`): anthropic seats run as headless Claude Code (`claude -p`), openai seats as headless Codex (`codex exec`), google seats as headless Antigravity (`agy -p`). There are no fallback models. Model changes happen only through `pipeline trial`; vendor benchmarks nominate, never decide. `pipeline render-agents` regenerates the Claude Code agent files from this registry and the suite diffs them (drift guard).",
   "families": {
     "anthropic": [
       "claude-"
@@ -9,11 +9,15 @@
       "o1",
       "o3",
       "o4"
+    ],
+    "google": [
+      "gemini-"
     ]
   },
   "clis": {
     "anthropic": "claude",
-    "openai": "codex"
+    "openai": "codex",
+    "google": "agy"
   },
   "roles": {
     "interactive": {
@@ -165,7 +169,7 @@
     },
     "fast-worker": {
       "purpose": "Small, well-specified, cheap: a fetch, a one-line fix, a file rename.",
-      "model": "claude-haiku-5-5",
+      "model": "gpt-6-luna",
       "effort": "low",
       "band": "tolerant",
       "tools": {
@@ -228,6 +232,18 @@
           },
           "at": "2026-11-07T00:00:00+00:00",
           "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
+        },
+        {
+          "from": {
+            "model": "claude-haiku-5-5",
+            "effort": "low"
+          },
+          "to": {
+            "model": "gpt-6-luna",
+            "effort": "low"
+          },
+          "at": "2026-11-07T18:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
         }
       ]
     },
@@ -301,8 +317,8 @@
     },
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
-      "model": "claude-opus-5-5",
-      "effort": "high",
+      "model": "gemini-3.8-flash",
+      "effort": "medium",
       "band": "critical",
       "tools": {
         "read": true,
@@ -390,12 +406,24 @@
           },
           "at": "2026-11-07T00:00:00+00:00",
           "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
+        },
+        {
+          "from": {
+            "model": "claude-opus-5-5",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "effort": "medium"
+          },
+          "at": "2026-11-07T18:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
         }
       ]
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
-      "model": "claude-sonnet-5-5",
+      "model": "gemini-3.8-flash",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -484,6 +512,18 @@
           },
           "at": "2026-11-07T00:00:00+00:00",
           "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
+        },
+        {
+          "from": {
+            "model": "claude-sonnet-5-5",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gemini-3.8-flash",
+            "effort": "high"
+          },
+          "at": "2026-11-07T18:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
         }
       ]
     },
