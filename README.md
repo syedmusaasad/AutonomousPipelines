@@ -3,16 +3,23 @@
 A plan-driven engine that dispatches headless coding workers. The operator talks to one
 interactive agent; everything else is machinery. Work outside the journal did not happen.
 
+Workers run on two CLIs: Claude Code (`claude -p`, a Claude subscription) for every
+Anthropic seat, and Codex (`codex exec`, a ChatGPT subscription) for the reviewer.
+
 ## Install
 
 ```sh
 git clone <this repo> && cd pipeline
 ./bootstrap.sh
 export PATH="$HOME/.system/bin:$PATH"
+claude          # sign in once (Claude subscription)
+codex login     # sign in once (ChatGPT subscription; the reviewer seat)
+pl              # the interactive seat
 ```
 
 Bootstrap records the estate (state root) on the most reliable local disk, installs
-launchers, renders agent files, and starts the sentry as a systemd user unit.
+launchers, renders Claude Code agent files into `~/.claude/agents`, adds a SessionStart
+hook that keys runs to the conversation, and starts the sentry as a systemd user unit.
 
 ## The two shapes
 
@@ -32,7 +39,7 @@ work itself.
 | `TIMEOUT: <seconds>` | per attempt; bounds are 30 to 7200 |
 | `ATTEMPTS: <n>` | worker attempts before the phase burns |
 | `LANES: <file>` + `CEILING: <n>` | fan out one dispatch per item, n concurrent |
-| `REVIEW: cross` | two reviewers on different families after EXIT passes |
+| `REVIEW: on` | one sealed Codex reviewer after EXIT passes (`cross` is the legacy spelling) |
 | `SURFACE: <glob> <register>` | score prose artifacts against a register standard |
 | `GATE: <path>` | operator sentinel; the engine waits |
 | `ITERATE: on` + `CEILING: <n>` | fresh-session loop until EXIT passes |
@@ -48,22 +55,32 @@ failing plan.
 
 ## Roles
 
-| Role | Model | Effort | Fallback |
+| Role | CLI | Model | Effort |
 |---|---|---|---|
-| interactive | kimi-k3.1-pro | high | gpt-6.1-sol |
-| implementer | claude-sonnet-5-5 | high | deepseek-v4.1-flash |
-| fast-worker | gpt-6-luna | low | deepseek-v4.1-flash@medium |
-| lane-worker | deepseek-v4.1-flash | medium | gpt-6-luna@low |
-| researcher | gemini-3.8-flash | medium | grok-4-7 |
-| document-writer | gemini-3.8-flash | high | grok-4-7 |
-| frontend-worker | claude-sonnet-5-5 | high | deepseek-v4.1-flash |
-| reviewer-a | gpt-6.1-sol | high | kimi-k3.1-pro |
-| reviewer-b | grok-4-7 | high | deepseek-v4-pro |
-| reviewer-c | claude-sonnet-5-5 | high | gemini-3.8-flash |
+| interactive | claude | claude-opus-5-5 | high |
+| implementer | claude | claude-sonnet-5-5 | high |
+| fast-worker | claude | claude-haiku-5-5 | low |
+| lane-worker | claude | claude-haiku-5-5 | low |
+| researcher | claude | claude-opus-5-5 | high |
+| document-writer | claude | claude-sonnet-5-5 | high |
+| frontend-worker | claude | claude-sonnet-5-5 | high |
+| reviewer | codex | gpt-6.1-sol | high |
 
-All seats are standard-tier per the DevPass $5/$15 rule; seats change only via
-`pipeline trial`. The interactive seat is read-only: writes are refused with a receipt
-naming the dispatch it should have used.
+A seat's model family picks its CLI (`clis` in roles/registry.json). There are no
+fallback models: a failed dispatch is retried on the same seat as a phase attempt, and a
+subscription usage-limit refusal stops the run (`usage_limit`, no attempt charged) until
+the operator resumes it after the reset. Seats change only via `pipeline trial`. The
+interactive seat is read-only: `pl` starts it with settings that refuse writes (dontAsk)
+instead of prompting, and the role prompt names the dispatch it should have used.
+
+The reviewer is sealed: Codex runs it in a read-only sandbox, and the engine saves its
+final message as `review.md`. BLOCKING gets one revision dispatch and one re-review;
+BLOCKING again is a deliberate stop.
+
+Headless Claude Code is tuned for start-up speed (see docs/WORKER-COMPATIBILITY.md):
+non-essential traffic, claude.ai connectors and stray MCP servers are off, there is no
+session persistence (the transcript is the record), and per-machine prompt sections
+are moved out of the system prompt so workers share one prompt-cache prefix.
 
 ## Status
 
@@ -97,6 +114,7 @@ session moves entries to # Fixed with the landing hash.
 ```
 pipeline/   engine, dispatch, journal, sentry, gc, cloudtier, tui, workflows, defects
 roles/      registry.json, role prompts, CONTRACT.md
+plugin/     Claude Code SessionStart hook (conversation id)
 registers/  writing-register standards
 tests/      suite, ratchet ledger, fake worker, probe, hygiene gates
 plans/      executed plan records

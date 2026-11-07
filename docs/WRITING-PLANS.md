@@ -12,7 +12,7 @@ Decide the shape. One small, well-specified piece of work is a `quick`, not a pl
 2. Every phase carries at least one `EXIT:`. The engine runs it. A phase without an EXIT lands on the worker's word alone.
 3. Default is sequence. Add `AFTER:` only when phases are independent in fact, not in hope. Two phases that touch the same file are not independent.
 4. `LANES:` is for items that share a recipe. Ten different tasks are ten phases or ten quicks, not ten lanes.
-5. `REVIEW: cross` costs two dispatches. Spend it on code that lands, not on notes.
+5. `REVIEW: on` costs a Codex dispatch. Spend it on code that lands, not on notes.
 6. `SURFACE:` scores prose. Name the register (`operator-doc`, `research-note`, `commit-message`) and the glob.
 7. Everything irreversible sits behind a `(gate)`: pushes to shared branches, deletions, deploys, external sends. The sentinel path is named in the plan.
 8. Briefs carry task facts: exact paths, exact commit subjects, scope fences ("git add X only"), the suite entrypoint, the verification grep. Do not restate the worker contract; the role prompt already carries it.

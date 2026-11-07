@@ -1,5 +1,7 @@
-"""Role registry: role -> model seat, effort, tool grants, prompt. Renders devpass-code
-agent files (generated; hand-edits fail the drift guard)."""
+"""Role registry: role -> model seat, effort, tool grants, prompt. Each model family maps
+to the CLI that runs it (registry `clis`): anthropic seats run on Claude Code, openai
+seats on Codex. Renders Claude Code agent files (generated; hand-edits fail the drift
+guard). There are no fallback models."""
 
 import json
 import os
@@ -9,9 +11,14 @@ from pathlib import Path
 from . import paths
 
 REGISTRY = paths.roles_dir() / "registry.json"
-REVIEWERS = ("reviewer-a", "reviewer-b", "reviewer-c")
+REVIEWER = "reviewer"
+REVIEWERS = (REVIEWER,)
 DISPATCHABLE = ("implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker") + REVIEWERS
+REQUIRED = ("interactive",) + DISPATCHABLE
 AGENT_PREFIX = "pl-"
+CLIS = ("claude", "codex")
+EFFORTS = {"claude": ("low", "medium", "high", "xhigh", "max"), "codex": ("minimal", "low", "medium", "high", "xhigh")}
+RETIRED_FIELDS = ("fallback", "quota_fallback")
 
 INTERACTIVE_ALLOWED_BASH = (
     "run *", "run", "quick *", "quick", "status *", "status", "pipeline defects *", "pipeline defects",
@@ -49,10 +56,18 @@ def family_of(model: str, reg: dict) -> str:
     return "unknown:" + bare
 
 
+def cli_of(model: str, reg: dict) -> str:
+    """The CLI that runs `model`: the registry maps each family to one CLI."""
+    fam = family_of(model, reg)
+    cli = reg.get("clis", {}).get(fam)
+    if cli not in CLIS:
+        raise RegistryError(f"model {model} (family {fam}) has no CLI in registry clis")
+    return cli
+
+
 def is_premium(model: str, reg: dict) -> bool:
-    """True if the registry's models table tags `model` as premium-tier. Unknown or
-    untagged models are treated as not-premium-confirmed (i.e. False), matching the
-    conservative default: only a confirmed premium tag blocks a quota_fallback."""
+    """True if an optional registry `models` table tags `model` premium. Kept for trial
+    reports over older registries; the current registry has no tiers."""
     bare = model.split("/", 1)[-1]
     entry = reg.get("models", {}).get(bare)
     return bool(entry) and entry.get("premium") is True
@@ -60,19 +75,19 @@ def is_premium(model: str, reg: dict) -> bool:
 
 def validate(reg: dict) -> None:
     roles = reg.get("roles", {})
-    required = {"interactive", "implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker", *REVIEWERS}
-    missing = required - set(roles)
+    missing = set(REQUIRED) - set(roles)
     if missing:
         raise RegistryError(f"registry missing roles: {sorted(missing)}")
     for name, r in roles.items():
-        for k in ("model", "fallback", "effort", "tools", "quota_fallback"):
+        for k in ("model", "effort", "tools"):
             if k not in r:
                 raise RegistryError(f"role {name}: missing {k}")
-        fb_model, fb_effort = _split_arm(r["fallback"])
-        if fb_effort is not None and fb_effort not in ("low", "medium", "high"):
-            raise RegistryError(f"role {name}: fallback arm {r['fallback']} has bad effort {fb_effort!r} (want low/medium/high)")
-        if family_of(r["model"], reg) == family_of(fb_model, reg):
-            raise RegistryError(f"role {name}: fallback {r['fallback']} shares family with {r['model']}")
+        for k in RETIRED_FIELDS:
+            if k in r:
+                raise RegistryError(f"role {name}: {k} is retired; seats have no fallback models")
+        cli = cli_of(r["model"], reg)
+        if r["effort"] not in EFFORTS[cli]:
+            raise RegistryError(f"role {name}: effort {r['effort']!r} is not a {cli} effort {EFFORTS[cli]}")
         if r.get("external_post", False):
             raise RegistryError(f"role {name}: external_post must be false")
         if name in REVIEWERS:
@@ -80,15 +95,8 @@ def validate(reg: dict) -> None:
                 raise RegistryError(f"role {name}: reviewers must be sealed")
             if r["tools"].get("edit"):
                 raise RegistryError(f"role {name}: sealed reviewers get no edit grant")
-        # DECISION no-premium-seats: no role may seat a premium-tier model anywhere
-        # (primary, fallback or quota_fallback) — premium arms are excluded outright.
-        for field in ("model", "fallback", "quota_fallback"):
-            field_model, _ = _split_arm(r[field])
-            if is_premium(field_model, reg):
-                raise RegistryError(f"role {name}: {field} {r[field]} is premium-tier")
-    fams = {family_of(roles[x]["model"], reg) for x in REVIEWERS}
-    if len(fams) < 2:
-        raise RegistryError("reviewers must span at least two model families")
+    if cli_of(roles["interactive"]["model"], reg) != "claude":
+        raise RegistryError("interactive seat must run on Claude Code (agent file + settings)")
 
 
 def _split_arm(s: str) -> tuple:
@@ -99,8 +107,9 @@ def _split_arm(s: str) -> tuple:
     return s, None
 
 
-def qualified(model: str, reg: dict) -> str:
-    return model if "/" in model else f"{reg['provider']}/{model}"
+def qualified(model: str, reg: dict = None) -> str:
+    """Model ids are passed to the CLI as-is; a legacy 'provider/model' keeps only model."""
+    return model.split("/", 1)[-1]
 
 
 def seat(role: str, reg: dict = None) -> dict:
@@ -110,30 +119,18 @@ def seat(role: str, reg: dict = None) -> dict:
     r = dict(reg["roles"][role])
     r["name"] = role
     r["model_q"] = qualified(r["model"], reg)
-    fb_model, fb_effort = _split_arm(r["fallback"])
-    r["fallback_q"] = qualified(fb_model, reg)
-    r["fallback_model_q"] = qualified(fb_model, reg)
-    r["fallback_effort"] = fb_effort
     r["family"] = family_of(r["model"], reg)
-    r["fallback_family"] = family_of(fb_model, reg)
+    r["cli"] = cli_of(r["model"], reg)
     r["agent"] = AGENT_PREFIX + role
-    if r.get("quota_fallback"):
-        qf_model, qf_effort = _split_arm(r["quota_fallback"])
-        r["quota_fallback_model"] = qf_model
-        r["quota_fallback_model_q"] = qualified(qf_model, reg)
-        r["quota_fallback_effort"] = qf_effort if qf_effort is not None else r["effort"]
     return r
 
 
-def cross_review_pair(reg: dict = None, exclude: set = ()) -> tuple:
-    """Two reviewer roles on different families."""
+def reviewer_role(reg: dict = None) -> str:
+    """The one sealed reviewer seat."""
     reg = reg or load()
-    cands = [r for r in REVIEWERS if r not in exclude]
-    for i, a in enumerate(cands):
-        for b in cands[i + 1:]:
-            if family_of(reg["roles"][a]["model"], reg) != family_of(reg["roles"][b]["model"], reg):
-                return a, b
-    raise RegistryError("no cross-family reviewer pair available")
+    if REVIEWER not in reg["roles"]:
+        raise RegistryError("no reviewer seat")
+    return REVIEWER
 
 
 def prompt_path(role: str) -> Path:
@@ -151,66 +148,85 @@ def worker_contract() -> str:
     return (paths.roles_dir() / "CONTRACT.md").read_text()
 
 
-# ---- agent file rendering (generated config; drift-guarded) ------------------
+# ---- Claude Code agent files + permissions (generated; drift-guarded) --------
+
+# registry tool grant -> Claude Code tool names
+CLAUDE_TOOLS = {
+    "read": ("Read",), "glob": ("Glob",), "grep": ("Grep",), "list": (),
+    "bash": ("Bash",), "edit": ("Edit", "Write", "NotebookEdit"),
+    "webfetch": ("WebFetch", "WebSearch"), "task": ("Agent",),
+}
+SEALED_BASH_DENY = ("git commit *", "git push *", "rm *", "mv *")
+
+
+def claude_tools(s: dict) -> list:
+    out = []
+    for grant, names in CLAUDE_TOOLS.items():
+        if s["tools"].get(grant):
+            out.extend(names)
+    out.append("TodoWrite")
+    return out
+
+
+def claude_permissions(role: str, reg: dict) -> dict:
+    """allow/deny rule lists for a Claude seat. Used both as headless CLI flags
+    (--allowed-tools/--disallowed-tools under --permission-mode dontAsk: anything not
+    allowed is refused, never asked) and as the interactive seat's settings file."""
+    s = seat(role, reg)
+    tools = claude_tools(s)
+    deny = [f"Bash({p})" for p in EXTERNAL_CHANNEL_PATTERNS]
+    if role == "interactive":
+        allow = [t for t in tools if t != "Bash"] + [f"Bash({v})" for v in INTERACTIVE_ALLOWED_BASH]
+        deny = ["Edit", "Write", "NotebookEdit"] + deny
+    else:
+        allow = tools
+        if s.get("sealed"):
+            deny = ["Edit", "Write", "NotebookEdit"] + [f"Bash({p})" for p in SEALED_BASH_DENY] + deny
+    return {"allow": allow, "deny": deny}
+
+
+def interactive_settings(reg: dict = None) -> dict:
+    """Claude Code settings for the interactive seat: dontAsk, so anything outside the
+    read-only allowlist is refused (the seat guard) instead of prompting."""
+    reg = reg or load()
+    perms = claude_permissions("interactive", reg)
+    return {"permissions": {"defaultMode": "dontAsk", "allow": perms["allow"], "deny": perms["deny"]}}
+
 
 def render_agent(role: str, reg: dict) -> str:
     s = seat(role, reg)
-    tools = s["tools"]
-    perm = {}
-    for tool in ("read", "glob", "grep", "list", "edit", "webfetch", "task"):
-        perm[tool] = "allow" if tools.get(tool) else "deny"
-    # bash: allow everything except external-channel posting. Reviewers get read-only-ish bash.
-    bash_rules = {"*": "allow"}
-    if s.get("sealed"):
-        bash_rules = {"*": "allow", "git commit*": "deny", "git push*": "deny", "rm *": "deny", "mv *": "deny"}
-    if role == "interactive":
-        bash_rules = {"*": "deny"}
-        for verb in INTERACTIVE_ALLOWED_BASH:
-            bash_rules[verb] = "allow"
-    for pat in EXTERNAL_CHANNEL_PATTERNS:
-        bash_rules[pat] = "deny"
-    perm["bash"] = bash_rules if tools.get("bash") else "deny"
-    perm["question"] = "deny"  # headless: never ask
-    perm["todowrite"] = "allow"
-    perm["doom_loop"] = "allow"
-    perm["external_directory"] = "allow"
     body = role_prompt(role)
     if role != "interactive":
         body = worker_contract().rstrip() + "\n\n" + body
     front = {
+        "name": s["agent"],
         "description": f"GENERATED by `pipeline render-agents` from roles/registry.json; do not hand-edit. {s.get('purpose','')}",
-        "mode": "primary",
         "model": s["model_q"],
-        "variant": s["effort"],
-        "permission": perm,
+        "effort": s["effort"],
+        "tools": ", ".join(claude_tools(s)),
     }
-    return "---\n" + _yaml(front) + "---\n" + body.rstrip() + "\n"
+    return "---\n" + "".join(f"{k}: {json.dumps(v)}\n" for k, v in front.items()) + "---\n" + body.rstrip() + "\n"
 
 
-def _yaml(obj, indent=0) -> str:
-    out = []
-    pad = "  " * indent
-    for k, v in obj.items():
-        if isinstance(v, dict):
-            out.append(f"{pad}{_ykey(k)}:")
-            out.append(_yaml(v, indent + 1).rstrip("\n"))
-        else:
-            out.append(f"{pad}{_ykey(k)}: {json.dumps(v)}")
-    return "\n".join(out) + "\n"
-
-
-def _ykey(k: str) -> str:
-    return json.dumps(k) if re.search(r"[^A-Za-z0-9_-]", k) else k
+def codex_prompt(role: str) -> str:
+    """Codex has no agent files: the contract and role prompt lead every brief."""
+    return worker_contract().rstrip() + "\n\n" + role_prompt(role).rstrip() + "\n"
 
 
 def rendered_agents(reg: dict = None) -> dict:
     reg = reg or load()
-    return {f"{AGENT_PREFIX}{role}.md": render_agent(role, reg) for role in reg["roles"]}
+    out = {f"{AGENT_PREFIX}{role}.md": render_agent(role, reg)
+           for role in reg["roles"] if cli_of(reg["roles"][role]["model"], reg) == "claude"}
+    out[INTERACTIVE_SETTINGS] = json.dumps(interactive_settings(reg), indent=2) + "\n"
+    return out
+
+
+INTERACTIVE_SETTINGS = "pl-interactive.settings.json"
 
 
 def agents_dir() -> Path:
     override = os.environ.get("PIPELINE_AGENTS_DIR")
-    return Path(override) if override else Path.home() / ".config" / "devpass-code" / "agent"
+    return Path(override) if override else Path.home() / ".claude" / "agents"
 
 
 def write_agents(dest: Path = None, reg: dict = None) -> list:

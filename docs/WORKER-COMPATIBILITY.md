@@ -1,86 +1,75 @@
 # Worker CLI compatibility
 
-Date: 2026-11-03. Installed binary: `/usr/local/bin/devpass-code`.
+Date: 2026-11-07. Installed: Claude Code 2.1.319, codex-cli 0.167.0.
 
-## Fault
+DevPass Code is retired. A seat's model family picks its CLI (`clis` in
+roles/registry.json): anthropic seats run on Claude Code, openai seats on Codex.
 
-`pipeline/dispatch.py` built the worker argv with `--variant <effort>` and `--dir <cwd>`.
-The installed `devpass-code run` rejects both:
-
-```
-ERRORS
-  Unrecognized flag: --variant in command devpass-code run
-  Unrecognized flag: --dir in command devpass-code run
-```
-
-Every worker launch exited 1 before any model step. Evidence:
-`/root/.system/runs/q_20261103T183431_1ad345/phase-1/attempt-1/try-0/transcript.jsonl`.
-Runs `q_20261103T183431_1ad345` and `q_20261103T184100_e847d3` burned their attempts
-on it and stopped. Their history was not edited.
-
-## Installed contract (`devpass-code run --help`)
+## Claude Code seats (`claude -p`)
 
 ```
-USAGE
-  devpass-code run [flags] [<message...>]
-  --model, -m string   Model to use in the format provider/model#variant
-  --agent string       Agent to use
-  --format choice      Output format (choices: default, json)
-  --file, -f string    File to attach to the message
-  --auto               Auto-approve permissions that are not explicitly denied
+claude -p --output-format stream-json --verbose
+  --agent pl-<role> --model <model> --effort <effort>
+  --permission-mode dontAsk --allowed-tools <grants> --disallowed-tools <denies>
+  --strict-mcp-config --no-session-persistence --exclude-dynamic-system-prompt-sections
 ```
 
-There is no `--variant` and no `--dir`. Effort is the `#variant` suffix of `--model`.
-The working directory is the process cwd.
+- The brief is piped on stdin. `--allowed-tools`, `--disallowed-tools` and
+  `--mcp-config` take variadic values, so a prompt passed as a trailing argument
+  gets read as one of their values. With the prompt on stdin, nothing follows them.
+- `stream-json` writes events as they happen, so the transcript's mtime stays a live
+  liveness signal for the sentry. Plain `-p` text output writes nothing until the end.
+- `dontAsk` refuses anything outside the role's grants instead of prompting. Verified
+  as root: allowed `Write` and `Bash` work outside the cwd; a `--disallowed-tools`
+  rule with spaces inside a comma-separated list is refused
+  (`system/permission_denied`).
+- Agent files (`~/.claude/agents/pl-<role>.md`) carry the contract and role prompt;
+  `pipeline render-agents` writes them, and the drift guard diffs them.
+- Tokens and cost come from the final `result` event. A `rate_limit_event` with
+  `status: "rejected"` is a subscription usage limit; the engine stops the run as
+  `usage_limit` and records `resetsAt`.
 
-## Prompt input
+### Start-up speed
 
-Documented input is the positional `[<message...>]` and `--file`. Neither the installed
-help nor the read-only V2 docs fetched (`https://opencode.ai/v2/docs/cli/` and
-`https://opencode.ai/v2/docs/cli/commands/`, whose `run` examples use a quoted message
-and repeated `--file`) document stdin as prompt input. Stdin is therefore no longer
-used: the worker gets stdin from `/dev/null`. The brief is attached with `--file` (the
-saved `brief.md` in the dispatch out dir, absolute path) with a fixed short message,
-which also avoids the per-argument size limit of a long brief passed as a message.
+Measured on this host with `claude-haiku-5-5` and a one-line prompt, 2-3 runs each:
 
-Not verified live: no worker was dispatched, per the brief. The live check is the next
-engine dispatch; the argv matches the installed help exactly.
+| configuration | wall |
+|---|---|
+| `claude -p` defaults | 2.41 s |
+| `--strict-mcp-config` only | 2.36 s |
+| + `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` + `--no-session-persistence` | 1.51 s |
 
-## Fix
+The API time for that prompt was about 1.0 s, so a default headless launch spends about
+1.4 s on its own start-up. The non-essential-traffic switch removes most of it.
+Workers also set `ENABLE_CLAUDEAI_MCP_SERVERS=false`, so the operator's claude.ai
+connectors (mail, drive, calendar) are not loaded into every worker's tool list, and
+`DISABLE_AUTOUPDATER=1`.
+`--exclude-dynamic-system-prompt-sections` moves per-machine sections out of the
+system prompt, so dispatches share one cached prompt prefix.
 
-`pipeline/dispatch.py`: `build_argv` and `model_arg`. Detached execution
-(`start_new_session`), captured streams, role agents, quota and retry handling, and the
-timeout kill-group path are unchanged.
+`--bare` would skip more start-up work, but it reads only `ANTHROPIC_API_KEY`, never
+the subscription's OAuth login, so it is not used.
 
-Invocation produced for role `implementer`, effort `medium` (from the suite's fake CLI log):
+## Codex seat (`codex exec`)
 
 ```
-devpass-code run --format json --agent pl-implementer \
-  --model <provider>/<model>#medium --auto \
-  --file <abs out_dir>/brief.md "Carry out the attached brief."
+codex exec --json --model gpt-6.1-sol -c model_reasoning_effort="high"
+  --sandbox read-only --skip-git-repo-check --ephemeral --cd <cwd> -o <dir>/last-message.md -
 ```
 
-spawned with `cwd=<phase working directory>`, `stdin=DEVNULL`, stdout and stderr to
-`transcript.jsonl`.
+- Codex has no agent files: the contract and role prompt lead the stdin prompt,
+  followed by the brief.
+- The reviewer is sealed in a read-only sandbox (verified with `codex sandbox`: reads
+  work, writes fail with "Read-only file system"). The engine saves its final
+  message as `$REVIEW_OUT/review.md`, after deleting any earlier record, so only that
+  dispatch's answer counts.
+- Tokens come from `turn.completed` events. Codex reports no cost. An `error` or
+  `turn.failed` event that names a usage or rate limit counts as a usage limit.
 
-## Regression tests
+## Interactive seat
 
-- `tests/fake-devpass-code` now behaves like the current CLI: exits 1 with
-  `Unrecognized flag` on `--variant` or `--dir`, reads the brief from `--file`, uses the
-  process cwd, and splits `#variant` from `--model`.
-- `dispatch_argv_uses_model_variant_and_attached_brief`
-- `dispatch_runs_current_cli_with_effort_in_model_and_process_cwd`
-- `fake_current_cli_rejects_obsolete_flags`
-- Existing `engine_passes_effort_to_worker` and `engine_runs_fallback_at_pinned_effort`
-  pass unchanged.
-
-## Verification result
-
-Full suite, run once: `264/264 passed, 0 failed, 59.1s; ratchet floor 260`, ratchet
-raised to 263.
-
-## Not changed
-
-Model seats, permissions, credentials, stopped-run history, and the requested later
-board (interactive Sol to Kimi, reviewer-a Kimi to Sol, reviewer-b Grok4.7 to
-DeepSeekV4Pro), which is not authorized here. No push.
+`pl` runs `claude --agent pl-interactive --model claude-opus-5-5 --effort high --settings
+~/.claude/agents/pl-interactive.settings.json`. The settings use `defaultMode: dontAsk`
+with the read-only Bash allowlist and deny Edit/Write/NotebookEdit. Do not start it with
+`--dangerously-skip-permissions`; that would override the seat guard. A SessionStart
+hook (`plugin/session-env.sh`) exports `PIPELINE_CONVERSATION` to its shells.

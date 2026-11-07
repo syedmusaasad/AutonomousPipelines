@@ -22,7 +22,7 @@ def launch_quick(task: str, *, role: str, cwd: Path, exits: list = (), timeout: 
         lines.append("LANDING: on")
     lines += [f"EXIT: {e}" for e in exits]
     if review:
-        lines.append("REVIEW: cross")
+        lines.append("REVIEW: on")
     lines += ["", task.strip(), ""]
     plan_path = qdir / "plan.md"
     plan_path.write_text("\n".join(lines))

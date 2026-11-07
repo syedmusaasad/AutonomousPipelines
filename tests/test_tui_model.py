@@ -167,7 +167,7 @@ class TestTuiModel(unittest.TestCase):
     def test_phase_listing_finds_transcript_brief_result_and_review_dir(self):
         with Estate() as E:
             rid, p, r, st = _run_plan(
-                E, "## Phase 1: a (implementer)\nREVIEW: cross\nFAKE: touch out\nFAKE: verdict-by-agent a=PASS b=PASS\n")
+                E, "## Phase 1: a (implementer)\nREVIEW: on\nFAKE: touch out\nFAKE: verdict PASS\n")
             self.assertEqual(st["closed"], "done", r.stderr)
             listing = tm.phase_listing(rid, "1")
             labels = [it["label"] for it in listing["items"]]

@@ -1,3 +1,6 @@
+> Historical (DevPass era, before 2026-11-07). Seats, fallbacks and the three-reviewer
+> cross review described here are retired; see README.md and docs/WORKER-COMPATIBILITY.md.
+
 # AutonomousPipelines Readiness Checklist
 
 **Scope**: Unattended operation without human intervention on accounting-related concerns only.  

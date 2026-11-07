@@ -302,7 +302,6 @@ def cmd_trial_report(a):
         is_chosen = "***" if arm_str == chosen else ""
         print(f"{arm_str:<52} {arm_model_q:<40} {arm_effort:<8} {family:<12} {premium:>7} {v.get('quality', 0):>8.3f} {v.get('wall_s', 0):>8.1f} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
     print()
-    print(f"Quota fallback (best in-band non-premium arm): {quota_fallback}")
     print(f"Chosen: {chosen}")
     return 0
 
@@ -369,7 +368,7 @@ def cmd_validate(a):
         if ph.exits: flags.append(f"exit={len(ph.exits)}")
         if ph.after_explicit: flags.append(f"after={ph.after}")
         if ph.lanes: flags.append(f"lanes={ph.lanes} ceiling={ph.ceiling}")
-        if ph.review: flags.append("review=cross")
+        if ph.review: flags.append("review=on")
         if ph.surfaces: flags.append(f"surface={ph.surfaces}")
         if ph.is_gate: flags.append(f"gate={ph.gate}")
         if ph.iterate: flags.append(f"iterate ceiling={ph.ceiling}" + (f" progress={ph.iterate_progress!r}" if ph.iterate_progress else ""))

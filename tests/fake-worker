@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Fake devpass-code worker for the characterization suite.
+"""Fake worker CLI for the characterization suite. Stands in for both worker CLIs:
 
-Accepts the same argv as the installed `devpass-code run --format json --agent X
---model provider/model#variant --auto --file BRIEF MESSAGE`, rejects the obsolete
---variant and --dir flags as the real CLI does, takes its working directory from the
-process cwd, reads the brief from --file, and behaves according to `FAKE:` lines found in the brief
-(or the FAKE_DEFAULT env). Emits a devpass-code-shaped JSON event stream to stdout.
+  claude  `claude -p --output-format stream-json --verbose --agent pl-<role>
+          --model M --effort E ...` -> Claude Code stream-json events
+  codex   `codex exec --json --model M -c model_reasoning_effort="E" ... -`
+          -> Codex --json events (agent comes from $PIPELINE_ROLE)
+
+Rejects the retired DevPass argv (`run`, --format, --file, --auto, --variant, --dir) as
+the real CLIs would. Reads the brief from stdin, takes its working directory from the
+process cwd, and behaves according to `FAKE:` lines found in the brief (or the
+FAKE_DEFAULT env).
 
 FAKE directives (in the brief task text):
   FAKE: touch <path>            create file (relative to the process cwd); $ITEM/$LANE_OUT/$REVIEW_OUT expanded
@@ -18,12 +22,13 @@ FAKE directives (in the brief task text):
   FAKE: hang                    sleep forever without writing to stdout (stall)
   FAKE: fail-on-model <substr>  exit 1 immediately if --model contains substr
   FAKE: fail-unless-retry       exit 1 unless the brief contains 'Previous attempt failed'
-  FAKE: verdict <V>             write $REVIEW_OUT/review.md with VERDICT: V
-  FAKE: verdict-by-agent a=V b=V c=V   verdict depends on which reviewer agent
+  FAKE: verdict <V>             final message `VERDICT: V ...` (a sealed codex reviewer
+                                cannot write; a claude worker also writes $REVIEW_OUT/review.md)
+  FAKE: verdict-seq V1,V2,...   verdict by reviewer invocation (NONE = no verdict line)
   FAKE: touch-if-retry <path>   create file only on retry
   FAKE: record                  append argv+env facts to $FAKE_LOG
   FAKE: fix-surface <path>      overwrite path with register-passing text (rewrite path)
-  FAKE: quota                   emit the DevPass premium-tier 402 error event; exit 1
+  FAKE: quota                   emit a subscription usage-limit refusal; exit 1
   FAKE: quota-on-model <substr> same as `quota`, but only when --model contains substr
 """
 
@@ -34,35 +39,104 @@ import shlex
 import sys
 import time
 
+MODE = "codex" if sys.argv[1:2] == ["exec"] else "claude"
+SESSION = "ses_fake"
 
-def emit(t, part):
-    print(json.dumps({"type": t, "timestamp": int(time.time() * 1000), "sessionID": "ses_fake", "part": part}), flush=True)
+
+def out(ev):
+    print(json.dumps(ev), flush=True)
+
+
+def emit_start(model):
+    if MODE == "claude":
+        out({"type": "system", "subtype": "init", "session_id": SESSION, "model": model})
+    else:
+        out({"type": "thread.started", "thread_id": SESSION})
+        out({"type": "turn.started"})
+
+
+def emit_text(text):
+    if MODE == "claude":
+        out({"type": "assistant", "session_id": SESSION,
+             "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}})
+    else:
+        out({"type": "item.completed", "item": {"id": "item_msg", "type": "agent_message", "text": text}})
+
+
+def emit_command(cmd, n):
+    if MODE == "claude":
+        out({"type": "assistant", "session_id": SESSION, "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "id": f"toolu_ran_{n}", "name": "Bash", "input": {"command": cmd}}]}})
+    else:
+        out({"type": "item.started", "item": {"id": f"item_cmd_{n}", "type": "command_execution",
+                                              "command": cmd, "status": "in_progress"}})
+
+
+def emit_finish(text, code):
+    if MODE == "claude":
+        out({"type": "result", "subtype": "success" if code == 0 else "error_during_execution",
+             "is_error": code != 0, "result": text, "session_id": SESSION, "num_turns": 1,
+             "total_cost_usd": 0.0123,
+             "usage": {"input_tokens": 1000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+                       "output_tokens": 234, "output_tokens_details": {"thinking_tokens": 34}}})
+    elif code == 0:
+        out({"type": "turn.completed", "usage": {"input_tokens": 1000, "cached_input_tokens": 0,
+                                                 "output_tokens": 200, "reasoning_output_tokens": 34}})
+    else:
+        out({"type": "turn.failed", "error": {"message": f"exit {code}"}})
 
 
 def emit_quota_error():
-    emit("error", {"error": {"name": "APIError", "data": {
-        "message": "You\u2019ve used your weekly allowance for premium-tier models on the max "
-                   "plan. Redeem a Reset Pass from your dashboard for an instant reset, upgrade "
-                   "for a higher allowance, or use any standard model now. Resets in 6 days and 12 hours.",
-        "statusCode": 402, "isRetryable": False,
-    }}})
+    if MODE == "claude":
+        out({"type": "rate_limit_event", "session_id": SESSION,
+             "rate_limit_info": {"status": "rejected", "rateLimitType": "five_hour", "resetsAt": 1794056400}})
+        out({"type": "result", "subtype": "error_during_execution", "is_error": True, "session_id": SESSION,
+             "result": "Claude usage limit reached. Your limit will reset at 5am."})
+    else:
+        out({"type": "error", "message": "You've hit your usage limit. Try again in 3 hours."})
+        out({"type": "turn.failed", "error": {"message": "You've hit your usage limit."}})
+
+
+def parse_args(argv):
+    args = {}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--") and i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+            args[a[2:]] = argv[i + 1]
+            i += 2
+            continue
+        if a == "-c" and i + 1 < len(argv):
+            k, _, v = argv[i + 1].partition("=")
+            args["c:" + k] = v.strip('"')
+            i += 2
+            continue
+        i += 1
+    return args
 
 
 def main():
     argv = sys.argv[1:]
-    args = {}
-    for i, a in enumerate(argv):
-        if a.startswith("--") and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
-            args[a[2:]] = argv[i + 1]
-    for obsolete in ("--variant", "--dir"):
-        if any(a == obsolete or a.startswith(obsolete + "=") for a in argv):
-            print(f"ERRORS\n  Unrecognized flag: {obsolete} in command devpass-code run", flush=True)
-            sys.exit(1)
+    args = parse_args(argv)
+    if argv[:1] == ["run"] or any(a.split("=")[0] in ("--format", "--file", "--auto", "--variant", "--dir")
+                                  for a in argv):
+        print("error: unknown option (retired DevPass argv)", file=sys.stderr, flush=True)
+        sys.exit(2)
     cwd = os.getcwd()
-    model, _, variant = args.get("model", "").partition("#")
-    agent = args.get("agent", "")
-    brief_file = args.get("file")
-    brief = open(brief_file).read() if brief_file else ""
+    model = args.get("model", "")
+    if MODE == "claude":
+        if "-p" not in argv or args.get("output-format") != "stream-json":
+            print("error: headless runs need -p --output-format stream-json", file=sys.stderr, flush=True)
+            sys.exit(2)
+        agent = args.get("agent", "")
+        variant = args.get("effort")
+    else:
+        if argv[-1] != "-" or "--json" not in argv:
+            print("error: codex exec needs --json and the prompt on stdin (-)", file=sys.stderr, flush=True)
+            sys.exit(2)
+        agent = "pl-" + os.environ.get("PIPELINE_ROLE", "")
+        variant = args.get("c:model_reasoning_effort")
+    brief = sys.stdin.read()
     is_retry = "Previous attempt failed" in brief
     env = os.environ
 
@@ -89,9 +163,9 @@ def main():
                                 "argv": argv,
                                 "ITEM": env.get("ITEM"), "LANE": env.get("LANE"), "LANE_OUT": env.get("LANE_OUT"),
                                 "REVIEW_OUT": env.get("REVIEW_OUT"), "retry": is_retry, "brief_len": len(brief),
-                                "brief": brief, "auto": "--auto" in argv, "invocation": invocation}) + "\n")
+                                "brief": brief, "cli": MODE, "invocation": invocation}) + "\n")
 
-    emit("step_start", {"type": "step-start"})
+    emit_start(model)
     directives = re.findall(r"^\s*(?:- )?FAKE:\s*(.+?)\s*$", brief, flags=re.M)
     default = env.get("FAKE_DEFAULT")
     if default and not directives:
@@ -103,8 +177,7 @@ def main():
         cmd = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
         if cmd == "ran":
-            emit("tool_use", {"type": "tool", "tool": "bash", "callID": "tooluse_ran_%d" % len(directives),
-                              "state": {"status": "completed", "input": {"command": rest}, "output": ""}})
+            emit_command(rest, len(directives))
         if cmd == "commit":
             m = re.match(r"(.+?)\s+--\s+(.+)$", rest)
             if m:
@@ -143,7 +216,8 @@ def main():
             time.sleep(3600)
         elif cmd == "fail-on-model":
             if rest in model:
-                emit("text", {"type": "text", "text": f"model {model} refused"})
+                emit_text(f"model {model} refused")
+                emit_finish(f"model {model} refused", 1)
                 sys.exit(1)
         elif cmd == "quota-on-model":
             if rest in model:
@@ -158,24 +232,19 @@ def main():
                 p = path(rest)
                 os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
                 open(p, "a").close()
-        elif cmd == "verdict":
-            out = env.get("REVIEW_OUT")
-            if out:
-                os.makedirs(out, exist_ok=True)
-                open(os.path.join(out, "review.md"), "w").write(f"VERDICT: {rest}\n\n## Findings\n- none\n\n## Rationale\nfake\n")
-                text_out = f"VERDICT: {rest}"
-        elif cmd == "verdict-by-agent":
-            mp = dict(kv.split("=") for kv in rest.split())
-            key = agent.rsplit("-", 1)[-1]
-            v = mp.get(key, "PASS")
-            out = env.get("REVIEW_OUT")
-            if out:
-                os.makedirs(out, exist_ok=True)
-                if v == "NONE":
-                    open(os.path.join(out, "review.md"), "w").write("no verdict line here\n")
-                else:
-                    open(os.path.join(out, "review.md"), "w").write(f"VERDICT: {v}\n\n## Findings\n- none\n\n## Rationale\nfake by {agent}\n")
-                text_out = f"VERDICT: {v}"
+        elif cmd in ("verdict", "verdict-seq"):
+            if cmd == "verdict":
+                v = rest
+            else:
+                seq = rest.split(",")
+                v = seq[min(invocation, len(seq)) - 1].strip()
+            record = "no verdict line here" if v == "NONE" else \
+                f"VERDICT: {v}\n\n## Findings\n- none\n\n## Rationale\nfake by {agent}"
+            text_out = record
+            review_out = env.get("REVIEW_OUT")
+            if review_out and MODE == "claude":
+                os.makedirs(review_out, exist_ok=True)
+                open(os.path.join(review_out, "review.md"), "w").write(record + "\n")
         elif cmd == "fix-surface":
             if "SURFACE scoring failed" in brief:
                 p = path(rest)
@@ -190,8 +259,8 @@ def main():
         elif cmd == "quota":
             emit_quota_error()
             sys.exit(1)
-    emit("text", {"type": "text", "text": text_out})
-    emit("step_finish", {"type": "step-finish", "reason": "stop", "tokens": {"total": 1234, "input": 1000, "output": 200, "reasoning": 34, "cache": {"write": 0, "read": 0}}, "cost": 0.0123})
+    emit_text(text_out)
+    emit_finish(text_out, code)
     sys.exit(code)
 
 

@@ -1,3 +1,6 @@
+> Historical (DevPass era, before 2026-11-07). Seats, fallbacks and the three-reviewer
+> cross review described here are retired; see README.md and docs/WORKER-COMPATIBILITY.md.
+
 # Seat changes from published benchmarks (2026-09-05)
 
 No model tokens were spent on selection. Two sources, fetched directly:

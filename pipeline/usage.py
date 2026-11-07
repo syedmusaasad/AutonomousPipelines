@@ -1,12 +1,63 @@
 """UsageAccumulator: standalone accounting for token and cost usage from event streams.
 
-Accumulates usage metrics from step_finish events in JSON event streams.
+Accumulates usage metrics from worker JSON event streams: Claude Code stream-json
+`result` events, Codex `turn.completed` events, and legacy DevPass `step_finish`
+events (journals written before the move off DevPass still bench). Each is normalized
+to one step part {id, tokens{total,input,output,reasoning,cache{read,write}}, cost}.
 Maintains separate tracking for provider-reported totals, component breakdowns,
 cache operations, and identifies missing or incomplete fields.
 """
 
 import json
 from typing import Any, Dict, Optional
+
+
+def _int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_event(event: dict):
+    """One usage-bearing event -> a step part, or None for every other event."""
+    t = event.get("type")
+    if t == "step_finish":  # legacy DevPass
+        part = event.get("part")
+        return part if isinstance(part, dict) else None
+    if t == "result":  # Claude Code: one cumulative result per run
+        u = event.get("usage")
+        if not isinstance(u, dict):
+            return None
+        inp = _int(u.get("input_tokens"))
+        out = _int(u.get("output_tokens"))
+        details = u.get("output_tokens_details") or {}
+        think = _int(details.get("thinking_tokens")) if isinstance(details, dict) else None
+        cr, cw = _int(u.get("cache_read_input_tokens")), _int(u.get("cache_creation_input_tokens"))
+        tokens = {"input": inp, "cache": {"read": cr, "write": cw}}
+        if out is not None:
+            tokens["output"] = out - (think or 0)
+            tokens["reasoning"] = think or 0
+        if None not in (inp, out):
+            tokens["total"] = inp + out + (cr or 0) + (cw or 0)
+        part = {"id": "result:" + str(event.get("session_id") or event.get("uuid") or ""), "tokens": tokens}
+        if event.get("total_cost_usd") is not None:
+            part["cost"] = event.get("total_cost_usd")
+        return part
+    if t == "turn.completed":  # Codex: one per turn; input_tokens includes cached
+        u = event.get("usage")
+        if not isinstance(u, dict):
+            return None
+        inp, cached = _int(u.get("input_tokens")), _int(u.get("cached_input_tokens")) or 0
+        out, reason = _int(u.get("output_tokens")), _int(u.get("reasoning_output_tokens"))
+        tokens = {"input": None if inp is None else inp - cached, "output": out,
+                  "cache": {"read": cached}}
+        if reason is not None:
+            tokens["reasoning"] = reason
+        if None not in (inp, out):
+            tokens["total"] = inp + out + (reason or 0)
+        return {"tokens": tokens}  # Codex reports no cost: telemetry stays incomplete
+    return None
 
 
 class UsageAccumulator:
@@ -52,7 +103,7 @@ class UsageAccumulator:
     def feed_line(self, line: str) -> None:
         """Consume one JSON event line.
         
-        Only step_finish events contribute usage.
+        Only usage-bearing events (see normalize_event) contribute.
         Deduplicates by part.id if present.
         Tolerates malformed lines and non-step events.
         Does not mark incomplete partial line as consumed.
@@ -73,14 +124,12 @@ class UsageAccumulator:
         if not isinstance(event, dict):
             return
         
-        # Only process step_finish events
-        if event.get("type") != "step_finish":
+        part = normalize_event(event)
+        if part is None:
             return
-        
-        part = event.get("part")
-        if not isinstance(part, dict):
-            return
-        
+        self._feed_part(part)
+
+    def _feed_part(self, part: dict) -> None:
         # Check for deduplication
         part_id = part.get("id")
         if part_id is not None:

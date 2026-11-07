@@ -12,7 +12,7 @@ from .util import liveness, mtime_or_none, pid_alive, read_json
 
 STALL_AFTER_S = int(os.environ.get("PIPELINE_STALL_S", "900"))
 
-RESET_HINT_RE = re.compile(r"Resets? in [^.\"\\]+", re.IGNORECASE)
+RESET_HINT_RE = re.compile(r"(?<=resets )(?!unknown)[^;]+|Resets? in [^.\"\\]+", re.IGNORECASE)
 
 
 def run_report(run_id: str) -> dict:
@@ -58,9 +58,8 @@ def run_report(run_id: str) -> dict:
                             f"then `pipeline resume {run_id}`)")
         else:
             waiting.append(f"deliberate stop [{st['stopped']}]: {detail[:200]}  (resume with `pipeline resume {run_id}` after judging)")
-    # dispatch.end rows, not the collapsed per-id state: a quota hit followed by a
-    # successful quota_fallback retry reuses the dispatch id, so the derived state's
-    # single "outcome" per id would lose the quota event.
+    # dispatch.end rows, not the collapsed per-id state: older journals reuse one
+    # dispatch id across a quota hit and its fallback retry.
     quota_rows = [r for r in j.rows() if r.get("event") == "dispatch.end" and r.get("outcome") == "quota"]
     if quota_rows:
         models = sorted({r.get("model") for r in quota_rows if r.get("model")})
@@ -70,7 +69,7 @@ def run_report(run_id: str) -> dict:
             if m:
                 reset = m.group(0)
                 break
-        waiting.append(f"premium allowance hit on {', '.join(models)}; resets {reset or 'unknown'}")
+        waiting.append(f"usage limit hit on {', '.join(models)}; resets {reset or 'unknown'}")
     return {
         "run": run_id, "verdict": verdict, "plan": st.get("plan"), "conversation": st.get("conversation"),
         "engine_pid": st.get("engine_pid"), "engine_alive": engine_alive, "stopped_receipt": stopped_receipt,

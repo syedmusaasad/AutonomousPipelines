@@ -5,10 +5,10 @@ Loop:
   2. Derive state from the journal (resume is idempotent: done phases stay done).
   3. Start every phase whose AFTER deps are done, up to the concurrency ceiling.
   4. Each phase runs in a thread: dispatch -> EXIT (engine-run) -> SURFACE ->
-     REVIEW: cross. Any failing step feeds the next attempt with the failure text.
+     REVIEW (one sealed Codex reviewer). Any failing step feeds the next attempt with the failure text.
   5. Gate phases dispatch nothing; the engine waits for the operator's sentinel.
   6. Deliberate stops (burned attempts, failed gate, blocking review, config
-     mismatch) write run.stop and exit non-zero. The sentry never relights those.
+     mismatch, subscription usage limit) write run.stop and exit non-zero. The sentry never relights those.
 
 State is never kept in memory that the journal does not also have."""
 
@@ -37,7 +37,7 @@ GATE_POLL_S = float(os.environ.get("PIPELINE_GATE_POLL_S", "10"))
 MAX_CONCURRENT_PHASES = int(os.environ.get("PIPELINE_MAX_PHASES", "3"))
 EXIT_TIMEOUT_S = int(os.environ.get("PIPELINE_EXIT_TIMEOUT_S", "600"))
 REVIEW_TIMEOUT_S = int(os.environ.get("PIPELINE_REVIEW_TIMEOUT_S", "900"))
-STOP_REASONS = ("burned", "gate_failed", "review_blocking", "config_mismatch", "plan_invalid")
+STOP_REASONS = ("burned", "gate_failed", "review_blocking", "config_mismatch", "plan_invalid", "usage_limit")
 ITERATE_STALL_LIMIT = 2  # consecutive no-progress iterations before ITERATE-STALLED
 
 
@@ -354,44 +354,27 @@ class Engine:
         # Determine effort: ph.effort overrides the seat's effort when set (for trial arms and EFFORT: directive)
         effort_override = ph.effort if (ph.effort is not None and role == ph.role) else None
 
-        def run_one(model: str, eff, *, try_idx: int, family_fallback: bool, quota_fallback: bool) -> dsp.DispatchResult:
-            def on_start(pid, transcript, model=model):
-                self.journal.write("dispatch.start", id=did, phase=ph.key, role=role, model=model, pid=pid,
-                                   transcript=str(transcript), attempt=attempt, lane=lane, item=item,
-                                   fallback=family_fallback, quota_fallback=quota_fallback)
-            res = dsp.run_dispatch(brief=brief, role=role, cwd=cwd or plan.workdir, out_dir=out_dir / f"try-{try_idx}",
-                                   timeout=timeout or ph.timeout, env=env, model=model, effort=eff,
-                                   on_start=on_start, reg=self.reg)
-            self.journal.write("dispatch.end", id=did, phase=ph.key, role=role, **res.as_row())
-            return res
-
         if pinned:
-            # MODEL: pinned (trials): no fallback at all, quota or otherwise -- either
-            # would taint the arm being measured.
-            model = roles_mod.qualified(ph.model, self.reg)
-            return run_one(model, effort_override, try_idx=0, family_fallback=False, quota_fallback=False)
+            model = roles_mod.qualified(ph.model, self.reg)  # trial arm: MODEL: pinned
+        else:
+            model = s["model_q"]
 
-        res = run_one(s["model_q"], effort_override, try_idx=0, family_fallback=False, quota_fallback=False)
-        if res.outcome == "ok":
-            return res
+        def on_start(pid, transcript):
+            self.journal.write("dispatch.start", id=did, phase=ph.key, role=role, model=model, pid=pid,
+                               transcript=str(transcript), attempt=attempt, lane=lane, item=item)
+        # One seat, one model: there is no fallback. A failed dispatch is a phase attempt
+        # (retried with the failure text); a usage-limit refusal surfaces as `quota`.
+        res = dsp.run_dispatch(brief=brief, role=role, cwd=cwd or plan.workdir, out_dir=out_dir / "try-0",
+                               timeout=timeout or ph.timeout, env=env, model=model, effort=effort_override,
+                               on_start=on_start, reg=self.reg)
+        self.journal.write("dispatch.end", id=did, phase=ph.key, role=role, **res.as_row())
         if res.outcome == "quota":
-            # The premium-tier weekly allowance is exhausted, not the model's or the
-            # task's fault: fall to the seat's quota_fallback (never the family fallback,
-            # and this alone never burns a phase attempt -- if it succeeds we're done).
-            qf_model_q = s.get("quota_fallback_model_q")
-            if not qf_model_q:
-                return res
-            qf_effort = effort_override or s.get("quota_fallback_effort")
-            log(f"dispatch {did} on {s['model_q']} hit premium-tier quota; trying quota_fallback {qf_model_q}")
-            return run_one(qf_model_q, qf_effort, try_idx=1, family_fallback=False, quota_fallback=True)
-        if res.outcome in ("timeout", "outage", "killed"):
-            return res  # the task's or the host's problem, not the model's; don't burn the fallback
-        if res.tokens.get("total", 0) > 0 and res.pid is not None:
-            return res  # the model ran and the task failed: that is a retry, not a seat change
-        # the seat never completed a step (launch failure, provider error): fallback family once
-        log(f"dispatch {did} on {s['model_q']} never completed a step ({res.error}); trying fallback")
-        fb_effort = s.get("fallback_effort") or effort_override
-        return run_one(s["fallback_model_q"], fb_effort, try_idx=1, family_fallback=True, quota_fallback=False)
+            # The subscription refused the run (usage limit). With no fallback seat there
+            # is nothing to retry until the limit resets: stop for the operator without
+            # charging the phase an attempt (resume re-runs the same attempt).
+            raise DeliberateStop("usage_limit", f"phase {ph.number} ({ph.name}): {model} hit the subscription "
+                                                f"usage limit; {res.error or ''}"[:600])
+        return res
 
     def _run_single(self, plan, ph, attempt, failure_text):
         pdir = self._phase_dir(ph) / f"attempt-{attempt}"
@@ -548,63 +531,62 @@ class Engine:
         return seals
 
     def _run_review(self, plan, ph):
-        if ph.review != "cross":
+        if ph.review is None:
             return
-        a, b = roles_mod.cross_review_pair(self.reg)
+        reviewer = roles_mod.reviewer_role(self.reg)
         rdir = self._phase_dir(ph) / "review"
-        verdicts = {}
         self._run_review_side_tests(plan, ph)
 
-        def brief_for(role, out, ask):
+        def brief_for(out, ask):
             return dsp.build_brief(
                 task=f"Review the work of phase {ph.number} ({ph.name}) against its brief and EXIT predicates.\n\n"
-                     f"### Phase brief\n{ph.brief}\n\nWrite $REVIEW_OUT/review.md; the first line must be "
-                     f"`VERDICT: PASS|CONCERNS|BLOCKING`." + ("\nA previous record from you had no verdict line; write one now." if ask else ""),
-                role=role, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
+                     f"### Phase brief\n{ph.brief}\n\nYour final message is the review record; the engine saves it "
+                     f"to $REVIEW_OUT/review.md. Its first line must be `VERDICT: PASS|CONCERNS|BLOCKING`."
+                     + ("\nA previous record from you had no verdict line; give one now." if ask else ""),
+                role=reviewer, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
                 extras={"PHASE": f"{ph.number}: {ph.name} (review)", "RUN": self.run_id, "REVIEW_OUT": str(out)})
 
-        def one_review(role):
-            out = rdir / role
+        def one_review(out_root):
+            out = rdir / out_root
             out.mkdir(parents=True, exist_ok=True)
-            res = self._dispatch(plan, ph, attempt=0, brief=brief_for(role, out, ask=False), out_dir=out / "dispatch",
-                                 env={"REVIEW_OUT": str(out)}, role=role, timeout=REVIEW_TIMEOUT_S)
-            verdict = "UNAVAILABLE" if res.outcome != "ok" else read_verdict(out / "review.md")
-            if verdict is None:
-                verdict = "UNAVAILABLE"
-            if verdict == "UNAVAILABLE":
-                res2 = self._dispatch(plan, ph, attempt=0, brief=brief_for(role, out, ask=True), out_dir=out / "reask",
-                                      env={"REVIEW_OUT": str(out)}, role=role, timeout=REVIEW_TIMEOUT_S)
-                if res2.outcome == "ok":
-                    verdict = read_verdict(out / "review.md") or "UNAVAILABLE"
-            verdicts[role] = (verdict, res.model)
-            self.journal.write("review.verdict", phase=ph.key, reviewer=role, model=res.model, verdict=verdict,
-                               review=str(out / "review.md"))
+            record = out / "review.md"
+            verdict, model = "UNAVAILABLE", None
+            for sub, ask in (("dispatch", False), ("reask", True)):
+                if record.exists():
+                    record.unlink()  # provenance: only this dispatch's answer may become the record
+                res = self._dispatch(plan, ph, attempt=0, brief=brief_for(out, ask), out_dir=out / sub,
+                                     env={"REVIEW_OUT": str(out)}, role=reviewer, timeout=REVIEW_TIMEOUT_S)
+                model = res.model
+                if res.outcome != "ok":
+                    continue
+                # The reviewer runs sealed (read-only sandbox): its final message is the
+                # record. A record a reviewer wrote itself in this dispatch is kept.
+                if not record.exists() and res.final_text.strip():
+                    record.write_text(res.final_text.strip() + "\n")
+                verdict = read_verdict(record) or "UNAVAILABLE"
+                if verdict != "UNAVAILABLE":
+                    break
+            self.journal.write("review.verdict", phase=ph.key, reviewer=reviewer, model=model, verdict=verdict,
+                               review=str(record))
+            return verdict, model
 
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            list(ex.map(one_review, (a, b)))
+        verdict, model = one_review(reviewer)
         self._seal_review_records(ph)
-        fams = {roles_mod.family_of(m, self.reg) for _, m in verdicts.values() if m}
-        if len(fams) < 2:
-            raise PhaseFailure(f"cross review did not span two families: {verdicts}")
-        vs = {v for v, _ in verdicts.values()}
-        if vs == {"BLOCKING"}:
+        if verdict == "BLOCKING":
             self._dispatch(plan, ph, attempt=0,
-                           brief=dsp.build_brief(task=f"Phase {ph.number} was blocked in review. Re-run every EXIT "
+                           brief=dsp.build_brief(task=f"Phase {ph.number} was blocked in review. Read the review at "
+                                                        f"{rdir / reviewer / 'review.md'}, re-run every EXIT "
                                                         f"predicate and fix what fails.\n\n### Phase brief\n{ph.brief}",
                                                  role=ph.role, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
                                                  extras={"PHASE": f"{ph.number}: {ph.name} (revision)", "RUN": self.run_id}),
                            out_dir=rdir / "revision")
             self._run_exits(plan, ph, env=None)
-            verdicts.clear()
-            with ThreadPoolExecutor(max_workers=2) as ex:
-                list(ex.map(one_review, (a, b)))
+            verdict, model = one_review(reviewer + "-rereview")
             self._seal_review_records(ph)
-            vs = {v for v, _ in verdicts.values()}
-            if vs == {"BLOCKING"}:
-                raise DeliberateStop("review_blocking", f"phase {ph.number}: still blocked after one revision: {verdicts}")
-        if "UNAVAILABLE" in vs or None in vs:
-            raise PhaseFailure(f"a reviewer produced no verdict: {verdicts}")
-
+            if verdict == "BLOCKING":
+                raise DeliberateStop("review_blocking", f"phase {ph.number}: still blocked after one revision ({model})")
+        if verdict == "UNAVAILABLE":
+            raise PhaseFailure(f"the reviewer ({model}) produced no verdict")
 
 
 _VERIFICATION_HINTS = ("tests/run.py", "pytest", "go test", "make test", "npm test", "cargo test")
@@ -625,27 +607,8 @@ def command_stem(cmd):
 
 
 def ran_commands(transcript_path):
-    import json as _json
-    cmds = []
-    try:
-        raw = transcript_path.read_text(errors="replace")
-    except OSError:
-        return cmds
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            ev = _json.loads(line)
-        except _json.JSONDecodeError:
-            continue
-        part = ev.get("part") or {}
-        if ev.get("type") == "tool_use" and part.get("tool") == "bash":
-            inp = part.get("state", {}).get("input", {}) or {}
-            c = inp.get("command", "") if isinstance(inp, dict) else ""
-            if c:
-                cmds.append(c)
-    return cmds
+    """Shell commands the worker actually ran (Claude Bash tool, Codex command items)."""
+    return dsp.parse_transcript(Path(transcript_path))["commands"]
 
 
 class PhaseFailure(Exception):

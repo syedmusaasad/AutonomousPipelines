@@ -2,8 +2,8 @@
 
 Tests verify that:
 1. Review verdicts are properly created and not inherited from prior test context
-2. Timeout with existing VERDICT file is handled correctly (should be UNAVAILABLE)
-3. Failed dispatches with existing VERDICT file are handled correctly  
+2. A failed reviewer dispatch is never trusted, even with a leftover VERDICT file
+3. The sealed (read-only) Codex reviewer's final message becomes the sealed record
 4. Directory separation is maintained between reviews
 5. Nested test suites don't pollute external review files via inherited REVIEW_OUT
 """
@@ -34,249 +34,181 @@ def run_plan(E, text, sub="p", timeout=60, run_id=None):
 
 
 class TestReviewProvenance(unittest.TestCase):
-    """Review provenance and isolation tests."""
-    
+    """Review provenance and isolation tests (one sealed Codex reviewer)."""
+
+    def _review_path(self, E, rid, phase=1, name="reviewer"):
+        return Path(E.estate) / "runs" / rid / f"phase-{phase}/review/{name}/review.md"
+
     def test_review_dispatch_success_creates_verdict(self):
-        """Successful reviewer dispatch creates verdict file and records in journal."""
+        """Successful reviewer dispatch yields one verdict; the engine writes the record."""
         with Estate() as E:
             rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=CONCERNS
+FAKE: verdict CONCERNS
 """)
             self.assertEqual(st["closed"], "done", r.stderr)
-            rows = jmod.Journal(rid).rows()
-            v = [x for x in rows if x["event"] == "review.verdict"]
-            self.assertEqual(len(v), 2, f"Expected 2 verdicts, got {len(v)}")
-            verdicts = {x["verdict"]: x["reviewer"] for x in v}
-            self.assertIn("PASS", verdicts)
-            self.assertIn("CONCERNS", verdicts)
-            
-            # Verify review.md files exist with correct content
-            review_a = Path(E.estate) / "runs" / rid / "phase-1/review/reviewer-a/review.md"
-            review_b = Path(E.estate) / "runs" / rid / "phase-1/review/reviewer-b/review.md"
-            self.assertTrue(review_a.exists(), f"reviewer-a verdict missing: {review_a}")
-            self.assertTrue(review_b.exists(), f"reviewer-b verdict missing: {review_b}")
-            
-            self.assertTrue(review_a.read_text().startswith("VERDICT: PASS"))
-            self.assertTrue(review_b.read_text().startswith("VERDICT: CONCERNS"))
+            v = [x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
+            self.assertEqual(len(v), 1, v)
+            self.assertEqual((v[0]["verdict"], v[0]["reviewer"]), ("CONCERNS", "reviewer"))
+            record = self._review_path(E, rid)
+            self.assertTrue(record.exists(), record)
+            self.assertTrue(record.read_text().startswith("VERDICT: CONCERNS"))
 
     def test_timeout_with_unavailable_verdict(self):
-        """Non-ok dispatch outcome must yield UNAVAILABLE verdict unconditionally."""
+        """A reviewer that times out yields UNAVAILABLE, never a verdict from a stale file."""
         with Estate() as E:
-            # The key fix: if dispatch outcome is not "ok", verdict is UNAVAILABLE regardless of files.
-            # We can't easily trigger a real timeout in a unit test, but the code fix handles all
-            # non-ok outcomes (timeout, failed, killed, quota, outage, etc.) the same way.
-            # This test documents the fix: unconditional UNAVAILABLE on non-ok outcomes.
-            # In practice, a real timeout would be caught and marked as UNAVAILABLE by this code path.
-            
-            # For now, we test with a successful case to show the code doesn't break normal cases
-            rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+            os.environ["PIPELINE_REVIEW_TIMEOUT_S"] = "1"
+            try:
+                import importlib
+                from pipeline import engine
+                importlib.reload(engine)
+                # pre-seed a stale PASS record where the reviewer will write
+                rid = util.new_id("t")
+                stale = self._review_path(E, rid)
+                stale.parent.mkdir(parents=True, exist_ok=True)
+                stale.write_text("VERDICT: PASS\nstale\n")
+                rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
+REVIEW: on
+ATTEMPTS: 1
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=CONCERNS
-""", sub="normal_review_test")
-            
-            # Normal case should still work - verdicts are properly handled
-            rows = jmod.Journal(rid).rows()
-            v = [x for x in rows if x["event"] == "review.verdict"]
-            
-            self.assertEqual(len(v), 2, f"Expected 2 verdict entries, got {len(v)}")
-            verdicts = sorted({x["verdict"] for x in v})
-            self.assertEqual(verdicts, ["CONCERNS", "PASS"], 
-                           f"Expected mixed verdicts, got: {verdicts}")
-            
-            self.assertEqual(st.get("closed"), "done",
-                           f"Expected closed done, got: {st}")
+FAKE: sleep 3
+""", run_id=rid)
+            finally:
+                os.environ.pop("PIPELINE_REVIEW_TIMEOUT_S", None)
+                importlib.reload(engine)
+            v = [x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
+            self.assertTrue(v and all(x["verdict"] == "UNAVAILABLE" for x in v), v)
+            self.assertEqual(st["stopped"], "burned")
 
     def test_failed_dispatch_unavailable_verdict(self):
-        """Failed dispatch must yield UNAVAILABLE verdict, not trust any leftover file."""
+        """A failed reviewer dispatch yields UNAVAILABLE even if it wrote a record."""
         with Estate() as E:
-            # Run a plan where work succeeds, but we verify the fix works.
-            # With the fix, even if a review.md file exists, a failed dispatch results in UNAVAILABLE.
-            # We test this by setting up a successful case first, then verifying the logic.
-            rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+            reg = roles_mod.load()
+            rv = roles_mod.seat("reviewer", reg)
+            rid, p, r, st = run_plan(E, f"""## Phase 1: work (implementer)
+REVIEW: on
+ATTEMPTS: 1
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=PASS
-""", sub="success_test")
-            
-            # This should succeed - verdicts are created successfully
-            rows = jmod.Journal(rid).rows()
-            v = [x for x in rows if x["event"] == "review.verdict"]
-            
-            # Should have verdicts from the successful review
-            self.assertEqual(len(v), 2, f"Expected 2 verdict entries, got {len(v)}")
-            verdicts = {x["verdict"] for x in v}
-            self.assertEqual(verdicts, {"PASS"}, 
-                           f"Successful dispatch should yield PASS verdicts, got: {verdicts}")
-            
-            # Run should have succeeded
-            self.assertEqual(st.get("closed"), "done",
-                           f"Expected closed done, got: {st}")
+FAKE: fail-on-model {rv['model']}
+""")
+            v = [x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
+            self.assertEqual([x["verdict"] for x in v], ["UNAVAILABLE"], v)
+            self.assertEqual(st["stopped"], "burned")
 
     def test_review_directory_separation(self):
         """Two phases' reviews must be in separate directories."""
         with Estate() as E:
-            rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
-FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=PASS
+            rid, p, r, st = run_plan(E, """## Phase 1: one (implementer)
+REVIEW: on
+FAKE: touch out1
+FAKE: verdict PASS
 
-## Phase 2: another (implementer)
-AFTER: 1
-REVIEW: cross
+## Phase 2: two (implementer)
+REVIEW: on
 FAKE: touch out2
-FAKE: verdict-by-agent a=CONCERNS b=PASS
+FAKE: verdict CONCERNS
 """)
-            self.assertEqual(st["closed"], "done")
-            
-            phase1_review_a = Path(E.estate) / "runs" / rid / "phase-1/review/reviewer-a/review.md"
-            phase1_review_b = Path(E.estate) / "runs" / rid / "phase-1/review/reviewer-b/review.md"
-            phase2_review_a = Path(E.estate) / "runs" / rid / "phase-2/review/reviewer-a/review.md"
-            phase2_review_b = Path(E.estate) / "runs" / rid / "phase-2/review/reviewer-b/review.md"
-            
-            self.assertTrue(phase1_review_a.exists())
-            self.assertTrue(phase1_review_b.exists())
-            self.assertTrue(phase2_review_a.exists())
-            self.assertTrue(phase2_review_b.exists())
-            
-            # Verify they're in different directories
-            self.assertNotEqual(phase1_review_a.parent, phase2_review_a.parent)
-            
-            # Verify correct verdicts
-            self.assertTrue(phase1_review_a.read_text().startswith("VERDICT: PASS"))
-            self.assertTrue(phase2_review_a.read_text().startswith("VERDICT: CONCERNS"))
+            self.assertEqual(st["closed"], "done", r.stderr)
+            one, two = self._review_path(E, rid, 1), self._review_path(E, rid, 2)
+            self.assertTrue(one.exists() and two.exists())
+            self.assertNotEqual(one.parent, two.parent)
+            self.assertTrue(one.read_text().startswith("VERDICT: PASS"))
+            self.assertTrue(two.read_text().startswith("VERDICT: CONCERNS"))
 
     def test_review_out_not_inherited_between_tests(self):
-        """REVIEW_OUT variable should not leak between tests."""
+        """REVIEW_OUT variable should not leak between runs."""
         with Estate() as E:
-            # First test sets up a review
             rid1, p1, r1, st1 = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=PASS
+FAKE: verdict PASS
 """, sub="sub1")
             self.assertEqual(st1["closed"], "done")
-            
-            # Second test should not see REVIEW_OUT from first test
-            # The Estate context manager should have cleaned it up
             self.assertIsNone(os.environ.get("REVIEW_OUT"), "REVIEW_OUT leaked between tests")
-            
             rid2, p2, r2, st2 = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out2
-FAKE: verdict-by-agent a=CONCERNS b=CONCERNS
+FAKE: verdict CONCERNS
 """, sub="sub2")
             self.assertEqual(st2["closed"], "done")
-            
-            # Verify the two runs' verdicts are independent
-            rows1 = jmod.Journal(rid1).rows()
-            rows2 = jmod.Journal(rid2).rows()
-            v1 = {x["verdict"] for x in rows1 if x["event"] == "review.verdict"}
-            v2 = {x["verdict"] for x in rows2 if x["event"] == "review.verdict"}
-            
-            self.assertEqual(v1, {"PASS"}, f"Run 1 verdicts: {v1}")
-            self.assertEqual(v2, {"CONCERNS"}, f"Run 2 verdicts: {v2}")
+            v1 = {x["verdict"] for x in jmod.Journal(rid1).rows() if x["event"] == "review.verdict"}
+            v2 = {x["verdict"] for x in jmod.Journal(rid2).rows() if x["event"] == "review.verdict"}
+            self.assertEqual(v1, {"PASS"})
+            self.assertEqual(v2, {"CONCERNS"})
 
     def test_review_verdict_dispatch_path_isolation(self):
-        """Each review dispatch should write to its own dispatch directory."""
+        """Review, revision and re-review dispatches each get their own directory."""
         with Estate() as E:
             rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=BLOCKING
+FAKE: verdict-seq BLOCKING,PASS
 """)
-            self.assertEqual(st["closed"], "done")
-            
-            # Both dispatches should exist in separate try-0 directories
-            dispatch_a = Path(E.estate) / "runs" / rid / "phase-1/review/reviewer-a/dispatch/try-0"
-            dispatch_b = Path(E.estate) / "runs" / rid / "phase-1/review/reviewer-b/dispatch/try-0"
-            
-            self.assertTrue(dispatch_a.exists(), f"reviewer-a dispatch missing: {dispatch_a}")
-            self.assertTrue(dispatch_b.exists(), f"reviewer-b dispatch missing: {dispatch_b}")
-            
-            # Both should have transcripts and results
-            self.assertTrue((dispatch_a / "transcript.jsonl").exists())
-            self.assertTrue((dispatch_b / "transcript.jsonl").exists())
-            self.assertTrue((dispatch_a / "result.json").exists())
-            self.assertTrue((dispatch_b / "result.json").exists())
+            self.assertEqual(st["closed"], "done", r.stderr)
+            base = Path(E.estate) / "runs" / rid / "phase-1/review"
+            for d in (base / "reviewer/dispatch/try-0", base / "revision/try-0", base / "reviewer-rereview/dispatch/try-0"):
+                self.assertTrue((d / "transcript.jsonl").exists(), d)
+                self.assertTrue((d / "result.json").exists(), d)
+            self.assertTrue((base / "reviewer/review.md").read_text().startswith("VERDICT: BLOCKING"))
+            self.assertTrue((base / "reviewer-rereview/review.md").read_text().startswith("VERDICT: PASS"))
 
     def test_both_reviewers_blocking_stops_phase(self):
-        """Both reviewers returning BLOCKING should stop the phase."""
+        """BLOCKING, one revision, BLOCKING again stops the phase."""
         with Estate() as E:
             rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=BLOCKING b=BLOCKING
+FAKE: verdict BLOCKING
 """)
-            self.assertEqual(st["stopped"], "review_blocking", 
-                           f"Expected review_blocking stop, got: {st}")
-            
-            rows = jmod.Journal(rid).rows()
-            v = [x for x in rows if x["event"] == "review.verdict"]
-            self.assertGreaterEqual(len(v), 2)
-            for verdict_row in v:
-                self.assertEqual(verdict_row["verdict"], "BLOCKING")
+            self.assertEqual(st["stopped"], "review_blocking", st)
+            v = [x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
+            self.assertEqual([x["verdict"] for x in v], ["BLOCKING", "BLOCKING"])
 
     def test_one_reviewer_blocking_allows_completion(self):
-        """One reviewer BLOCKING and one PASS should allow phase completion."""
+        """BLOCKING cleared by the revision lets the phase complete."""
         with Estate() as E:
             rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=BLOCKING b=PASS
+FAKE: verdict-seq BLOCKING,PASS
 """)
-            self.assertEqual(st["closed"], "done", f"Expected done, got: {st}")
-            
-            rows = jmod.Journal(rid).rows()
-            v = [x for x in rows if x["event"] == "review.verdict"]
-            verdicts = sorted({x["verdict"] for x in v})
-            self.assertEqual(verdicts, ["BLOCKING", "PASS"])
+            self.assertEqual(st["closed"], "done", st)
+            v = [x["verdict"] for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
+            self.assertEqual(v, ["BLOCKING", "PASS"])
 
     def test_review_spans_two_model_families(self):
-        """Cross review must span two different model families."""
+        """The reviewer sits on a different family (and CLI) than the work it reviews."""
         with Estate() as E:
             rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=PASS
+FAKE: verdict PASS
 """)
             self.assertEqual(st["closed"], "done")
-            
+            reg = roles_mod.load()
             rows = jmod.Journal(rid).rows()
             v = [x for x in rows if x["event"] == "review.verdict"]
-            self.assertGreaterEqual(len(v), 2)
-            
-            reg = roles_mod.load()
-            families = {roles_mod.family_of(x["model"], reg) for x in v if x["model"]}
-            self.assertGreaterEqual(len(families), 2, 
-                                   f"Review should span 2+ families, got: {families}")
+            worker = [x for x in rows if x["event"] == "dispatch.start" and x["role"] == "implementer"][0]
+            self.assertNotEqual(roles_mod.family_of(v[0]["model"], reg), roles_mod.family_of(worker["model"], reg))
+            self.assertEqual(roles_mod.cli_of(v[0]["model"], reg), "codex")
 
     def test_fake_worker_logs_review_out_context(self):
-        """Fake worker should log REVIEW_OUT in each dispatch call."""
+        """The reviewer dispatch carries an absolute REVIEW_OUT and runs on codex."""
         with Estate() as E:
             rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=PASS
+FAKE: verdict PASS
 """)
             self.assertEqual(st["closed"], "done")
-            
-            # Check fake worker log
-            calls = E.fake_calls()
-            reviewer_calls = [c for c in calls if c.get("agent", "").startswith("pl-reviewer")]
-            
-            self.assertEqual(len(reviewer_calls), 2, 
-                           f"Expected 2 reviewer calls, got {len(reviewer_calls)}")
-            
-            for call in reviewer_calls:
-                # Each reviewer dispatch should have REVIEW_OUT set and logged
-                self.assertTrue(call.get("REVIEW_OUT"), 
-                              f"REVIEW_OUT missing in call: {call}")
-                # REVIEW_OUT should be an absolute path
-                self.assertTrue(call["REVIEW_OUT"].startswith("/"), 
-                              f"REVIEW_OUT not absolute: {call['REVIEW_OUT']}")
+            reviewer_calls = [c for c in E.fake_calls() if c.get("agent") == "pl-reviewer"]
+            self.assertEqual(len(reviewer_calls), 1, reviewer_calls)
+            call = reviewer_calls[0]
+            self.assertTrue(call.get("REVIEW_OUT", "").startswith("/"), call)
+            self.assertEqual(call["cli"], "codex")
+            self.assertIn("--sandbox", call["argv"])
+            self.assertEqual(call["argv"][call["argv"].index("--sandbox") + 1], "read-only")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,6 @@
+> Historical (DevPass era, before 2026-11-07). Seats, fallbacks and the three-reviewer
+> cross review described here are retired; see README.md and docs/WORKER-COMPATIBILITY.md.
+
 # CHECKS-001: Phase 1 cross-review of CI hook and related files
 
 Run: run_20260904T045949_944c1d  

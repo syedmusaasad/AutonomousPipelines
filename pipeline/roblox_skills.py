@@ -1,6 +1,6 @@
 """Roblox agent skills: roblox/skills/<name>/SKILL.md in the repo is the source of
 truth; install_skills() syncs the whole tree to the global skills dir
-(~/.config/devpass-code/skills/) and check_sync() is the diff guard — same pattern
+(~/.claude/skills/, where Claude Code loads skills) and check_sync() is the diff guard — same pattern
 as pipeline.roles' generated-agent-file drift guard."""
 
 import os
@@ -26,9 +26,9 @@ def source_dir() -> Path:
 
 def skills_dir() -> Path:
     """Global skills directory workers read from. Override with
-    PIPELINE_ROBLOX_SKILLS_DIR (tests); otherwise ~/.config/devpass-code/skills."""
+    PIPELINE_ROBLOX_SKILLS_DIR (tests); otherwise ~/.claude/skills."""
     override = os.environ.get("PIPELINE_ROBLOX_SKILLS_DIR")
-    return Path(override) if override else Path.home() / ".config" / "devpass-code" / "skills"
+    return Path(override) if override else Path.home() / ".claude" / "skills"
 
 
 def source_files() -> dict:

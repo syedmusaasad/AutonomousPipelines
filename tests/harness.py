@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-FAKE = REPO / "tests" / "fake-devpass-code"
+FAKE = REPO / "tests" / "fake-worker"
 FAKE_RCLONE = REPO / "tests" / "fake-rclone"
 sys.path.insert(0, str(REPO))
 

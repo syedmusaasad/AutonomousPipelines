@@ -1,14 +1,26 @@
-"""Dispatch: run one headless devpass-code session as a disposable worker.
+"""Dispatch: run one headless worker session as a disposable worker.
 
-The worker binary is `devpass-code run --format json --agent pl-<role>
---model <provider/model#variant> --auto --file <brief.md> <message>`, spawned with the
-working directory as the process cwd. The brief is attached with the documented --file
-flag; the installed help documents no stdin input. The JSON event stream is written to
-a transcript file whose mtime is the liveness signal. Tokens and cost are summed from
-step_finish events. The brief is also saved next to the transcript so retries and
-finishers can read what was asked.
+Each seat's model family picks its CLI (roles.cli_of):
 
-PIPELINE_WORKER_BIN overrides the binary (the suite uses a fake)."""
+  claude  `claude -p --output-format stream-json --verbose --agent pl-<role>
+           --model <model> --effort <effort> --permission-mode dontAsk
+           --allowed-tools <grants> --disallowed-tools <denies> ...`
+  codex   `codex exec --json --model <model> -c model_reasoning_effort=<effort>
+           --sandbox read-only|workspace-write --cd <cwd> -o <last-message> -`
+
+The brief is piped on stdin (Codex gets the contract and role prompt ahead of it, since
+it has no agent files). The JSON event stream is written to a transcript file whose
+mtime is the liveness signal. Tokens and cost come from the Claude `result` event or
+the Codex `turn.completed` events.
+
+Headless Claude Code start-up is kept lean (measured: about 2.4s -> 1.5s per launch on a
+one-line prompt): non-essential traffic off, claude.ai connectors and every MCP server
+outside --mcp-config off, no session persistence (the transcript file is the record),
+and per-machine prompt sections moved out of the system prompt so every worker shares
+one prompt-cache prefix.
+
+PIPELINE_WORKER_BIN overrides both binaries (the suite uses a fake);
+PIPELINE_CLAUDE_BIN / PIPELINE_CODEX_BIN override one."""
 
 import json
 import os
@@ -22,41 +34,108 @@ from . import roles as roles_mod
 from .util import now_iso, now_ts
 from .usage import UsageAccumulator
 
-DEFAULT_BIN = "devpass-code"
+DEFAULT_BINS = {"claude": "claude", "codex": "codex"}
 
-BRIEF_MESSAGE = "Carry out the attached brief."
+# Environment for headless Claude Code workers: skip start-up network round trips that
+# a disposable worker never uses, and keep the operator's claude.ai connectors (mail,
+# drive, calendar...) out of every worker's tool list.
+CLAUDE_HEADLESS_ENV = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+    "DISABLE_AUTOUPDATER": "1",
+}
 
 
 def model_arg(model: str, effort: str = None) -> str:
-    """provider/model#variant, the documented --model format. A model that already
-    names its variant is left alone."""
-    if effort and "#" not in model:
-        return f"{model}#{effort}"
-    return model
+    """Bare model id as the CLIs take it (a legacy 'provider/model#variant' is trimmed)."""
+    return model.split("/", 1)[-1].split("#", 1)[0]
 
 
-def build_argv(*, binary: str, agent: str, model: str, effort: str, brief_path: Path) -> list:
-    return [binary, "run", "--format", "json", "--agent", agent, "--model", model_arg(model, effort),
-            "--auto", "--file", str(Path(brief_path).resolve()), BRIEF_MESSAGE]
+def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cwd: Path = None,
+               out_dir: Path = None, permissions: dict = None, sealed: bool = False) -> list:
+    if cli == "claude":
+        argv = [binary, "-p", "--output-format", "stream-json", "--verbose",
+                "--agent", agent, "--model", model_arg(model)]
+        if effort:
+            argv += ["--effort", effort]
+        argv += ["--permission-mode", "dontAsk"]
+        perms = permissions or {}
+        if perms.get("allow"):
+            argv += ["--allowed-tools", ",".join(perms["allow"])]
+        if perms.get("deny"):
+            argv += ["--disallowed-tools", ",".join(perms["deny"])]
+        argv += ["--strict-mcp-config", "--no-session-persistence",
+                 "--exclude-dynamic-system-prompt-sections"]
+        return argv
+    if cli == "codex":
+        argv = [binary, "exec", "--json", "--model", model_arg(model)]
+        if effort:
+            argv += ["-c", f'model_reasoning_effort="{effort}"']
+        argv += ["--sandbox", "read-only" if sealed else "workspace-write",
+                 "--skip-git-repo-check", "--ephemeral"]
+        if cwd is not None:
+            argv += ["--cd", str(cwd)]
+        if out_dir is not None:
+            argv += ["-o", str(Path(out_dir) / "last-message.md")]
+        argv.append("-")
+        return argv
+    raise ValueError(f"unknown worker cli {cli!r}")
 
-QUOTA_SIGNATURE_WORDS = ("premium-tier", "allowance")
+
+def worker_stdin(cli: str, role: str, brief: str) -> str:
+    if cli == "codex":
+        return roles_mod.codex_prompt(role).rstrip() + "\n\n---\n\n" + brief
+    return brief
+
+
+_LIMIT_WORDS = re.compile(r"usage limit|rate limit|hit your limit|limit reached|quota", re.I)
 
 
 def is_quota_error(text: str) -> bool:
-    """True when text carries the DevPass weekly premium-tier quota signature: an
-    HTTP 402 statusCode alongside "premium-tier" or "allowance" in the message.
-    Scans raw transcript text (JSON events, possibly on separate lines/fields), so
-    this does not require the 402 and the wording to be in the same JSON string."""
+    """True when a transcript shows the subscription refused the run for usage limits:
+    a Claude rate_limit_event whose status is "rejected", or a Codex error/turn.failed
+    event whose message names a usage or rate limit."""
     if not text:
         return False
-    if not re.search(r'"statusCode"\s*:\s*402\b', text):
-        return False
-    lower = text.lower()
-    return any(w in lower for w in QUOTA_SIGNATURE_WORDS)
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        t = ev.get("type")
+        if t == "rate_limit_event" and (ev.get("rate_limit_info") or {}).get("status") == "rejected":
+            return True
+        if t in ("error", "turn.failed"):
+            msg = ev.get("message") or (ev.get("error") or {}).get("message") or ""
+            if _LIMIT_WORDS.search(str(msg)):
+                return True
+    return False
 
 
-def worker_bin() -> str:
-    return os.environ.get("PIPELINE_WORKER_BIN", DEFAULT_BIN)
+def quota_reset(text: str):
+    """When the usage limit resets, as the transcript states it (or None)."""
+    for line in (text or "").splitlines():
+        if '"rate_limit_event"' not in line:
+            continue
+        try:
+            info = json.loads(line).get("rate_limit_info") or {}
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if info.get("status") == "rejected" and info.get("resetsAt"):
+            return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(info["resetsAt"])))
+    m = re.search(r"(?:try again in|resets? (?:in|at))\s+[^.\"\\]+", text or "", re.I)
+    return m.group(0) if m else None
+
+
+def worker_bin(cli: str = "claude") -> str:
+    return (os.environ.get("PIPELINE_WORKER_BIN")
+            or os.environ.get(f"PIPELINE_{cli.upper()}_BIN")
+            or DEFAULT_BINS[cli])
 
 
 _DELIVERABLE_STRIP = '.,;:!?()[]{}"\'`*<>'
@@ -176,20 +255,27 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     brief_path = out_dir / "brief.md"
     brief_path.write_text(brief)
     (out_dir / "meta.json").write_text(json.dumps({
-        "role": role, "model": model, "cwd": str(cwd), "started": now_iso(), "timeout": timeout,
+        "role": role, "model": model, "cli": roles_mod.cli_of(model, reg), "cwd": str(cwd), "started": now_iso(), "timeout": timeout,
     }, indent=1))
 
-    argv = build_argv(binary=worker_bin(), agent=s["agent"], model=model, effort=effective_effort,
-                      brief_path=brief_path)
+    cli = roles_mod.cli_of(model, reg)
+    perms = roles_mod.claude_permissions(role, reg) if cli == "claude" else None
+    argv = build_argv(binary=worker_bin(cli), cli=cli, agent=s["agent"], model=model, effort=effective_effort,
+                      cwd=Path(cwd).resolve(), out_dir=out_dir.resolve(), permissions=perms,
+                      sealed=bool(s.get("sealed")))
     full_env = dict(os.environ)
+    if cli == "claude":
+        full_env.update(CLAUDE_HEADLESS_ENV)
     full_env.update(env or {})
     full_env["PIPELINE_ROLE"] = role
     full_env["PIPELINE_HEADLESS"] = "1"
     start = now_ts()
     result = DispatchResult(model=model, transcript=str(transcript))
     try:
-        with open(transcript, "wb") as tf:
-            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=tf, stderr=subprocess.STDOUT,
+        stdin_path = out_dir / "stdin.md"
+        stdin_path.write_text(worker_stdin(cli, role, brief))
+        with open(transcript, "wb") as tf, open(stdin_path, "rb") as sf:
+            proc = subprocess.Popen(argv, stdin=sf, stdout=tf, stderr=subprocess.STDOUT,
                                     cwd=str(cwd), env=full_env, start_new_session=True)
             result.pid = proc.pid
             if on_start:
@@ -213,15 +299,19 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     result.cost = parsed["cost"]
     result.session_id = parsed["session_id"]
     result.final_text = parsed["final_text"]
+    last = out_dir / "last-message.md"
+    if not result.final_text and last.exists():
+        result.final_text = last.read_text(errors="replace")
     result.usage = parsed.get("usage")  # New independent usage field
     result.deliverables = parse_deliverables(cwd, result.final_text)
     if result.outcome is None:
-        if parsed["quota"] and parsed["steps"] == 0:
-            # DevPass weekly premium-tier allowance exhausted (402): the seat never got
-            # to work, so this is neither the model's fault nor a machine failure.
+        if parsed["quota"] and result.exit_code != 0:
+            # The subscription's usage limit refused the run: neither the model's fault
+            # nor a machine failure. There is no fallback seat; the phase waits for a retry.
             result.outcome = "quota"
-            result.error = f"premium-tier quota (402); tail: {parsed['tail'][-600:]}"
-        elif result.exit_code == 0:
+            reset = quota_reset(parsed["tail"])
+            result.error = f"subscription usage limit; resets {reset or 'unknown'}; tail: {parsed['tail'][-400:]}"
+        elif result.exit_code == 0 and not parsed["is_error"]:
             result.outcome = "ok"
         elif result.exit_code is not None and result.exit_code < 0:
             # killed by signal (sentry stall recovery, OOM, host): not the seat's fault
@@ -249,33 +339,21 @@ def _kill_group(proc):
 
 
 def parse_transcript(path: Path) -> dict:
-    """Sum tokens/cost from step_finish events; collect final assistant text.
-    
-    Uses UsageAccumulator for independent usage accounting while retaining
-    legacy token fields for backward compatibility.
-    """
+    """Tokens, cost, session id, final text and executed shell commands from a worker
+    transcript. Reads Claude Code stream-json, Codex --json, and legacy DevPass events."""
     tokens = {"input": 0, "output": 0, "reasoning": 0, "total": 0}
-    cost = 0.0
-    session_id = None
-    texts = []
-    steps = 0
-    tail = ""
-    usage = None  # New independent usage field
-    
+    empty = {"tokens": tokens, "cost": 0.0, "session_id": None, "final_text": "", "tail": "", "steps": 0,
+             "quota": False, "usage": None, "is_error": False, "commands": []}
     try:
         raw = path.read_text(errors="replace")
     except OSError:
-        return {
-            "tokens": tokens, "cost": cost, "session_id": None, "final_text": "", 
-            "tail": "", "steps": 0, "quota": False, "usage": None
-        }
-    
-    tail = raw[-2000:]
-    
-    # Use accumulator for independent usage accounting
+        return empty
     acc = UsageAccumulator()
-    
-    # Iterate line-by-line for both legacy and new accounting
+    session_id = None
+    texts = []
+    commands = []
+    is_error = False
+    result_text = None
     for line in raw.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -284,29 +362,43 @@ def parse_transcript(path: Path) -> dict:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
-        
-        # Feed line to accumulator for independent usage
+        if not isinstance(ev, dict):
+            continue
         acc.feed_line(line)
-        
-        # Legacy token/cost extraction (retained for backward compatibility)
-        session_id = session_id or ev.get("sessionID")
-        part = ev.get("part") or {}
         t = ev.get("type")
-        if t == "step_finish":
-            steps += 1
-            tk = part.get("tokens") or {}
-            tokens["input"] += int(tk.get("input", 0) or 0)
-            tokens["output"] += int(tk.get("output", 0) or 0)
-            tokens["reasoning"] += int(tk.get("reasoning", 0) or 0)
-            cost += float(part.get("cost", 0) or 0)
-        elif t == "text":
-            texts.append(part.get("text", ""))
-    
-    tokens["total"] = tokens["input"] + tokens["output"] + tokens["reasoning"]
-    final_text = texts[-1] if texts else ""
-    
-    # New independent usage field with provenance and completeness
+        session_id = session_id or ev.get("session_id") or ev.get("thread_id") or ev.get("sessionID")
+        if t == "assistant":  # Claude
+            for c in (ev.get("message") or {}).get("content") or []:
+                if c.get("type") == "text" and c.get("text"):
+                    texts.append(c["text"])
+                elif c.get("type") == "tool_use" and c.get("name") == "Bash":
+                    cmd = (c.get("input") or {}).get("command")
+                    if cmd:
+                        commands.append(cmd)
+        elif t == "result":  # Claude
+            is_error = bool(ev.get("is_error")) or ev.get("subtype") not in (None, "success")
+            if isinstance(ev.get("result"), str):
+                result_text = ev["result"]
+        elif t in ("item.completed", "item.started"):  # Codex
+            item = ev.get("item") or {}
+            it = item.get("type") or item.get("item_type")
+            if t == "item.completed" and it in ("agent_message", "assistant_message") and item.get("text"):
+                texts.append(item["text"])
+            elif t == "item.started" and it == "command_execution" and item.get("command"):
+                commands.append(item["command"])
+        elif t == "turn.failed":  # Codex
+            is_error = True
+        elif t == "text":  # legacy
+            texts.append((ev.get("part") or {}).get("text", ""))
+        elif t == "tool_use":  # legacy
+            part = ev.get("part") or {}
+            if part.get("tool") == "bash":
+                inp = (part.get("state") or {}).get("input") or {}
+                if isinstance(inp, dict) and inp.get("command"):
+                    commands.append(inp["command"])
     snap = acc.snapshot()
+    tokens = {"input": snap["input"], "output": snap["output"], "reasoning": snap["reasoning"]}
+    tokens["total"] = tokens["input"] + tokens["output"] + tokens["reasoning"]
     usage = {
         "provider_total": snap["provider_total"],
         "input_tokens": snap["input"],
@@ -319,8 +411,9 @@ def parse_transcript(path: Path) -> dict:
         "missing_fields": snap["missing_fields"],
         "telemetry_complete": snap["telemetry_complete"],
     }
-    
+    final_text = result_text if result_text else (texts[-1] if texts else "")
     return {
-        "tokens": tokens, "cost": cost, "session_id": session_id, "final_text": final_text, 
-        "tail": tail, "steps": steps, "quota": is_quota_error(raw), "usage": usage
+        "tokens": tokens, "cost": snap["cost"], "session_id": session_id, "final_text": final_text,
+        "tail": raw[-2000:], "steps": snap["steps"], "quota": is_quota_error(raw), "usage": usage,
+        "is_error": is_error, "commands": commands,
     }

@@ -1,5 +1,5 @@
 {
-  "_comment": "Role -> model seat. Every seat has a fallback on a DIFFERENT family. Model changes happen only through `pipeline trial` (staged head-to-head with a rubric); vendor benchmarks nominate, never decide. `pipeline render-agents` regenerates the devpass-code agent files from this registry and CI diffs them (drift guard).",
+  "_comment": "Role -> model seat. Each model family maps to the CLI that runs it (`clis`): anthropic seats run as headless Claude Code (`claude -p`), openai seats as headless Codex (`codex exec`). There are no fallback models. Model changes happen only through `pipeline trial`; vendor benchmarks nominate, never decide. `pipeline render-agents` regenerates the Claude Code agent files from this registry and the suite diffs them (drift guard).",
   "families": {
     "anthropic": [
       "claude-"
@@ -9,32 +9,16 @@
       "o1",
       "o3",
       "o4"
-    ],
-    "google": [
-      "gemini-"
-    ],
-    "deepseek": [
-      "deepseek-"
-    ],
-    "xai": [
-      "grok-"
-    ],
-    "moonshot": [
-      "kimi-"
-    ],
-    "zai": [
-      "glm-"
-    ],
-    "alibaba": [
-      "qwen"
     ]
   },
-  "provider": "llmgateway-devpass",
+  "clis": {
+    "anthropic": "claude",
+    "openai": "codex"
+  },
   "roles": {
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
-      "model": "kimi-k3.1-pro",
-      "fallback": "gpt-6.1-sol",
+      "model": "claude-opus-5-5",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -93,14 +77,26 @@
           },
           "at": "2026-11-03T17:49:47+00:00",
           "why": "DECISION interactive-kimi (2026-11-03, operator directed): operator wants the smartest Chinese frontier for the interactive seat; kimi-k3.1-pro is AA 46 vs GLM-5.3 AA 32 (+14), TTFT 3.45s within the 5s conversational fence, $3.68/task vs $5.01; trade-off accepted: 32 t/s vs GLM 90 t/s streaming. Collision status: no other seat currently uses a moonshot model (reviewer-c moved kimi-k3 -> claude-sonnet-5-5 on 2026-09-29; reviewers are openai/xai/anthropic), so there is no cross-seat collision; quota_fallback set to gpt-6.1-sol@high because same-family kimi is illegal. Evidence: docs/model-selection/UPDATE-LATEST.md."
+        },
+        {
+          "from": {
+            "model": "kimi-k3.1-pro",
+            "effort": "high",
+            "fallback": "gpt-6.1-sol",
+            "quota_fallback": "gpt-6.1-sol@high"
+          },
+          "to": {
+            "model": "claude-opus-5-5",
+            "effort": "high"
+          },
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
-      ],
-      "quota_fallback": "gpt-6.1-sol@high"
+      ]
     },
     "implementer": {
       "purpose": "Code changes with tests, exact ceremony (commit subject, verification grep).",
       "model": "claude-sonnet-5-5",
-      "fallback": "deepseek-v4.1-flash",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -150,14 +146,26 @@
           },
           "at": "2026-09-29T18:06:12+00:00",
           "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
+        },
+        {
+          "from": {
+            "model": "claude-sonnet-5-5",
+            "effort": "high",
+            "fallback": "deepseek-v4.1-flash",
+            "quota_fallback": "gpt-6-luna@high"
+          },
+          "to": {
+            "model": "claude-sonnet-5-5",
+            "effort": "high"
+          },
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
-      ],
-      "quota_fallback": "gpt-6-luna@high"
+      ]
     },
     "fast-worker": {
       "purpose": "Small, well-specified, cheap: a fetch, a one-line fix, a file rename.",
-      "model": "gpt-6-luna",
-      "fallback": "deepseek-v4.1-flash@medium",
+      "model": "claude-haiku-5-5",
       "effort": "low",
       "band": "tolerant",
       "tools": {
@@ -171,7 +179,6 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "gpt-6-luna@low",
       "history": [
         {
           "from": {
@@ -207,14 +214,27 @@
           },
           "at": "2026-11-03T18:11:25+00:00",
           "why": "DECISION fallback-effort-pin (2026-11-03, operator approved option 1): fallbacks inherit the primary effort when unpinned; pinning makes the rare-fire fallback run its validated profile (fast-worker fallback v4.1-flash@medium; lane-worker fallback luna@low). All other fallback arms stay bare (they inherit correctly)."
+        },
+        {
+          "from": {
+            "model": "gpt-6-luna",
+            "effort": "low",
+            "fallback": "deepseek-v4.1-flash@medium",
+            "quota_fallback": "gpt-6-luna@low"
+          },
+          "to": {
+            "model": "claude-haiku-5-5",
+            "effort": "low"
+          },
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
       ]
     },
     "lane-worker": {
       "purpose": "One item of a fan-out; writes only under $LANE_OUT.",
-      "model": "deepseek-v4.1-flash",
-      "fallback": "gpt-6-luna@low",
-      "effort": "medium",
+      "model": "claude-haiku-5-5",
+      "effort": "low",
       "band": "tolerant",
       "tools": {
         "read": true,
@@ -227,7 +247,6 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "gpt-6-luna@medium",
       "history": [
         {
           "from": {
@@ -263,14 +282,27 @@
           },
           "at": "2026-11-03T18:11:25+00:00",
           "why": "DECISION fallback-effort-pin (2026-11-03, operator approved option 1): fallbacks inherit the primary effort when unpinned; pinning makes the rare-fire fallback run its validated profile (fast-worker fallback v4.1-flash@medium; lane-worker fallback luna@low). All other fallback arms stay bare (they inherit correctly)."
+        },
+        {
+          "from": {
+            "model": "deepseek-v4.1-flash",
+            "effort": "medium",
+            "fallback": "gpt-6-luna@low",
+            "quota_fallback": "gpt-6-luna@medium"
+          },
+          "to": {
+            "model": "claude-haiku-5-5",
+            "effort": "low"
+          },
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
       ]
     },
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
-      "model": "gemini-3.8-flash",
-      "fallback": "grok-4-7",
-      "effort": "medium",
+      "model": "claude-opus-5-5",
+      "effort": "high",
       "band": "critical",
       "tools": {
         "read": true,
@@ -344,14 +376,26 @@
           },
           "at": "2026-11-03T18:19:58+00:00",
           "why": "DECISION fallback-grok-4-7 (2026-11-03, operator directed): audit confirmed grok-4-6 was the only seat subordinating quality to avoid cross-seat collision; the rest of the board shares models across seats freely, so the operator standardized on quality-first. grok-4-7 prose composite 77.05 beats grok-4-6 approx 72.7 (evidence: docs/model-selection/UPDATE-LATEST.md document-writer verdict). Collision note: grok-4-7 is reviewer-b primary; operator accepts the coupling, consistent with the rest of the board."
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "effort": "medium",
+            "fallback": "grok-4-7",
+            "quota_fallback": "grok-4-7@high"
+          },
+          "to": {
+            "model": "claude-opus-5-5",
+            "effort": "high"
+          },
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
-      ],
-      "quota_fallback": "grok-4-7@high"
+      ]
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
-      "model": "gemini-3.8-flash",
-      "fallback": "grok-4-7",
+      "model": "claude-sonnet-5-5",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -426,14 +470,26 @@
           },
           "at": "2026-11-03T18:19:58+00:00",
           "why": "DECISION fallback-grok-4-7 (2026-11-03, operator directed): audit confirmed grok-4-6 was the only seat subordinating quality to avoid cross-seat collision; the rest of the board shares models across seats freely, so the operator standardized on quality-first. grok-4-7 prose composite 77.05 beats grok-4-6 approx 72.7 (evidence: docs/model-selection/UPDATE-LATEST.md document-writer verdict). Collision note: grok-4-7 is reviewer-b primary; operator accepts the coupling, consistent with the rest of the board."
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "effort": "high",
+            "fallback": "grok-4-7",
+            "quota_fallback": "grok-4-7@high"
+          },
+          "to": {
+            "model": "claude-sonnet-5-5",
+            "effort": "high"
+          },
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
-      ],
-      "quota_fallback": "grok-4-7@high"
+      ]
     },
     "frontend-worker": {
       "purpose": "Browser-facing work: HTML/CSS/JS/TS components and their tests.",
       "model": "claude-sonnet-5-5",
-      "fallback": "deepseek-v4.1-flash",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -447,7 +503,6 @@
         "task": false
       },
       "external_post": false,
-      "quota_fallback": "gpt-6-luna@high",
       "history": [
         {
           "from": {
@@ -472,13 +527,26 @@
           },
           "at": "2026-09-29T18:06:12+00:00",
           "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
+        },
+        {
+          "from": {
+            "model": "claude-sonnet-5-5",
+            "effort": "high",
+            "fallback": "deepseek-v4.1-flash",
+            "quota_fallback": "gpt-6-luna@high"
+          },
+          "to": {
+            "model": "claude-sonnet-5-5",
+            "effort": "high"
+          },
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
       ]
     },
-    "reviewer-a": {
-      "purpose": "Sealed reviewer, family A. Reads artifacts, writes verdict to its own review dir only.",
+    "reviewer": {
+      "purpose": "Sealed reviewer: a headless Codex session reads the work and returns a verdict; never edits.",
       "model": "gpt-6.1-sol",
-      "fallback": "kimi-k3.1-pro",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -564,292 +632,22 @@
           },
           "at": "2026-11-03T19:21:44+00:00",
           "why": "DECISION operator-fallback (2026-11-03): operator set this fallback directly, outside pipeline trial."
-        }
-      ],
-      "quota_fallback": "deepseek-v4-pro@high"
-    },
-    "reviewer-b": {
-      "purpose": "Sealed reviewer, family B (must differ from reviewer-a for REVIEW: cross).",
-      "model": "grok-4-7",
-      "fallback": "deepseek-v4-pro",
-      "effort": "high",
-      "band": "critical",
-      "sealed": true,
-      "tools": {
-        "read": true,
-        "glob": true,
-        "grep": true,
-        "list": true,
-        "bash": true,
-        "edit": false,
-        "webfetch": false,
-        "task": false
-      },
-      "external_post": false,
-      "history": [
-        {
-          "from": {
-            "model": "gpt-5.5",
-            "fallback": "grok-4-6"
-          },
-          "to": {
-            "model": "gpt-5.3-codex",
-            "fallback": "grok-4-6"
-          },
-          "at": "2026-09-04T20:20:00+00:00",
-          "why": "DECISION interim-standard-seats (2026-09-04): premium allowance 402s recur; working seats moved to standard-tier so plan 004 can finish; trials revisit."
         },
         {
           "from": {
-            "model": "gpt-5.3-codex",
-            "fallback": "grok-4-6"
+            "model": "gpt-6.1-sol",
+            "effort": "high",
+            "fallback": "kimi-k3.1-pro",
+            "quota_fallback": "deepseek-v4-pro@high"
           },
           "to": {
-            "model": "grok-4-6",
-            "fallback": "gpt-5.3-codex"
+            "model": "gpt-6.1-sol",
+            "effort": "high"
           },
-          "at": "2026-09-05T19:30:00+00:00",
-          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
-          "evidence": "AA: Grok 4.6 high = 51, highest non-premium intelligence; TTFT 52.7s acceptable for detached review"
-        },
-        {
-          "from": {
-            "model": "grok-4-6",
-            "fallback": "gpt-5.3-codex"
-          },
-          "to": {
-            "model": "grok-4-6",
-            "fallback": "claude-sonnet-5"
-          },
-          "at": "2026-09-07T18:40:00+00:00",
-          "why": "DECISION reviewer-b-fallback swap (2026-09-07, operator-approved after audit): gpt-5.3-codex was constraint-satisficing, not next-best (chosen only because better models were seated as primaries; no-collision rule). claude-sonnet-5 is strictly better on 2 of 3 axes for the reviewer criterion (raw intelligence + responsiveness): AA 45 vs 37*, TTFT 2.9s vs 58.9s, LB code_completion 78.3 (codex's single win: 86.9 \u2014 code-completion specialist, not a generalist reviewer). anthropic family is distinct from grok's xai and collides with no seat's primary since the Terra swap freed sonnet-5. Sources: artificialanalysis.ai/leaderboards/models, livebench.ai/table_2026_06_25.csv (retrieved 2026-09-05, in docs/model-selection/SEAT-EVIDENCE.md)."
-        },
-        {
-          "from": {
-            "model": "grok-4-6",
-            "fallback": "claude-sonnet-5"
-          },
-          "to": {
-            "model": "grok-4-7",
-            "fallback": "gpt-6-sol"
-          },
-          "at": "2026-09-29T18:06:12+00:00",
-          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
-        },
-        {
-          "from": {
-            "fallback": "gpt-6-sol"
-          },
-          "to": {
-            "fallback": "deepseek-v4-pro"
-          },
-          "at": "2026-11-03T19:21:44+00:00",
-          "why": "DECISION operator-fallback (2026-11-03): operator set this fallback directly, outside pipeline trial."
-        }
-      ],
-      "quota_fallback": "deepseek-v4-pro@high"
-    },
-    "reviewer-c": {
-      "purpose": "Sealed reviewer, family C. Substitutes when A or B is unavailable so cross-review still spans two families.",
-      "model": "claude-sonnet-5-5",
-      "fallback": "gemini-3.8-flash",
-      "effort": "high",
-      "band": "critical",
-      "sealed": true,
-      "tools": {
-        "read": true,
-        "glob": true,
-        "grep": true,
-        "list": true,
-        "bash": true,
-        "edit": false,
-        "webfetch": false,
-        "task": false
-      },
-      "external_post": false,
-      "quota_fallback": "deepseek-v4-pro@high",
-      "history": [
-        {
-          "from": {
-            "model": "gemini-3.1-pro-preview",
-            "fallback": "kimi-k3"
-          },
-          "to": {
-            "model": "kimi-k3",
-            "fallback": "gemini-3.8-flash"
-          },
-          "at": "2026-09-05T19:30:00+00:00",
-          "why": "DECISION published-benchmarks (2026-09-05): operator directed seat changes to follow published benchmarks, not token trials. Sources: https://artificialanalysis.ai/leaderboards/models (Intelligence Index, speed, latency, price, fetched 2026-09-05) and https://livebench.ai/table_2026_06_25.csv (LiveBench 2026-06-25 release task scores). No model tokens spent.",
-          "evidence": "AA: Kimi K3 = 50; LiveBench code_completion 82.6"
-        },
-        {
-          "from": {
-            "model": "kimi-k3",
-            "fallback": "gemini-3.8-flash"
-          },
-          "to": {
-            "model": "claude-sonnet-5-5",
-            "fallback": "gemini-3.8-flash"
-          },
-          "at": "2026-09-29T18:06:12+00:00",
-          "why": "DECISION benchmark-update-swap (2026-09-29, operator approved apply the challengers): seats re-checked against current AA and LiveBench tables with the same per-role criteria; full evidence in docs/model-selection/UPDATE-2026-09-29.md; all challengers verified standard-tier against live gateway pricing on 2026-09-29"
+          "at": "2026-11-07T00:00:00+00:00",
+          "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
         }
       ]
-    }
-  },
-  "models": {
-    "claude-fable-5": {
-      "premium": true
-    },
-    "claude-fable-5-1": {
-      "premium": true
-    },
-    "claude-opus-4-6": {
-      "premium": true
-    },
-    "claude-opus-4-7": {
-      "premium": true
-    },
-    "claude-opus-4-8": {
-      "premium": true
-    },
-    "claude-opus-5": {
-      "premium": true
-    },
-    "claude-opus-5-5": {
-      "premium": true
-    },
-    "claude-sonnet-4-5": {
-      "premium": true
-    },
-    "claude-sonnet-4-6": {
-      "premium": true
-    },
-    "gpt-5.4": {
-      "premium": true
-    },
-    "gpt-5.5": {
-      "premium": true
-    },
-    "gpt-5.6-sol": {
-      "premium": true
-    },
-    "kimi-k3-fast": {
-      "premium": true
-    },
-    "claude-haiku-4-5": {
-      "premium": false
-    },
-    "claude-sonnet-5": {
-      "premium": false
-    },
-    "claude-sonnet-5-5": {
-      "premium": false
-    },
-    "deepseek-v4-flash": {
-      "premium": false
-    },
-    "deepseek-v4.1-flash": {
-      "premium": false
-    },
-    "deepseek-v4-pro": {
-      "premium": false
-    },
-    "gemini-3.1-pro-preview": {
-      "premium": false
-    },
-    "gemini-3.7-flash": {
-      "premium": false
-    },
-    "gemini-3.8-flash": {
-      "premium": false
-    },
-    "glm-5.3": {
-      "premium": false
-    },
-    "glm-5.3-flash": {
-      "premium": false
-    },
-    "gpt-5.3-codex": {
-      "premium": false
-    },
-    "gpt-5.4-mini": {
-      "premium": false
-    },
-    "gpt-5.4-nano": {
-      "premium": false
-    },
-    "gpt-5.6-luna": {
-      "premium": false
-    },
-    "gpt-5.6-terra": {
-      "premium": false
-    },
-    "gpt-6-astra": {
-      "premium": true
-    },
-    "gpt-6-luna": {
-      "premium": false
-    },
-    "gpt-6-sol": {
-      "premium": false
-    },
-    "gpt-oss-120b": {
-      "premium": false
-    },
-    "grok-4-5": {
-      "premium": false
-    },
-    "grok-4-6": {
-      "premium": false
-    },
-    "grok-4-7": {
-      "premium": false
-    },
-    "grok-build-0-1": {
-      "premium": false
-    },
-    "kimi-k3": {
-      "premium": false
-    },
-    "mimo-v2.5-pro": {
-      "premium": false
-    },
-    "minimax-m3": {
-      "premium": false
-    },
-    "muse-spark-1.3": {
-      "premium": false
-    },
-    "muse-spark-1.3-contributor": {
-      "premium": false
-    },
-    "seed-1-8-251228": {
-      "premium": false
-    },
-    "gemini-3.5-flash": {
-      "premium": false
-    },
-    "gpt-6.1-sol": {
-      "premium": false
-    },
-    "gpt-6.1-terra": {
-      "premium": false
-    },
-    "claude-haiku-5-5": {
-      "premium": false
-    },
-    "kimi-k3.1-pro": {
-      "premium": false
-    },
-    "mistral-large-4": {
-      "premium": false
-    },
-    "gemini-4-argon": {
-      "premium": true
-    },
-    "muse-wonder-1.0": {
-      "premium": true
     }
   }
 }

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# pl -- the interactive seat: Claude Code as pl-interactive, with the registry's model
+# and effort and the read-only seat-guard settings (dontAsk: writes are refused, not
+# prompted). Extra arguments pass through to `claude` (e.g. `pl --resume`).
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+read -r MODEL EFFORT < <(PYTHONPATH="$HERE" python3 -c 'from pipeline import roles; s = roles.seat("interactive"); print(s["model_q"], s["effort"])')
+AGENTS="${PIPELINE_AGENTS_DIR:-$HOME/.claude/agents}"
+exec claude --agent pl-interactive --model "$MODEL" --effort "$EFFORT" \
+  --settings "$AGENTS/pl-interactive.settings.json" "$@"

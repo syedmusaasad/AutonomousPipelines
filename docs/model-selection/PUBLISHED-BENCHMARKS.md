@@ -1,3 +1,6 @@
+> Historical (DevPass era, before 2026-11-07). Seats, fallbacks and the three-reviewer
+> cross review described here are retired; see README.md and docs/WORKER-COMPATIBILITY.md.
+
 # Published Benchmarks: Model Selection Research
 
 **Note**: This is a documentary research report. Research-worker tokens were spent to compile this, but **no evaluation-model tokens were spent** (0 new model tests run). No final winners or seat changes are established from this report alone.

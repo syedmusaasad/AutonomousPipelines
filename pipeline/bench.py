@@ -16,7 +16,7 @@ from .util import read_jsonl
 
 HOST_OUTCOMES = {"outage", "stalled", "killed"}  # host/engine death, not the worker's fault
 MACHINE_FAIL = {"failed", "timeout"}
-QUOTA_OUTCOMES = {"quota"}  # premium-tier weekly allowance hit: neither host nor worker fault
+QUOTA_OUTCOMES = {"quota"}  # subscription usage limit hit: neither host nor worker fault
 
 
 def collect() -> dict:
@@ -28,10 +28,9 @@ def collect() -> dict:
                      "wall_s": (st.get("closed_at") or 0) - (st.get("opened_at") or 0) if st.get("closed_at") and st.get("opened_at") else None,
                      "tokens": st["tokens_total"], "cost": st["cost_total"], "relights": st["relights"],
                      "recoveries": sum(st["recoveries"].values())})
-        # Every dispatch.start/dispatch.end PAIR, not the collapsed per-id state: a
-        # quota hit followed by a successful quota_fallback retry reuses the same
-        # dispatch id, and the quota try must still be counted (that is how the
-        # premium list confirms itself over time).
+        # Every dispatch.start/dispatch.end PAIR, not the collapsed per-id state: older
+        # journals reuse one dispatch id across a quota hit and its fallback retry, and
+        # both tries must still be counted.
         starts = {}
         for r in rows:
             if r["event"] == "dispatch.start":
@@ -86,7 +85,7 @@ def render(data: dict) -> str:
             f"- ok: {len(ok)} ({_pct(len(ok), len(D))})",
             f"- machine failures (failed/timeout): {len(mach)} ({_pct(len(mach), len(D))})",
             f"- host-outage stalls (outage/stalled/killed), separated from machine failures: {len(host)} ({_pct(len(host), len(D))})",
-            f"- premium quota hits (neither machine failure nor host outage): {len(quota)} ({_pct(len(quota), len(D))})",
+            f"- usage-limit hits (neither machine failure nor host outage): {len(quota)} ({_pct(len(quota), len(D))})",
             f"- ok rate excluding host stalls: {_pct(len(ok), len(D) - len(host))}", ""]
     out += ["## Wall clock", "", f"- median dispatch wall: {_med([d.get('wall_s') for d in D])} s",
             f"- p90 dispatch wall: {_p90([d.get('wall_s') for d in D])} s", ""]
@@ -108,10 +107,10 @@ def render(data: dict) -> str:
     for m, ds in sorted(by_model.items(), key=lambda kv: str(kv[0])):
         out.append(f"| {m} | {len(ds)} | {_sum_tok(ds)} | {_pct(sum(1 for d in ds if d['outcome'] == 'ok'), len(ds))} |")
     out.append("")
-    out += ["### Premium quota hits by model", "",
-            "This is how the premium-tier list confirms itself over time: a 402 journaled here",
-            "against a model the registry does not yet tag `premium: true` is evidence to fix the tag.", "",
-            "| model | quota hits | dispatches |", "|---|---|---|"]
+    out += ["### Usage-limit hits by model", "",
+            "Dispatches the subscription refused for usage limits (Claude rate_limit_event",
+            "rejected, Codex usage-limit error). There is no fallback seat; these are retried.", "",
+            "| model | limit hits | dispatches |", "|---|---|---|"]
     for m, ds in sorted(by_model.items(), key=lambda kv: -sum(1 for d in kv[1] if d["outcome"] == "quota")):
         hits = sum(1 for d in ds if d["outcome"] == "quota")
         if hits:

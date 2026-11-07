@@ -5,7 +5,7 @@
      (incumbent + all candidates), blinded as A, B, C...; the mapping {A,B,...} ->
      {incumbent,candidate,...} is chosen randomly and saved to `trial/mapping.json`
      in the plan preamble. Task phases write to `trial/task<i>/<arm>/`.
-  2. Dispatches a sealed reviewer on a THIRD family to score each arm against the
+  2. Dispatches the sealed reviewer (on a family no arm uses) to score each arm against the
      rubric, writing `scores.json` ({task: {A: n, B: n, ...}}). The scorer sees
      only A/B/C labels — no model names, no incumbent/candidate.
   3. Writes a verdict file via decide() + select(). The selection rule: keep arms
@@ -111,9 +111,13 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
     # Find scorer: reviewer on a family not used by any arm
     arm_families = {roles_mod.family_of(mq, reg) for mq, _ in shuffled_arms}
     scorer = next(
-        r for r in roles_mod.REVIEWERS
-        if roles_mod.family_of(reg["roles"][r]["model"], reg) not in arm_families
+        (r for r in roles_mod.REVIEWERS
+         if roles_mod.family_of(reg["roles"][r]["model"], reg) not in arm_families),
+        None,
     )
+    if scorer is None:
+        raise roles_mod.RegistryError(
+            "no reviewer on a family outside the arms; a trial cannot score arms from the reviewer's own family")
 
     mapping_json = json.dumps(arm_map)
     cand_list = ", ".join(candidates)
@@ -509,16 +513,10 @@ def apply(role: str, arm: str, verdict: dict, registry_path: Path = None) -> Non
     reg["roles"][role]["model"] = model
     if effort is not None:
         reg["roles"][role]["effort"] = effort
-    qf = (verdict.get("selection") or {}).get("quota_fallback")
-    if qf:
-        qf_model, qf_effort = parse_arm(qf)
-        qf_model_bare = qf_model.split("/", 1)[-1] if "/" in qf_model else qf_model
-        reg["roles"][role]["quota_fallback"] = f"{qf_model_bare}@{qf_effort}" if qf_effort else qf_model_bare
+    # Seats have no fallback models: a selection's quota_fallback is reported, never seated.
     history_entry = {"model": model, "at": now_iso(), "trial": verdict}
     if effort is not None:
         history_entry["effort"] = effort
-    if qf:
-        history_entry["quota_fallback"] = reg["roles"][role]["quota_fallback"]
     reg["roles"][role].setdefault("history", []).append(history_entry)
     roles_mod.validate(reg)
     path.write_text(json.dumps(reg, indent=2) + "\n")

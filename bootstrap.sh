@@ -49,14 +49,27 @@ mkdir -p "$ESTATE"/{runs,quick,state,logs,projects} "$SYS/bin"
 touch "$ESTATE/runs.jsonl"
 if [ "$ESTATE" != "$SYS" ] && [ ! -e "$SYS/runs.jsonl" ]; then ln -s "$ESTATE/runs.jsonl" "$SYS/runs.jsonl"; fi
 # launchers
-for b in pipeline run quick status finish; do ln -sfn "$REPO/bin/$b" "$SYS/bin/$b"; done
+for b in pipeline run quick status finish pl; do ln -sfn "$REPO/bin/$b" "$SYS/bin/$b"; done
 # repo location, so workers can find it
 printf '%s\n' "$REPO" > "$SYS/repo"
-# generated agent files + conversation plugin
+# generated Claude Code agent files (~/.claude/agents) + skills (~/.claude/skills)
 "$REPO/bin/pipeline" render-agents >/dev/null
 "$REPO/bin/pipeline" roblox-skills >/dev/null
-mkdir -p "$HOME/.config/devpass-code/plugin"
-cp "$REPO/plugin/pipeline-conversation.js" "$HOME/.config/devpass-code/plugin/pipeline-conversation.js"
+# SessionStart hook: the conversation id reaches every shell the interactive agent runs
+mkdir -p "$HOME/.claude"
+python3 - "$HOME/.claude/settings.json" "$REPO/plugin/session-env.sh" <<'PY'
+import json, sys
+from pathlib import Path
+path, script = Path(sys.argv[1]), sys.argv[2]
+cfg = json.loads(path.read_text()) if path.exists() and path.read_text().strip() else {}
+starts = cfg.setdefault("hooks", {}).setdefault("SessionStart", [])
+cmds = [h.get("command") for m in starts for h in m.get("hooks", [])]
+if script not in cmds:
+    starts.append({"hooks": [{"type": "command", "command": script}]})
+    path.write_text(json.dumps(cfg, indent=2) + "\n")
+PY
+command -v claude >/dev/null || echo "bootstrap: install Claude Code: curl -fsSL https://claude.ai/install.sh | bash" >&2
+command -v codex >/dev/null || echo "bootstrap: install Codex (the reviewer seat): https://developers.openai.com/codex" >&2
 # sentry (systemd --user when available; otherwise a detached loop). --no-sentry is for
 # the characterization suite, which installs into a throwaway HOME.
 if [ "$SENTRY" = 0 ]; then

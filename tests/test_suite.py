@@ -70,7 +70,7 @@ GATE: .go
     p2 = pl.by_number(2)
     assert p2.lanes == "items.txt" and p2.ceiling == 3 and p2.after == [1]
     p3 = pl.by_number(3)
-    assert p3.surfaces == [("*.md", "operator-doc")] and p3.review == "cross" and p3.after == [1]
+    assert p3.surfaces == [("*.md", "operator-doc")] and p3.review == "on" and p3.after == [1]
     p4 = pl.by_number(4)
     assert p4.is_gate and p4.after == [2, 3] and p4.gate == ".go"
     assert planmod.topo_order(pl) == [1, 2, 3, 4]
@@ -89,7 +89,7 @@ def plan_rejects_bad_grammar():
     bad = [
         "## Phase 1: a (implementer)\n## Phase 1: b (implementer)\n",  # duplicate
         "## Phase 1: a (implementer)\nAFTER: 9\n",  # unknown dep
-        "## Phase 1: a (implementer)\nREVIEW: single\n",  # only cross
+        "## Phase 1: a (implementer)\nREVIEW: single\n",  # only on (or legacy cross)
         "## Phase 1: a (implementer)\nSURFACE: onlyglob\n",
         "## Phase 1: a (implementer)\nTIMEOUT: soon\n",
         "## Phase 1: g (gate)\nEXIT: true\n",  # gates take no EXIT
@@ -244,7 +244,7 @@ def iterate_two_fresh_iterations_pass_and_review_once():
 ITERATE: on
 CEILING: 3
 EXIT: test "$(wc -l < steps.txt)" -ge 2
-REVIEW: cross
+REVIEW: on
 FAKE: append steps.txt <<iteration work>>
 FAKE: verdict PASS
 FAKE: record
@@ -265,8 +265,8 @@ FAKE: record
         assert len(workers) == 2
         assert workers[0]["brief"] == workers[1]["brief"]
         assert "Previous attempt failed" not in workers[1]["brief"]
-        reviewers = [x for x in E.fake_calls() if x["agent"].startswith("pl-reviewer")]
-        assert len(reviewers) == 2  # one cross-review pair, after the final EXIT only
+        reviewers = [x for x in E.fake_calls() if x["agent"] == "pl-reviewer"]
+        assert len(reviewers) == 1  # one review, after the final EXIT only
 
 
 @test
@@ -328,15 +328,15 @@ def iterate_review_runs_once_after_three_iterations():
 ITERATE: on
 CEILING: 3
 EXIT: test "$(wc -l < steps.txt)" -ge 3
-REVIEW: cross
+REVIEW: on
 FAKE: append steps.txt <<iteration work>>
 FAKE: verdict PASS
 """)
         assert st["closed"] == "done", r.stdout + r.stderr
         calls = E.fake_calls()
         assert len([x for x in calls if x["agent"] == "pl-implementer"]) == 3
-        assert len([x for x in calls if x["agent"].startswith("pl-reviewer")]) == 2
-        assert len([x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]) == 2
+        assert len([x for x in calls if x["agent"] == "pl-reviewer"]) == 1
+        assert len([x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]) == 1
 
 
 @test
@@ -365,114 +365,71 @@ def iterate_demo_migration_dogfoods_launch_in_two_iterations():
 # ---------------------------------------------------------------- registry
 
 @test
-def registry_validates_families_and_seals():
+def registry_validates_clis_seals_and_retired_fallbacks():
     reg = roles_mod.load()
     for name, r in reg["roles"].items():
-        assert roles_mod.family_of(r["model"], reg) != roles_mod.family_of(r["fallback"], reg), name
+        assert "fallback" not in r and "quota_fallback" not in r, name
         assert not r.get("external_post")
-    for rv in roles_mod.REVIEWERS:
-        assert reg["roles"][rv]["sealed"] and not reg["roles"][rv]["tools"]["edit"]
-    a, b = roles_mod.cross_review_pair(reg)
-    assert roles_mod.family_of(reg["roles"][a]["model"], reg) != roles_mod.family_of(reg["roles"][b]["model"], reg)
+        assert roles_mod.cli_of(r["model"], reg) in ("claude", "codex"), name
+    assert roles_mod.REVIEWERS == ("reviewer",)
+    rv = reg["roles"]["reviewer"]
+    assert rv["sealed"] and not rv["tools"]["edit"]
+    assert roles_mod.seat("reviewer", reg)["cli"] == "codex"
+    assert roles_mod.reviewer_role(reg) == "reviewer"
     import copy
-    bad = copy.deepcopy(reg)
-    bad["roles"]["implementer"]["fallback"] = bad["roles"]["implementer"]["model"]
-    try:
-        roles_mod.validate(bad)
-    except roles_mod.RegistryError:
-        pass
-    else:
-        raise AssertionError("same-family fallback accepted")
-    bad = copy.deepcopy(reg)
-    bad["roles"]["reviewer-a"]["tools"]["edit"] = True
-    try:
-        roles_mod.validate(bad)
-    except roles_mod.RegistryError:
-        pass
-    else:
-        raise AssertionError("reviewer with edit accepted")
-    bad = copy.deepcopy(reg)
-    bad["roles"]["fast-worker"]["external_post"] = True
-    try:
-        roles_mod.validate(bad)
-    except roles_mod.RegistryError:
-        pass
-    else:
-        raise AssertionError("external_post accepted")
-
+    for mutate, why in (
+        (lambda b: b["roles"]["implementer"].__setitem__("fallback", "gpt-6.1-sol"), "fallback accepted"),
+        (lambda b: b["roles"]["implementer"].__setitem__("quota_fallback", "gpt-6.1-sol@low"), "quota_fallback accepted"),
+        (lambda b: b["roles"]["reviewer"]["tools"].__setitem__("edit", True), "reviewer with edit accepted"),
+        (lambda b: b["roles"]["reviewer"].__setitem__("sealed", False), "unsealed reviewer accepted"),
+        (lambda b: b["roles"]["fast-worker"].__setitem__("external_post", True), "external_post accepted"),
+        (lambda b: b["roles"]["implementer"].__setitem__("model", "grok-4-7"), "model with no CLI accepted"),
+        (lambda b: b["roles"]["fast-worker"].__setitem__("effort", "ultra"), "bad effort accepted"),
+        (lambda b: b["roles"]["interactive"].__setitem__("model", "gpt-6.1-sol"), "codex interactive accepted"),
+        (lambda b: b["roles"].pop("reviewer"), "missing reviewer accepted"),
+    ):
+        bad = copy.deepcopy(reg)
+        mutate(bad)
+        try:
+            roles_mod.validate(bad)
+        except roles_mod.RegistryError:
+            pass
+        else:
+            raise AssertionError(why)
 
 @test
-def registry_models_table_and_quota_fallback_never_premium():
-    """roles["models"][model]["premium"] tags every candidate; every role's quota_fallback
-    resolves to a model the table does not tag premium; validate() rejects one that does."""
+def registry_seats_match_operator_choice():
+    """DECISION leave-devpass (2026-11-07): the operator's seats, verbatim."""
     reg = roles_mod.load()
-    assert "models" in reg and isinstance(reg["models"], dict) and reg["models"]
-    for model, info in reg["models"].items():
-        assert "premium" in info, model
-        assert info["premium"] in (True, False, "unknown"), model
-    for name, r in reg["roles"].items():
-        assert "quota_fallback" in r, name
-        qf_model, _ = roles_mod._split_arm(r["quota_fallback"])
-        assert not roles_mod.is_premium(qf_model, reg), f"{name}: quota_fallback {r['quota_fallback']} is premium"
-    import copy
-    bad = copy.deepcopy(reg)
-    # pick a confirmed-premium model and force it in as implementer's quota_fallback
-    premium_model = next(m for m, i in bad["models"].items() if i["premium"] is True)
-    bad["roles"]["implementer"]["quota_fallback"] = f"{premium_model}@high"
-    try:
-        roles_mod.validate(bad)
-    except roles_mod.RegistryError:
-        pass
-    else:
-        raise AssertionError("premium quota_fallback accepted")
-    bad2 = copy.deepcopy(reg)
-    del bad2["roles"]["implementer"]["quota_fallback"]
-    try:
-        roles_mod.validate(bad2)
-    except roles_mod.RegistryError:
-        pass
-    else:
-        raise AssertionError("missing quota_fallback accepted")
-
+    want = {
+        "interactive": ("claude-opus-5-5", "high"), "implementer": ("claude-sonnet-5-5", "high"),
+        "fast-worker": ("claude-haiku-5-5", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
+        "researcher": ("claude-opus-5-5", "high"), "document-writer": ("claude-sonnet-5-5", "high"),
+        "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer": ("gpt-6.1-sol", "high"),
+    }
+    got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}
+    assert got == want, got
+    assert set(reg["clis"].values()) == {"claude", "codex"}
+    assert "models" not in reg and "provider" not in reg
 
 @test
-def validate_rejects_premium_model_or_fallback_anywhere():
-    """DECISION no-premium-seats: validate() rejects a registry where ANY role's model,
-    fallback or quota_fallback is a model tagged premium in reg["models"]; the error
-    names the role and field. Not just quota_fallback (already covered above) — model
-    and fallback too."""
-    import copy
+def render_agents_claude_seats_only_with_drift_guard():
+    """Claude Code agent files exist for every claude seat (not the codex reviewer), plus
+    the interactive settings file; drift() names a hand-edited file."""
     reg = roles_mod.load()
-    premium_model = next(m for m, i in reg["models"].items() if i["premium"] is True)
-    other_premium = next(m for m, i in reg["models"].items() if i["premium"] is True and m != premium_model)
-
-    bad = copy.deepcopy(reg)
-    bad["roles"]["implementer"]["model"] = premium_model
-    try:
-        roles_mod.validate(bad)
-    except roles_mod.RegistryError as e:
-        assert "implementer" in str(e) and "model" in str(e)
-    else:
-        raise AssertionError("premium primary model accepted")
-
-    bad = copy.deepcopy(reg)
-    # give fallback a distinct premium family so the family check doesn't fire first
-    bad["roles"]["implementer"]["fallback"] = other_premium
-    try:
-        roles_mod.validate(bad)
-    except roles_mod.RegistryError as e:
-        assert "implementer" in str(e) and "fallback" in str(e)
-    else:
-        raise AssertionError("premium fallback accepted")
-
-    # the registry on disk has no premium seat anywhere: model, fallback, quota_fallback
-    prem = {m for m, i in reg["models"].items() if i["premium"] is True}
-    for name, r in reg["roles"].items():
-        for field in ("model", "fallback", "quota_fallback"):
-            fmodel, _ = roles_mod._split_arm(r[field])
-            assert fmodel not in prem, f"{name}.{field} = {r[field]!r} is premium-tier"
-    assert reg["roles"]["interactive"]["model"] == "kimi-k3.1-pro"
-
+    files = roles_mod.rendered_agents(reg)
+    assert "pl-reviewer.md" not in files
+    for role, r in reg["roles"].items():
+        if role != "reviewer":
+            text = files[f"pl-{role}.md"]
+            assert f'name: "pl-{role}"' in text and f'model: "{r["model"]}"' in text
+            assert f'effort: "{r["effort"]}"' in text
+    assert roles_mod.INTERACTIVE_SETTINGS in files
+    with Estate() as E:
+        roles_mod.write_agents(E.agents, reg)
+        assert roles_mod.drift(E.agents, reg) == []
+        (E.agents / "pl-implementer.md").write_text("hand edit\n")
+        assert roles_mod.drift(E.agents, reg) == [str(E.agents / "pl-implementer.md")]
 
 @test
 def select_never_returns_premium_arm_even_when_it_scores_best():
@@ -495,20 +452,23 @@ def select_never_returns_premium_arm_even_when_it_scores_best():
 
 
 @test
-def rendered_agents_deny_external_channels_and_questions():
+def claude_permissions_deny_external_channels_and_seal_reviewer():
     reg = roles_mod.load()
-    for name, text in roles_mod.rendered_agents(reg).items():
-        assert '"gh pr comment*": "deny"' in text, name
-        assert '"curl -X POST*": "deny"' in text, name
-        assert 'question: "deny"' in text, name
-        assert "GENERATED" in text
-    ra = roles_mod.render_agent("reviewer-a", reg)
-    assert 'edit: "deny"' in ra and '"git push*": "deny"' in ra
-    imp = roles_mod.render_agent("implementer", reg)
-    assert 'edit: "allow"' in imp and "Headless worker contract" in imp and "never wait" in imp
+    for role in reg["roles"]:
+        perms = roles_mod.claude_permissions(role, reg)
+        assert "Bash(gh pr comment*)" in perms["deny"], role
+        assert "Bash(curl -X POST*)" in perms["deny"], role
+    rv = roles_mod.claude_permissions("reviewer", reg)
+    assert {"Edit", "Write", "Bash(git push *)"} <= set(rv["deny"]) and "Edit" not in rv["allow"]
+    imp = roles_mod.claude_permissions("implementer", reg)
+    assert {"Edit", "Write", "Bash"} <= set(imp["allow"]) and "Edit" not in imp["deny"]
+    text = roles_mod.render_agent("implementer", reg)
+    assert "GENERATED" in text and "Headless worker contract" in text and "never wait" in text
     inter = roles_mod.render_agent("interactive", reg)
-    assert "Headless worker contract" not in inter and "never does the work" in inter.lower() or "never do the work" in inter
-
+    assert "Headless worker contract" not in inter and ("never does the work" in inter.lower() or "never do the work" in inter)
+    # the codex reviewer gets contract + role prompt ahead of its brief
+    cp = roles_mod.codex_prompt("reviewer")
+    assert "Headless worker contract" in cp and "read-only sandbox" in cp
 
 @test
 def drift_guard_detects_hand_edits():
@@ -783,7 +743,7 @@ FAKE: touch made.txt
         d = [x for x in rows if x["event"] == "dispatch.end"]
         assert d[0]["tokens"]["total"] == 1234 and d[0]["outcome"] == "ok" and d[0]["wall_s"] >= 0
         calls = E.fake_calls()
-        assert calls[0]["agent"] == "pl-implementer" and calls[0]["auto"]
+        assert calls[0]["agent"] == "pl-implementer" and calls[0]["cli"] == "claude"
         assert "EXIT predicates" in calls[0]["brief"] and "test -f made.txt" in calls[0]["brief"]
 
 
@@ -976,36 +936,38 @@ def gate_rejection_is_deliberate_stop():
 
 
 @test
-def cross_review_two_families_blocking_stops():
+def single_codex_review_blocking_revises_then_stops():
     with Estate() as E:
         rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=PASS b=CONCERNS
+FAKE: verdict CONCERNS
 """)
         assert st["closed"] == "done", r.stderr
         rows = jmod.Journal(rid).rows()
         v = [x for x in rows if x["event"] == "review.verdict"]
-        assert len(v) == 2 and {x["verdict"] for x in v} == {"PASS", "CONCERNS"}
-        reg = roles_mod.load()
-        assert len({roles_mod.family_of(x["model"], reg) for x in v}) == 2
-        reviewers = [c for c in E.fake_calls() if c["agent"].startswith("pl-reviewer")]
-        assert all(c["REVIEW_OUT"] for c in reviewers)
-        # both BLOCKING -> deliberate stop
+        assert len(v) == 1 and v[0]["verdict"] == "CONCERNS" and v[0]["reviewer"] == "reviewer"
+        assert v[0]["model"] == "gpt-6.1-sol"
+        reviewers = [c for c in E.fake_calls() if c["agent"] == "pl-reviewer"]
+        assert len(reviewers) == 1 and reviewers[0]["cli"] == "codex" and reviewers[0]["REVIEW_OUT"]
+        # the sealed reviewer only answered; the engine wrote its record
+        assert Path(v[0]["review"]).read_text().startswith("VERDICT: CONCERNS")
+        # BLOCKING -> one revision -> BLOCKING again -> deliberate stop
         rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=BLOCKING b=BLOCKING
+FAKE: verdict BLOCKING
 """, sub="q")
         assert st["stopped"] == "review_blocking"
-        # one BLOCKING is not a stop
+        # BLOCKING then PASS after the revision -> done
         rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 FAKE: touch out
-FAKE: verdict-by-agent a=BLOCKING b=PASS
+FAKE: verdict-seq BLOCKING,PASS
 """, sub="s")
-        assert st["closed"] == "done"
-
+        assert st["closed"] == "done", r.stderr
+        v = [x["verdict"] for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
+        assert v == ["BLOCKING", "PASS"]
 
 @test
 def review_runs_only_after_exit_passes():
@@ -1013,11 +975,11 @@ def review_runs_only_after_exit_passes():
         rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
 ATTEMPTS: 1
 EXIT: false
-REVIEW: cross
+REVIEW: on
 FAKE: verdict PASS
 """)
         assert st["stopped"] == "burned"
-        assert not [c for c in E.fake_calls() if c["agent"].startswith("pl-reviewer")]
+        assert not [c for c in E.fake_calls() if c["agent"] == "pl-reviewer"]
 
 
 @test
@@ -1188,71 +1150,64 @@ def engine_lock_prevents_double_engines():
 
 
 @test
-def fallback_model_is_on_another_family_and_used_on_failure():
+def failed_dispatch_retries_same_seat_never_another_model():
     with Estate() as E:
         reg = roles_mod.load()
         s = roles_mod.seat("implementer", reg)
         rid, p, r, st = run_plan(E, f"""## Phase 1: a (implementer)
+ATTEMPTS: 2
 FAKE: fail-on-model {s['model']}
 FAKE: touch a
 """)
-        assert st["closed"] == "done", r.stderr
+        assert st["stopped"] == "burned", r.stderr
         calls = E.fake_calls()
-        assert calls[0]["model"] == s["model_q"] and calls[1]["model"] == s["fallback_q"]
-        assert s["family"] != s["fallback_family"]
+        assert len(calls) == 2 and {c["model"] for c in calls} == {s["model_q"]}
         ds = [x for x in jmod.Journal(rid).rows() if x["event"] == "dispatch.start"]
-        assert ds[1]["fallback"] is True
-
+        assert all("fallback" not in d for d in ds)
 
 @test
-def effort_pinned_fallback_seat_validate_render():
-    import copy
+def claude_dispatch_argv_is_lean_headless_and_permissioned():
     reg = roles_mod.load()
-    bad = copy.deepcopy(reg)
-    bad["roles"]["implementer"]["fallback"] = "gpt-6-luna@low"
-    bad["roles"]["implementer"]["model"] = "claude-sonnet-5"
-    roles_mod.validate(bad)  # model@low accepted, family check on the bare model
-    s = roles_mod.seat("implementer", bad)
-    assert s["fallback_model_q"] == roles_mod.qualified("gpt-6-luna", bad) and s["fallback_effort"] == "low"
-    assert s["fallback_q"] == s["fallback_model_q"]
-    assert "@" not in roles_mod.render_agent("implementer", bad)
-    bad["roles"]["fast-worker"]["fallback"] = "deepseek-v4.1-flash@xhigh"
-    try:
-        roles_mod.validate(bad)
-    except roles_mod.RegistryError as e:
-        assert "fast-worker" in str(e) and "deepseek-v4.1-flash@xhigh" in str(e)
-    else:
-        raise AssertionError("bad fallback effort accepted")
-    # a bare fallback has no pinned effort
-    assert roles_mod.seat("implementer", reg)["fallback_effort"] is None
-    # registry pins
-    assert reg["roles"]["fast-worker"]["fallback"] == "deepseek-v4.1-flash@medium"
-    assert reg["roles"]["lane-worker"]["fallback"] == "gpt-6-luna@low"
-    for role in ("fast-worker", "lane-worker"):
-        assert "@" not in roles_mod.render_agent(role, reg)
-
+    perms = roles_mod.claude_permissions("fast-worker", reg)
+    argv = dsp.build_argv(binary="claude", cli="claude", agent="pl-fast-worker", model="claude-haiku-5-5",
+                          effort="low", permissions=perms)
+    assert argv[:5] == ["claude", "-p", "--output-format", "stream-json", "--verbose"]
+    def val(flag):
+        return argv[argv.index(flag) + 1]
+    assert val("--agent") == "pl-fast-worker" and val("--model") == "claude-haiku-5-5" and val("--effort") == "low"
+    assert val("--permission-mode") == "dontAsk"
+    assert "Bash(gh pr comment*)" in val("--disallowed-tools").split(",")
+    assert "Bash" in val("--allowed-tools").split(",")
+    for flag in ("--strict-mcp-config", "--no-session-persistence", "--exclude-dynamic-system-prompt-sections"):
+        assert flag in argv
+    assert not any(a in argv for a in ("run", "--file", "--auto", "--format", "--dangerously-skip-permissions"))
+    assert dsp.CLAUDE_HEADLESS_ENV["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert dsp.CLAUDE_HEADLESS_ENV["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
 
 @test
-def engine_runs_fallback_at_pinned_effort():
+def codex_reviewer_argv_is_sealed_read_only_on_stdin():
+    argv = dsp.build_argv(binary="codex", cli="codex", agent="pl-reviewer", model="gpt-6.1-sol", effort="high",
+                          cwd=Path("/w"), out_dir=Path("/o"), sealed=True)
+    assert argv[:3] == ["codex", "exec", "--json"] and argv[-1] == "-"
+    assert argv[argv.index("--model") + 1] == "gpt-6.1-sol"
+    assert 'model_reasoning_effort="high"' in argv
+    assert argv[argv.index("--sandbox") + 1] == "read-only"
+    assert argv[argv.index("--cd") + 1] == "/w" and argv[argv.index("-o") + 1] == "/o/last-message.md"
+    open_argv = dsp.build_argv(binary="codex", cli="codex", agent="x", model="gpt-6.1-sol", effort="high")
+    assert open_argv[open_argv.index("--sandbox") + 1] == "workspace-write"
     with Estate() as E:
-        reg = roles_mod.load()
-        s = roles_mod.seat("fast-worker", reg)
-        assert s["effort"] == "low" and s["fallback_effort"] == "medium"
-        rid, p, r, st = run_plan(E, f"""## Phase 1: a (fast-worker)
-FAKE: fail-on-model {s['model']}
-FAKE: touch a
-""")
-        assert st["closed"] == "done", r.stderr
-        calls = E.fake_calls()
-        assert calls[0]["model"] == s["model_q"] and calls[0]["variant"] == "low"
-        assert calls[1]["model"] == s["fallback_model_q"] and calls[1]["variant"] == "medium"
-
+        out = E.tmp / "d"
+        res = dsp.run_dispatch(brief="FAKE: verdict PASS\n", role="reviewer", cwd=E.work, out_dir=out, timeout=30)
+        assert res.outcome == "ok" and res.final_text.startswith("VERDICT: PASS"), res.as_row()
+        assert res.tokens["total"] == 1234 and res.model == "gpt-6.1-sol"
+        call = E.fake_calls()[-1]
+        assert call["cli"] == "codex" and call["agent"] == "pl-reviewer" and call["variant"] == "high"
+        assert "Headless worker contract" in call["brief"] and call["brief"].rstrip().endswith("FAKE: verdict PASS")
 
 @test
-def quota_outcome_falls_to_quota_fallback_not_family_fallback():
-    """A 402 premium-tier quota transcript sends the retry to the seat's
-    quota_fallback (never the family fallback), and a quota hit alone does not
-    count as a phase attempt failure: if the fallback succeeds, the phase lands."""
+def usage_limit_stops_run_without_burning_an_attempt():
+    """A subscription usage-limit refusal is a deliberate stop (no fallback seat to
+    try), charges no phase attempt, and resuming re-runs the same attempt."""
     with Estate() as E:
         reg = roles_mod.load()
         s = roles_mod.seat("implementer", reg)
@@ -1260,19 +1215,12 @@ def quota_outcome_falls_to_quota_fallback_not_family_fallback():
 FAKE: quota-on-model {s['model']}
 FAKE: touch a
 """)
-        assert st["closed"] == "done", r.stderr
+        assert st["stopped"] == "usage_limit", r.stderr
         calls = E.fake_calls()
-        assert calls[0]["model"] == s["model_q"]
-        assert calls[1]["model"] == s["quota_fallback_model_q"]
-        assert calls[1]["model"] != s["fallback_q"]
-        ds = [x for x in jmod.Journal(rid).rows() if x["event"] == "dispatch.start"]
-        assert ds[0].get("quota_fallback") in (False, None) and ds[1]["quota_fallback"] is True
-        assert ds[1]["fallback"] is False
+        assert len(calls) == 1 and calls[0]["model"] == s["model_q"]
         de = [x for x in jmod.Journal(rid).rows() if x["event"] == "dispatch.end"]
-        assert de[0]["outcome"] == "quota" and de[1]["outcome"] == "ok"
-        # only one phase attempt was journaled: the quota hit did not burn one on its own
-        assert st["phases"]["1"]["attempts"] == 1
-
+        assert de[0]["outcome"] == "quota" and "resets 2026-" in de[0]["error"]
+        assert not any(x["event"] == "phase.fail" for x in jmod.Journal(rid).rows())
 
 @test
 def brief_carries_task_facts_and_previous_failure_only():
@@ -1306,24 +1254,17 @@ def dispatch_transcript_parsing_sums_tokens():
 
 
 @test
-def quota_error_signature_detected_from_402_and_premium_wording():
-    """is_quota_error requires BOTH statusCode 402 AND 'premium-tier' or 'allowance' in
-    the text; either alone is not enough."""
-    hit = json.dumps({"error": {"data": {"statusCode": 402, "message": "You\u2019ve used your weekly allowance for premium-tier models"}}})
-    assert dsp.is_quota_error(hit)
-    hit2 = json.dumps({"error": {"data": {"statusCode": 402, "message": "Redeem a Reset Pass; use any standard model. premium-tier caps apply."}}})
-    assert dsp.is_quota_error(hit2)
+def usage_limit_signature_from_claude_and_codex_events():
+    rejected = json.dumps({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": 1794056400}})
+    allowed = json.dumps({"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "resetsAt": 1794056400}})
+    assert dsp.is_quota_error(rejected) and not dsp.is_quota_error(allowed)
+    assert dsp.quota_reset(rejected) == "2026-11-07T13:00:00Z"
+    assert dsp.is_quota_error(json.dumps({"type": "error", "message": "You've hit your usage limit. Try again in 3 hours."}))
+    assert dsp.is_quota_error(json.dumps({"type": "turn.failed", "error": {"message": "rate limit reached"}}))
+    assert not dsp.is_quota_error(json.dumps({"type": "turn.failed", "error": {"message": "exit 1"}}))
     assert not dsp.is_quota_error("")
-    assert not dsp.is_quota_error(json.dumps({"statusCode": 500, "message": "premium-tier allowance exceeded"}))  # wrong code
-    assert not dsp.is_quota_error(json.dumps({"statusCode": 402, "message": "rate limited, try later"}))  # no signature words
-    with Estate() as E:
-        t = E.tmp / "quota.jsonl"
-        t.write_text(json.dumps({"type": "error", "part": {"error": {"data": {
-            "message": "You've used your weekly allowance for premium-tier models on the max plan.",
-            "statusCode": 402}}}}))
-        p = dsp.parse_transcript(t)
-        assert p["quota"] is True and p["steps"] == 0
-
+    # the retired DevPass 402 shape is not a subscription limit
+    assert not dsp.is_quota_error(json.dumps({"type": "error", "part": {"error": {"data": {"statusCode": 402, "message": "premium-tier allowance"}}}}))
 
 @test
 def dispatch_outcome_is_quota_when_402_and_no_step_completed():
@@ -1530,7 +1471,7 @@ def status_first_sentence_and_waiting_list_always_present():
 
 
 @test
-def status_names_premium_allowance_hit_once_in_waiting_list():
+def status_names_usage_limit_hit_once_in_waiting_list():
     with Estate() as E:
         reg = roles_mod.load()
         s = roles_mod.seat("implementer", reg)
@@ -1538,17 +1479,16 @@ def status_names_premium_allowance_hit_once_in_waiting_list():
 FAKE: quota-on-model {s['model']}
 FAKE: touch a
 """)
-        assert st["closed"] == "done", r.stderr
+        assert st["stopped"] == "usage_limit", r.stderr
         rep = status.run_report(rid)
-        hits = [w for w in rep["waiting_on_operator"] if "premium allowance hit" in w]
+        hits = [w for w in rep["waiting_on_operator"] if "usage limit hit" in w]
         assert len(hits) == 1, rep["waiting_on_operator"]
-        assert s["model_q"] in hits[0] and "resets" in hits[0]
+        assert s["model_q"] in hits[0] and "resets 2026-11-07T13:00:00Z" in hits[0]
         text = status.render([rep], scope="all runs")
-        assert text.count("premium allowance hit") == 1
-
+        assert text.count("usage limit hit") == 1
 
 @test
-def bench_shows_premium_quota_bucket_and_per_model_hits():
+def bench_shows_usage_limit_bucket_and_per_model_hits():
     with Estate() as E:
         reg = roles_mod.load()
         s = roles_mod.seat("implementer", reg)
@@ -1556,13 +1496,10 @@ def bench_shows_premium_quota_bucket_and_per_model_hits():
 FAKE: quota-on-model {s['model']}
 FAKE: touch a
 """)
-        assert st["closed"] == "done", r.stderr
-        data = bench.collect()
-        text = bench.render(data)
-        assert "premium quota hits" in text
-        assert "Premium quota hits by model" in text
-        assert f"| {s['model_q']} |" in text.split("Premium quota hits by model")[1]
-
+        assert st["stopped"] == "usage_limit", r.stderr
+        text = bench.render(bench.collect())
+        assert "usage-limit hits" in text and "Usage-limit hits by model" in text
+        assert f"| {s['model_q']} |" in text.split("Usage-limit hits by model")[1]
 
 @test
 def bench_is_generated_from_journal_with_regeneration_commands():
@@ -1590,10 +1527,10 @@ def bench_is_generated_from_journal_with_regeneration_commands():
 def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decision():
     reg = roles_mod.load()
     tasks = trial.parse_tasks("## t1\ndo one\n## t2\ndo two\n")
-    text = trial.trial_plan("implementer", ["gemini-3.1-pro-preview"], tasks, "score clarity 0-10", Path("/w"), reg)
+    text = trial.trial_plan("implementer", ["claude-opus-5-5"], tasks, "score clarity 0-10", Path("/w"), reg)
     pl = planmod.parse_text(text, Path("/w/plan.md"))
     seat = roles_mod.seat("implementer", reg)
-    cand_q = "llmgateway-devpass/gemini-3.1-pro-preview"
+    cand_q = "claude-opus-5-5"
     # Phases 1 and 2 are task1-arm-A and task1-arm-B; models assigned randomly to arms
     arm_models = {pl.by_number(1).model, pl.by_number(2).model}
     assert arm_models == {seat["model_q"], cand_q}, f"arm models {arm_models} != expected pair"
@@ -1602,14 +1539,14 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     assert pl.by_number(3).after == [1] and pl.by_number(4).after == [2]
     scorer = pl.by_number(5)
     fam = roles_mod.family_of(reg["roles"][scorer.role]["model"], reg)
-    assert fam not in (seat["family"], "google") and scorer.after == [1, 2, 3, 4] and scorer.exits
+    assert scorer.role == "reviewer" and fam != seat["family"] and scorer.after == [1, 2, 3, 4] and scorer.exits
     assert pl.decisions and "nominated; trial decides" in pl.decisions[0]
     # Blinding: scorer phase brief must not name models or reveal arm identities
     scorer_text = text.split(f"## Phase {scorer.number}:")[1]
     assert "incumbent" not in scorer_text, "scorer phase reveals 'incumbent'"
     assert "candidate" not in scorer_text, "scorer phase reveals 'candidate'"
     assert seat["model_q"].split("/")[-1] not in scorer_text, "scorer phase reveals incumbent model name"
-    assert "gemini-3.1-pro-preview" not in scorer_text, "scorer phase reveals candidate model name"
+    assert "claude-opus-5-5" not in scorer_text, "scorer phase reveals candidate model name"
     # Arm mapping is in a DECISION line with label -> "model_q@effort"
     arm_map = trial.extract_arm_map(text)
     assert set(arm_map.keys()) == {"A", "B"}
@@ -1641,27 +1578,27 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
         shutil.copy(roles_mod.REGISTRY, regp)
         before = regp.read_text()
         try:
-            trial.apply("implementer", "gemini-3.1-pro-preview", v, registry_path=regp)
+            trial.apply("implementer", "claude-opus-5-5", v, registry_path=regp)
         except roles_mod.RegistryError:
             pass
         else:
             raise AssertionError("applied a lost trial")
         assert regp.read_text() == before
-        v["decision"], v["reasons"], v["chosen"] = "candidate", [], "llmgateway-devpass/gemini-3.1-pro-preview"
-        trial.apply("implementer", "gemini-3.1-pro-preview", v, registry_path=regp)
-        assert json.loads(regp.read_text())["roles"]["implementer"]["model"] == "gemini-3.1-pro-preview"
+        v["decision"], v["reasons"], v["chosen"] = "candidate", [], "claude-opus-5-5"
+        trial.apply("implementer", "claude-opus-5-5", v, registry_path=regp)
+        assert json.loads(regp.read_text())["roles"]["implementer"]["model"] == "claude-opus-5-5"
 
 
 @test
 def engine_pins_model_without_fallback_for_trial_arms():
     with Estate() as E:
         rid, p, r, st = run_plan(E, """## Phase 1: arm (implementer)
-MODEL: llmgateway-devpass/gpt-5.4
+MODEL: claude-opus-5-5
 ATTEMPTS: 1
-FAKE: fail-on-model gpt-5.4
+FAKE: fail-on-model claude-opus-5-5
 """)
         calls = E.fake_calls()
-        assert len(calls) == 1 and calls[0]["model"] == "llmgateway-devpass/gpt-5.4" and st["stopped"] == "burned"
+        assert len(calls) == 1 and calls[0]["model"] == "claude-opus-5-5" and st["stopped"] == "burned"
 
 
 # ---------------------------------------------------------------- resilience / bootstrap
@@ -1696,8 +1633,12 @@ def bootstrap_is_sticky():
         assert r.returncode == 0, r.stderr + r.stdout
         assert (home / ".system" / "estate").read_text().strip() == str(E.tmp / "estateA")
         assert (home / ".system" / "bin" / "quick").exists() and (home / ".system" / "runs.jsonl").exists()
-        assert (home / ".config" / "devpass-code" / "agent" / "pl-implementer.md").exists()
-        assert (home / ".config" / "devpass-code" / "plugin" / "pipeline-conversation.js").exists()
+        assert (home / ".claude" / "agents" / "pl-implementer.md").exists()
+        assert (home / ".claude" / "agents" / "pl-interactive.settings.json").exists()
+        assert not (home / ".claude" / "agents" / "pl-reviewer.md").exists()  # codex seat: no agent file
+        assert (home / ".system" / "bin" / "pl").exists()
+        hooks = json.loads((home / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
+        assert [h["command"] for m in hooks for h in m["hooks"]] == [str(REPO / "plugin" / "session-env.sh")]
         r = subprocess.run(["bash", str(REPO / "bootstrap.sh"), f"--estate={E.tmp / 'estateB'}", "--no-sentry"], env=env, capture_output=True, text=True)
         assert r.returncode == 3 and "sticky" in r.stderr
         assert (home / ".system" / "estate").read_text().strip() == str(E.tmp / "estateA")
@@ -1836,7 +1777,7 @@ def registry_bands_present():
     """Every role has a band field; bands are the expected values per role type."""
     reg = roles_mod.load()
     roles = reg["roles"]
-    critical_roles = {"reviewer-a", "reviewer-b", "reviewer-c", "researcher"}
+    critical_roles = {"reviewer", "researcher"}
     standard_roles = {"implementer", "document-writer", "interactive", "frontend-worker"}
     tolerant_roles = {"fast-worker", "lane-worker"}
     for role_name, role_def in roles.items():
@@ -1852,7 +1793,7 @@ def registry_bands_present():
     # Specific spot-checks from the spec
     assert roles["implementer"]["band"] == "standard"
     assert roles["fast-worker"]["band"] == "tolerant"
-    assert roles["reviewer-a"]["band"] == "critical"
+    assert roles["reviewer"]["band"] == "critical"
     assert roles["frontend-worker"]["band"] == "standard"
 
 
@@ -1905,11 +1846,11 @@ def trial_apply_writes_effort():
     """apply() writes both model and effort to the registry when the arm includes @effort."""
     import shutil
     reg = roles_mod.load()
-    regp = Path("/tmp/devpass-code/test_registry.json")
+    import tempfile
+    regp = Path(tempfile.mkdtemp()) / "registry.json"
     regp.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(roles_mod.REGISTRY, regp)
-    # Build a fake verdict with chosen = "llmgateway-devpass/gemini-3.1-pro-preview@low"
-    chosen_arm = "llmgateway-devpass/gemini-3.1-pro-preview@low"
+    chosen_arm = "claude-opus-5-5@low"
     verdict = {
         "chosen": chosen_arm,
         "decision": "candidate",
@@ -1923,16 +1864,16 @@ def trial_apply_writes_effort():
         "tokens": {},
         "wall_s": {},
     }
-    trial.apply("implementer", "gemini-3.1-pro-preview@low", verdict, registry_path=regp)
+    trial.apply("implementer", "claude-opus-5-5@low", verdict, registry_path=regp)
     after = json.loads(regp.read_text())
-    assert after["roles"]["implementer"]["model"] == "gemini-3.1-pro-preview"
+    assert after["roles"]["implementer"]["model"] == "claude-opus-5-5"
     assert after["roles"]["implementer"]["effort"] == "low"
     h = after["roles"]["implementer"]["history"][-1]
-    assert h["model"] == "gemini-3.1-pro-preview" and h.get("effort") == "low"
+    assert h["model"] == "claude-opus-5-5" and h.get("effort") == "low"
     # apply refuses mismatched arm
-    verdict2 = {**verdict, "chosen": "llmgateway-devpass/gemini-3.1-pro-preview@high"}
+    verdict2 = {**verdict, "chosen": "claude-opus-5-5@high"}
     try:
-        trial.apply("implementer", "gemini-3.1-pro-preview@low", verdict2, registry_path=regp)
+        trial.apply("implementer", "claude-opus-5-5@low", verdict2, registry_path=regp)
     except roles_mod.RegistryError:
         pass
     else:
@@ -1940,26 +1881,21 @@ def trial_apply_writes_effort():
 
 
 @test
-def trial_apply_writes_quota_fallback_from_selection():
-    """apply() writes verdict["selection"]["quota_fallback"] to the role's quota_fallback."""
-    import shutil
-    regp = Path("/tmp/devpass-code/test_registry_qf.json")
-    regp.parent.mkdir(parents=True, exist_ok=True)
+def trial_apply_never_seats_a_quota_fallback():
+    """A selection's quota_fallback is reported, never written: seats have no fallbacks."""
+    import shutil, tempfile
+    regp = Path(tempfile.mkdtemp()) / "registry.json"
     shutil.copy(roles_mod.REGISTRY, regp)
-    chosen_arm = "llmgateway-devpass/gemini-3.1-pro-preview@low"
     verdict = {
-        "chosen": chosen_arm, "decision": "candidate", "reasons": [], "decided_at": "now",
+        "chosen": "claude-opus-5-5@low", "decision": "candidate", "reasons": [], "decided_at": "now",
         "tolerance": 0.1, "band": 1.5, "arms": {}, "quality": {}, "tokens": {}, "wall_s": {},
-        "selection": {"quota_fallback": "llmgateway-devpass/gpt-5.6-luna@medium"},
+        "selection": {"quota_fallback": "claude-haiku-5-5@medium"},
     }
-    trial.apply("implementer", "gemini-3.1-pro-preview@low", verdict, registry_path=regp)
+    trial.apply("implementer", "claude-opus-5-5@low", verdict, registry_path=regp)
     after = json.loads(regp.read_text())
-    assert after["roles"]["implementer"]["quota_fallback"] == "gpt-5.6-luna@medium"
-    h = after["roles"]["implementer"]["history"][-1]
-    assert h.get("quota_fallback") == "gpt-5.6-luna@medium"
-
-
-
+    assert after["roles"]["implementer"]["model"] == "claude-opus-5-5"
+    assert "quota_fallback" not in after["roles"]["implementer"]
+    assert "quota_fallback" not in after["roles"]["implementer"]["history"][-1]
 
 @test
 def dispatch_parse_transcript_retains_legacy_tokens():
@@ -2115,14 +2051,8 @@ def dispatch_parse_transcript_quota_error():
     import json
     
     with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-        # Write an error event with 402 and quota signature
-        f.write(json.dumps({
-            "type": "error",
-            "error": {
-                "statusCode": 402,
-                "message": "premium-tier allowance exceeded"
-            }
-        }) + "\n")
+        # A Claude usage-limit refusal: rejected rate_limit_event, then an error result
+        f.write(json.dumps({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected"}}) + "\n")
         fname = f.name
     
     try:
@@ -2234,46 +2164,88 @@ def dispatch_run_dispatch_journals_deliverables():
 
 
 @test
-def dispatch_argv_uses_model_variant_and_attached_brief():
-    argv = dsp.build_argv(binary="devpass-code", agent="pl-implementer", model="p/m", effort="high",
-                          brief_path=Path("/tmp/x/brief.md"))
-    assert argv[1:3] == ["run", "--format"]
-    assert argv[argv.index("--model") + 1] == "p/m#high"
-    assert "--variant" not in argv and "--dir" not in argv
-    assert argv[argv.index("--file") + 1] == "/tmp/x/brief.md"
-    assert "--auto" in argv
-    assert dsp.model_arg("p/m#low", "high") == "p/m#low"
-    assert dsp.model_arg("p/m", None) == "p/m"
-
+def dispatch_argv_picks_cli_by_model_family():
+    reg = roles_mod.load()
+    assert roles_mod.cli_of("claude-sonnet-5-5", reg) == "claude" and roles_mod.cli_of("gpt-6.1-sol", reg) == "codex"
+    c = dsp.build_argv(binary="claude", cli="claude", agent="pl-implementer", model="claude-sonnet-5-5", effort="high")
+    x = dsp.build_argv(binary="codex", cli="codex", agent="pl-reviewer", model="gpt-6.1-sol", effort="high")
+    assert c[1] == "-p" and x[1] == "exec"
+    assert dsp.model_arg("llmgateway-devpass/claude-sonnet-5-5#low") == "claude-sonnet-5-5"
+    assert dsp.model_arg("claude-sonnet-5-5") == "claude-sonnet-5-5"
+    try:
+        dsp.build_argv(binary="x", cli="devpass-code", agent="a", model="m", effort=None)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown cli accepted")
 
 @test
-def dispatch_runs_current_cli_with_effort_in_model_and_process_cwd():
+def dispatch_runs_claude_with_effort_flag_brief_on_stdin_and_process_cwd():
     with Estate() as E:
         s = roles_mod.seat("implementer", roles_mod.load())
         out_dir = E.tmp / "d_current_cli"
         res = dsp.run_dispatch(brief="FAKE: record\nFAKE: touch cwd_probe\n", role="implementer",
                                cwd=E.work, out_dir=out_dir, timeout=20, model=s["model_q"], effort="medium")
         assert res.outcome == "ok", res.error
+        assert res.tokens == {"input": 1000, "output": 200, "reasoning": 34, "total": 1234}
+        assert res.session_id == "ses_fake" and abs(res.cost - 0.0123) < 1e-9
         call = E.fake_calls()[-1]
         argv = call["argv"]
-        assert argv[argv.index("--model") + 1] == f"{s['model_q']}#medium"
-        assert "--variant" not in argv and "--dir" not in argv
-        assert call["model"] == s["model_q"] and call["variant"] == "medium"
+        assert argv[argv.index("--model") + 1] == s["model_q"] and argv[argv.index("--effort") + 1] == "medium"
+        assert call["cli"] == "claude" and call["model"] == s["model_q"] and call["variant"] == "medium"
         assert Path(call["cwd"]).resolve() == Path(E.work).resolve()
         assert (Path(E.work) / "cwd_probe").exists()
-        assert "FAKE: touch cwd_probe" in call["brief"]
         assert (out_dir / "brief.md").read_text() == call["brief"]
+
+@test
+def usage_normalizes_claude_result_and_codex_turns():
+    from pipeline.usage import UsageAccumulator
+    acc = UsageAccumulator()
+    result = json.dumps({"type": "result", "session_id": "s1", "total_cost_usd": 0.5,
+                         "usage": {"input_tokens": 10, "cache_creation_input_tokens": 100,
+                                   "cache_read_input_tokens": 1000, "output_tokens": 50,
+                                   "output_tokens_details": {"thinking_tokens": 20}}})
+    acc.feed_line(result)
+    acc.feed_line(result)  # same session's result is counted once
+    snap = acc.snapshot()
+    assert (snap["input"], snap["output"], snap["reasoning"]) == (10, 30, 20)
+    assert (snap["cache_read"], snap["cache_write"], snap["provider_total"]) == (1000, 100, 1160)
+    assert snap["cost"] == 0.5 and snap["steps"] == 1
+    acc = UsageAccumulator()
+    for _ in range(2):  # one turn.completed per codex turn; both count
+        acc.feed_line(json.dumps({"type": "turn.completed", "usage": {
+            "input_tokens": 500, "cached_input_tokens": 300, "output_tokens": 40, "reasoning_output_tokens": 15}}))
+    snap = acc.snapshot()
+    assert (snap["input"], snap["cache_read"], snap["output"], snap["reasoning"]) == (400, 600, 80, 30)
+    assert snap["steps"] == 2 and snap["cost"] == 0 and snap["telemetry_complete"] is False
 
 
 @test
-def fake_current_cli_rejects_obsolete_flags():
+def codex_transcript_yields_commands_text_and_failure():
     with Estate() as E:
-        for flag in ("--variant", "--dir"):
-            r = subprocess.run([sys.executable, str(FAKE), "run", "--format", "json", "--agent", "pl-x",
-                                "--model", "p/m", flag, "low", "--auto"],
-                               capture_output=True, text=True, cwd=str(E.work), input="")
-            assert r.returncode == 1, flag
-            assert f"Unrecognized flag: {flag}" in r.stdout, r.stdout
+        t = E.tmp / "codex.jsonl"
+        t.write_text("\n".join(json.dumps(e) for e in [
+            {"type": "thread.started", "thread_id": "th_1"},
+            {"type": "item.started", "item": {"id": "i1", "type": "command_execution", "command": "python3 tests/run.py"}},
+            {"type": "item.completed", "item": {"id": "i2", "type": "agent_message", "text": "VERDICT: PASS\n\nok"}},
+            {"type": "turn.completed", "usage": {"input_tokens": 9, "cached_input_tokens": 0, "output_tokens": 1}},
+        ]) + "\n")
+        p = dsp.parse_transcript(t)
+        assert p["session_id"] == "th_1" and p["commands"] == ["python3 tests/run.py"]
+        assert p["final_text"].startswith("VERDICT: PASS") and p["is_error"] is False
+        assert p["tokens"]["total"] == 10 and engine.ran_commands(t) == ["python3 tests/run.py"]
+        t.write_text(json.dumps({"type": "turn.failed", "error": {"message": "boom"}}) + "\n")
+        assert dsp.parse_transcript(t)["is_error"] is True
+
+
+@test
+def fake_worker_rejects_retired_devpass_argv():
+    with Estate() as E:
+        for argv in (["run", "--format", "json", "--agent", "pl-x", "--model", "p/m", "--auto"],
+                     ["-p", "--output-format", "stream-json", "--file", "/tmp/brief.md"]):
+            r = subprocess.run([sys.executable, str(FAKE), *argv], capture_output=True, text=True,
+                               cwd=str(E.work), input="")
+            assert r.returncode == 2 and "retired DevPass argv" in r.stderr, (argv, r.stderr)
 
 
 # Load and run all test_review_provenance tests as part of the full suite
@@ -2809,16 +2781,16 @@ def landing_lock_serializes_concurrent_finishers():
 def review_integrity_missing_verdict_reask_and_blocked_revision_cap():
     with Estate() as E:
         plan = E.plan("""## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 ATTEMPTS: 1
 EXIT: true
 FAKE: touch out
-FAKE: verdict-by-agent a=NONE b=PASS
+FAKE: verdict-seq NONE,PASS
 """)
         rid, p, r, st = run_plan(E, plan.read_text())
         rows = jmod.Journal(rid).rows()
         v = [x for x in rows if x["event"] == "review.verdict"]
-        assert len(v) == 2, v
+        assert len(v) == 1 and v[0]["verdict"] == "PASS", v  # no verdict line -> one re-ask
         seals = [x for x in rows if x["event"] == "review.sealed"]
         assert seals and seals[0]["seals"], "records sealed with hashes"
         tests_ev = [x for x in rows if x["event"] == "review.tests"]
@@ -2827,17 +2799,17 @@ FAKE: verdict-by-agent a=NONE b=PASS
 
     with Estate() as E:
         plan = E.plan("""## Phase 1: work (implementer)
-REVIEW: cross
+REVIEW: on
 ATTEMPTS: 1
 EXIT: true
 FAKE: touch out
-FAKE: verdict-by-agent a=BLOCKING b=BLOCKING
+FAKE: verdict BLOCKING
 """)
         rid, p, r, st = run_plan(E, plan.read_text())
         rows = jmod.Journal(rid).rows()
         revisions = [x for x in rows if x["event"] == "dispatch.start" and x.get("phase") == "1" and "revision" in str(x.get("attempt"))]
         verdicts = [x for x in rows if x["event"] == "review.verdict"]
-        assert len(verdicts) == 4, "two reviews, then re-review after one revision"
+        assert len(verdicts) == 2, "one review, then one re-review after one revision"
         assert st["stopped"] == "review_blocking"
 
 
@@ -2996,19 +2968,21 @@ FAKE: touch done.txt
 def interactive_seat_guard_refuses_writes():
     from pipeline import roles as rmod
     reg = rmod.load()
+    settings = rmod.interactive_settings(reg)["permissions"]
+    # dontAsk: anything outside the allowlist is refused, never prompted
+    assert settings["defaultMode"] == "dontAsk"
+    assert {"Edit", "Write", "NotebookEdit"} <= set(settings["deny"])
+    assert "Bash" not in settings["allow"], "bare Bash would allow every command"
+    assert "Bash(run *)" in settings["allow"] and "Bash(quick *)" in settings["allow"]
+    assert "Bash(pipeline defects *)" in settings["allow"]
+    forbidden = ("Bash(git commit*)", "Bash(rm *)", "Bash(touch *)", "Bash(pip *)", "Edit", "Write")
+    assert not any(f in settings["allow"] for f in forbidden), "write commands must be refused"
     rendered = rmod.render_agent("interactive", reg)
-    assert 'edit: "deny"' in rendered
-    assert '"*": "deny"' in rendered
-    assert '"run *": "allow"' in rendered
-    assert '"quick *": "allow"' in rendered
-    assert '"pipeline defects*": "allow"' in rendered or '"pipeline defects *": "allow"' in rendered
-    forbidden = ('"git commit*": "allow"', '"rm *": "allow"', '"touch *": "allow"', '"pip *": "allow"')
-    assert not any(f in rendered for f in forbidden), "write commands must be refused"
+    assert 'model: "claude-opus-5-5"' in rendered and "Edit" not in rendered.split("---")[1]
     prompt = open("roles/interactive.md").read()
     assert "quick -r <role>" in prompt and "run <plan>" in prompt
     for other in ("implementer", "fast-worker"):
-        agent = rmod.render_agent(other, reg)
-        assert '"*": "allow"' in agent, other + " must keep full bash"
+        assert "Bash" in rmod.claude_permissions(other, reg)["allow"], other + " must keep full bash"
 
 
 @test

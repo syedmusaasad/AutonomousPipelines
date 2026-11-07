@@ -7,7 +7,7 @@ does not run.
     TIMEOUT: <seconds>             per phase (per dispatch attempt)
     LANES: <items-file>            fan out one dispatch per non-empty line of the file
     CEILING: <n>                   max concurrent lanes, or hard iteration cap with ITERATE
-    REVIEW: cross                  two reviewers on different model families after EXIT
+    REVIEW: on                     one sealed reviewer (headless Codex) after EXIT
     SURFACE: <glob> <surface>      score prose artifacts against a register standard
     GATE: <sentinel-path>          (gate phases) the file the operator must write
     ATTEMPTS: <n>                  worker attempts before the phase burns (default 2)
@@ -176,9 +176,11 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
         ph.ceiling = _int(val, lineno, "CEILING", minimum=1)
         ph.ceiling_explicit = True
     elif key == "REVIEW":
-        if val != "cross":
-            raise PlanError(f"line {lineno}: REVIEW supports only 'cross', got {val!r}")
-        ph.review = val
+        # `on`: one sealed reviewer. `cross` is the pre-Codex spelling, kept so older
+        # plans still parse; it now means the same single review.
+        if val not in ("on", "cross"):
+            raise PlanError(f"line {lineno}: REVIEW supports only 'on', got {val!r}")
+        ph.review = "on"
     elif key == "SURFACE":
         parts = val.split()
         if len(parts) != 2:
