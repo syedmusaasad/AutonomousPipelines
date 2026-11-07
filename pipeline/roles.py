@@ -177,7 +177,7 @@ def claude_permissions(role: str, reg: dict) -> dict:
     deny = [f"Bash({p})" for p in EXTERNAL_CHANNEL_PATTERNS]
     if role == "interactive":
         allow = [t for t in tools if t != "Bash"] + [f"Bash({v})" for v in INTERACTIVE_ALLOWED_BASH]
-        deny = ["Edit", "Write", "NotebookEdit"] + deny
+        deny = ["Edit", "Write", "NotebookEdit"] + [f"Bash({p})" for p in SEALED_BASH_DENY] + deny
     else:
         allow = tools
         if s.get("sealed"):
@@ -186,11 +186,12 @@ def claude_permissions(role: str, reg: dict) -> dict:
 
 
 def interactive_settings(reg: dict = None) -> dict:
-    """Claude Code settings for the interactive seat: dontAsk, so anything outside the
-    read-only allowlist is refused (the seat guard) instead of prompting."""
+    """Claude Code settings for the interactive seat: auto mode. The allowlist is
+    auto-approved; deny rules still refuse writes (Edit/Write/NotebookEdit and the
+    sealed shell-write patterns)."""
     reg = reg or load()
     perms = claude_permissions("interactive", reg)
-    return {"permissions": {"defaultMode": "dontAsk", "allow": perms["allow"], "deny": perms["deny"]}}
+    return {"permissions": {"defaultMode": "auto", "allow": perms["allow"], "deny": perms["deny"]}}
 
 
 def render_agent(role: str, reg: dict) -> str:

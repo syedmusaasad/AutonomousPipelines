@@ -2969,8 +2969,9 @@ def interactive_seat_guard_refuses_writes():
     from pipeline import roles as rmod
     reg = rmod.load()
     settings = rmod.interactive_settings(reg)["permissions"]
-    # dontAsk: anything outside the allowlist is refused, never prompted
-    assert settings["defaultMode"] == "dontAsk"
+    # auto mode: the allowlist is auto-approved; deny rules still refuse writes
+    assert settings["defaultMode"] == "auto"
+    assert {"Bash(git commit *)", "Bash(git push *)", "Bash(rm *)", "Bash(mv *)"} <= set(settings["deny"])
     assert {"Edit", "Write", "NotebookEdit"} <= set(settings["deny"])
     assert "Bash" not in settings["allow"], "bare Bash would allow every command"
     assert "Bash(run *)" in settings["allow"] and "Bash(quick *)" in settings["allow"]

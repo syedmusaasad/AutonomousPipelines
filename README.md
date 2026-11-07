@@ -70,7 +70,8 @@ A seat's model family picks its CLI (`clis` in roles/registry.json). There are n
 fallback models: a failed dispatch is retried on the same seat as a phase attempt, and a
 subscription usage-limit refusal stops the run (`usage_limit`, no attempt charged) until
 the operator resumes it after the reset. Seats change only via `pipeline trial`. The
-interactive seat is read-only: `pl` starts it with settings that refuse writes (dontAsk)
+interactive seat is read-only: `pl` starts it with settings that refuse writes (auto mode,
+deny rules)
 instead of prompting, and the role prompt names the dispatch it should have used.
 
 The reviewer is sealed: Codex runs it in a read-only sandbox, and the engine saves its
