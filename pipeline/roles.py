@@ -26,6 +26,8 @@ INTERACTIVE_ALLOWED_BASH = (
     "ls *", "ls", "cat *", "cat", "grep *", "grep", "head *", "head", "tail *", "tail",
     "git status*", "git log*", "git diff*", "git show*", "wc *", "wc", "find *", "find", "echo *", "echo",
     "ps *", "ps", "which *", "which", "df *", "df", "du *", "du",
+    "readlink *", "readlink", "type *", "type", "pipeline check-agents", "pipeline check-agents *",
+    "codex login status",
 )
 
 EXTERNAL_CHANNEL_PATTERNS = (
@@ -186,12 +188,11 @@ def claude_permissions(role: str, reg: dict) -> dict:
 
 
 def interactive_settings(reg: dict = None) -> dict:
-    """Claude Code settings for the interactive seat: auto mode. The allowlist is
-    auto-approved; deny rules still refuse writes (Edit/Write/NotebookEdit and the
-    sealed shell-write patterns)."""
+    """Claude Code settings for the interactive seat: dontAsk, so anything outside the
+    read-only allowlist is refused (the seat guard) instead of prompting."""
     reg = reg or load()
     perms = claude_permissions("interactive", reg)
-    return {"permissions": {"defaultMode": "auto", "allow": perms["allow"], "deny": perms["deny"]}}
+    return {"permissions": {"defaultMode": "dontAsk", "allow": perms["allow"], "deny": perms["deny"]}}
 
 
 def render_agent(role: str, reg: dict) -> str:

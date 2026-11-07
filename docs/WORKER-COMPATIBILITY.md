@@ -69,8 +69,8 @@ codex exec --json --model gpt-6.1-sol -c model_reasoning_effort="high"
 ## Interactive seat
 
 `pl` runs `claude --agent pl-interactive --model claude-opus-5-5 --effort high --settings
-~/.claude/agents/pl-interactive.settings.json`. The settings use `defaultMode: auto`
-with the read-only Bash allowlist auto-approved and deny rules on Edit/Write/NotebookEdit
-and shell writes (`git commit`, `git push`, `rm`, `mv`). Do not start it with
+~/.claude/agents/pl-interactive.settings.json`. The settings use `defaultMode: dontAsk`
+with the read-only Bash allowlist and deny Edit/Write/NotebookEdit and shell writes
+(`git commit`, `git push`, `rm`, `mv`). Do not start it with
 `--dangerously-skip-permissions`; that would override the seat guard. A SessionStart
 hook (`plugin/session-env.sh`) exports `PIPELINE_CONVERSATION` to its shells.
