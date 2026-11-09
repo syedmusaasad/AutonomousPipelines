@@ -100,7 +100,7 @@ agy --output-format stream-json --model gemini-3.8-flash --effort <effort>
 
 ## Interactive seat
 
-`pl` runs `claude --agent pl-interactive --model claude-opus-5-5 --effort high --settings
+`pl` runs `claude --agent pl-interactive --model claude-fable-5-2 --effort high --settings
 ~/.claude/agents/pl-interactive.settings.json`. The settings use `defaultMode: dontAsk`
 with the read-only Bash allowlist and deny Edit/Write/NotebookEdit and shell writes
 (`git commit`, `git push`, `rm`, `mv`). Do not start it with

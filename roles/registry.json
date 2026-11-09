@@ -22,7 +22,7 @@
   "roles": {
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
-      "model": "claude-opus-5-5",
+      "model": "claude-fable-5-2",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -95,6 +95,18 @@
           },
           "at": "2026-11-07T00:00:00+00:00",
           "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
+        },
+        {
+          "from": {
+            "model": "claude-opus-5-5",
+            "effort": "high"
+          },
+          "to": {
+            "model": "claude-fable-5-2",
+            "effort": "high"
+          },
+          "at": "2026-11-09T00:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-09): operator moved the interactive seat to Claude Fable 5.2 directly, outside pipeline trial. Verified the model id runs on this account; no published benchmarks for Fable 5.2 yet."
         }
       ]
     },

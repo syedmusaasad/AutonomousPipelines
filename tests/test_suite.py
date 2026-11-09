@@ -404,7 +404,7 @@ def registry_seats_match_operator_choice():
     """DECISION leave-devpass (2026-11-07): the operator's seats, verbatim."""
     reg = roles_mod.load()
     want = {
-        "interactive": ("claude-opus-5-5", "high"), "implementer": ("claude-sonnet-5-5", "high"),
+        "interactive": ("claude-fable-5-2", "high"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
         "researcher": ("gemini-3.8-flash", "medium"), "document-writer": ("gemini-3.8-flash", "high"),
         "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer": ("gpt-6.1-sol", "high"),
@@ -3031,7 +3031,7 @@ def interactive_seat_guard_refuses_writes():
     forbidden = ("Bash(git commit*)", "Bash(rm *)", "Bash(touch *)", "Bash(pip *)", "Edit", "Write")
     assert not any(f in settings["allow"] for f in forbidden), "write commands must be refused"
     rendered = rmod.render_agent("interactive", reg)
-    assert 'model: "claude-opus-5-5"' in rendered and "Edit" not in rendered.split("---")[1]
+    assert 'model: "claude-fable-5-2"' in rendered and "Edit" not in rendered.split("---")[1]
     prompt = open("roles/interactive.md").read()
     assert "quick -r <role>" in prompt and "run <plan>" in prompt
     for other in ("implementer", "fast-worker"):
