@@ -451,6 +451,7 @@ def parse_transcript(path: Path) -> dict:
                     commands.append(inp["command"])
     snap = acc.snapshot()
     tokens = {"input": snap["input"], "output": snap["output"], "reasoning": snap["reasoning"]}
+    tokens = {k: max(0, v) for k, v in tokens.items()}  # never negative, whatever the CLI reported
     tokens["total"] = tokens["input"] + tokens["output"] + tokens["reasoning"]
     usage = {
         "provider_total": snap["provider_total"],

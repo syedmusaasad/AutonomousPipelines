@@ -19,6 +19,24 @@ def _int(v):
         return None
 
 
+def _nonneg(part: dict) -> dict:
+    """Token counts are never negative. A negative figure means the CLI's fields could not
+    be reconciled: record the non-negative best figure (0) and mark the part incomplete."""
+    tokens = part.get("tokens") or {}
+    for k in ("input", "output", "reasoning", "total"):
+        v = tokens.get(k)
+        if isinstance(v, int) and v < 0:
+            tokens[k] = 0
+            part["incomplete"] = True
+    cache = tokens.get("cache")
+    if isinstance(cache, dict):
+        for k, v in cache.items():
+            if isinstance(v, int) and v < 0:
+                cache[k] = 0
+                part["incomplete"] = True
+    return part
+
+
 def normalize_event(event: dict):
     """One usage-bearing event -> a step part, or None for every other event."""
     if event.get("event") == "result":  # agy: one cumulative result per run
@@ -26,19 +44,23 @@ def normalize_event(event: dict):
         u = res.get("usage")
         if not isinstance(u, dict):
             return None
+        # agy fields (verified against a real transcript): input_tokens is the fresh,
+        # non-cached input; cache_read_tokens is a separate counter that can exceed it;
+        # total_tokens == input_tokens + output_tokens; output_tokens includes thinking.
+        # So the cache is never subtracted from input.
         inp, cached = _int(u.get("input_tokens")), _int(u.get("cache_read_tokens")) or 0
         out, think = _int(u.get("output_tokens")), _int(u.get("thinking_tokens")) or 0
-        tokens = {"input": None if inp is None else inp - cached, "cache": {"read": cached}}
-        if out is not None:  # agy's output_tokens include thinking
+        tokens = {"input": inp, "cache": {"read": cached}}
+        if out is not None:
             tokens["output"] = out - think
             tokens["reasoning"] = think
         if _int(u.get("total_tokens")) is not None:
             tokens["total"] = _int(u.get("total_tokens"))
-        return {"id": "agy:" + str(res.get("conversation_id") or ""), "tokens": tokens}  # no cost reported
+        return _nonneg({"id": "agy:" + str(res.get("conversation_id") or ""), "tokens": tokens})  # no cost reported
     t = event.get("type")
     if t == "step_finish":  # legacy DevPass
         part = event.get("part")
-        return part if isinstance(part, dict) else None
+        return _nonneg(part) if isinstance(part, dict) else None
     if t == "result":  # Claude Code: one cumulative result per run
         u = event.get("usage")
         if not isinstance(u, dict):
@@ -57,7 +79,7 @@ def normalize_event(event: dict):
         part = {"id": "result:" + str(event.get("session_id") or event.get("uuid") or ""), "tokens": tokens}
         if event.get("total_cost_usd") is not None:
             part["cost"] = event.get("total_cost_usd")
-        return part
+        return _nonneg(part)
     if t == "turn.completed":  # Codex: one per turn; input_tokens includes cached
         u = event.get("usage")
         if not isinstance(u, dict):
@@ -70,7 +92,7 @@ def normalize_event(event: dict):
             tokens["reasoning"] = reason
         if None not in (inp, out):
             tokens["total"] = inp + out + (reason or 0)
-        return {"tokens": tokens}  # Codex reports no cost: telemetry stays incomplete
+        return _nonneg({"tokens": tokens})  # Codex reports no cost: telemetry stays incomplete
     return None
 
 
@@ -219,7 +241,7 @@ class UsageAccumulator:
         has_output = "output" in self._seen_fields and tokens.get("output") is not None
         has_cost = "cost" in self._seen_fields and part.get("cost") is not None
         
-        if not (has_provider_total and has_input and has_output and has_cost):
+        if part.get("incomplete") or not (has_provider_total and has_input and has_output and has_cost):
             self._all_telemetry_complete = False
 
     def snapshot(self) -> Dict[str, Any]:

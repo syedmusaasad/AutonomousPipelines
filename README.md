@@ -44,7 +44,7 @@ work itself.
 | `LANES: <file>` + `CEILING: <n>` | fan out one dispatch per item, n concurrent |
 | `REVIEW: on` | one sealed Codex reviewer after EXIT passes (`cross` is the legacy spelling) |
 | `SURFACE: <glob> <register>` | score prose artifacts against a register standard |
-| `GATE: <path>` | operator sentinel; the engine waits |
+| `GATE: <path>` | operator sentinel; the engine waits. A relative path is relative to the plan file's directory, not WORKDIR; `plan-check` refuses a path whose parent directory does not exist |
 | `ITERATE: on` + `CEILING: <n>` | fresh-session loop until EXIT passes |
 | `PROGRESS: <predicate>` | custom progress signal for ITERATE |
 | `MODEL:` / `EFFORT:` | pin model or effort for trials |

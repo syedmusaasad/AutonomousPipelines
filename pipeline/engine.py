@@ -333,9 +333,7 @@ class Engine:
         return check
 
     def _run_gate(self, plan, ph):
-        sentinel = Path(ph.gate)
-        if not sentinel.is_absolute():
-            sentinel = plan.dir / sentinel
+        sentinel = ph.gate_sentinel(plan.dir)
         self.journal.write("phase.wait", phase=ph.key, sentinel=str(sentinel), name=ph.name)
         while not self._stop.is_set():
             if sentinel.exists():

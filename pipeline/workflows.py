@@ -107,6 +107,14 @@ def check_plan(path: Path) -> list:
             failures.append(f"phase {p.number}: no EXIT lines")
         if not (TIMEOUT_BOUNDS[0] <= p.timeout <= TIMEOUT_BOUNDS[1]):
             failures.append(f"phase {p.number}: TIMEOUT {p.timeout} outside bounds {TIMEOUT_BOUNDS}")
+    for p in pl.phases:
+        if p.is_gate and p.gate:
+            sentinel = p.gate_sentinel(pl.dir)
+            if not sentinel.parent.is_dir():
+                failures.append(
+                    f"phase {p.number}: GATE {p.gate} resolves to {sentinel}, "
+                    f"whose parent directory {sentinel.parent} does not exist; a relative GATE is relative to "
+                    f"the plan file's directory ({pl.dir}), not WORKDIR; use an absolute path or fix the relative one")
     return failures
 
 

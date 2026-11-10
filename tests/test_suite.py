@@ -3314,3 +3314,85 @@ def hygiene_gates_fail_on_poisoned_fixtures():
     finally:
         hy.HERE = orig
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@test
+def plan_check_refuses_doubled_gate_path():
+    from pipeline import workflows as wf
+    with Estate() as E:
+        plan_dir = E.work / "plans" / "003-x"
+        plan_dir.mkdir(parents=True)
+        # relative GATE written as if relative to WORKDIR: resolves under the plan dir, which has no plans/003-x
+        doubled = E.plan(f"WORKDIR: {E.work}\n\n## Phase 1: approve (gate)\nGATE: plans/003-x/.approve\n",
+                         sub="plans/003-x")
+        fails = wf.check_plan(doubled)
+        want = str(plan_dir / "plans" / "003-x" / ".approve")
+        assert any("GATE" in f and want in f for f in fails), fails
+        r = E.cli("run", str(doubled))
+        assert r.returncode != 0 and want in (r.stdout + r.stderr), r.stdout + r.stderr
+        r = E.cli("plan-check", str(doubled))
+        assert r.returncode != 0 and want in r.stdout, r.stdout
+
+
+@test
+def plan_check_accepts_relative_and_absolute_gate_paths():
+    from pipeline import workflows as wf
+    with Estate() as E:
+        plan_dir = E.work / "plans" / "004-y"
+        (plan_dir / "sub").mkdir(parents=True)
+        rel = E.plan(f"WORKDIR: {E.work}\n\n## Phase 1: approve (gate)\nGATE: sub/.approve\n", sub="plans/004-y")
+        assert not [f for f in wf.check_plan(rel) if "GATE" in f], wf.check_plan(rel)
+        bare = E.plan(f"WORKDIR: {E.work}\n\n## Phase 1: approve (gate)\nGATE: .approve\n", name="bare.md",
+                      sub="plans/004-y")
+        assert not [f for f in wf.check_plan(bare) if "GATE" in f]
+        absolute = E.plan(f"WORKDIR: {E.work}\n\n## Phase 1: approve (gate)\nGATE: {plan_dir}/sub/.approve\n",
+                          name="abs.md", sub="plans/004-y")
+        assert not [f for f in wf.check_plan(absolute) if "GATE" in f]
+        r = E.cli("plan-check", str(rel))
+        assert r.returncode == 0, r.stdout + r.stderr
+
+
+@test
+def agy_usage_never_negative_and_cache_is_not_subtracted():
+    from pipeline.usage import UsageAccumulator
+    # the final result event of run_20261108T002619_8a315f phase 4 (agy, gemini-3.8-flash)
+    ev = json.dumps({"event": "result", "result": {"conversation_id": "c1", "status": "SUCCESS", "usage": {
+        "input_tokens": 238335, "output_tokens": 28336, "thinking_tokens": 18938,
+        "cache_read_tokens": 2416172, "total_tokens": 266671}}})
+    acc = UsageAccumulator()
+    acc.feed_line(ev)
+    s = acc.snapshot()
+    assert (s["input"], s["output"], s["reasoning"]) == (238335, 9398, 18938), s
+    assert s["cache_read"] == 2416172 and s["provider_total"] == 266671, s
+    assert s["input"] + s["output"] + s["reasoning"] == s["provider_total"]
+    with Estate() as E:
+        t = E.tmp / "agy.jsonl"
+        t.write_text(ev + "\n")
+        p = dsp.parse_transcript(t)
+        assert p["tokens"] == {"input": 238335, "output": 9398, "reasoning": 18938, "total": 266671}, p["tokens"]
+        assert p["usage"]["provider_total"] == 266671 and p["usage"]["cache_read_tokens"] == 2416172
+        assert all(v >= 0 for v in p["tokens"].values())
+
+
+@test
+def irreconcilable_usage_is_clamped_and_marked_incomplete():
+    from pipeline.usage import UsageAccumulator
+    # Codex input_tokens normally includes cached; a stream where cached > input must not go negative
+    acc = UsageAccumulator()
+    acc.feed_line(json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 100, "cached_input_tokens": 900, "output_tokens": 10, "reasoning_output_tokens": 50}}))
+    s = acc.snapshot()
+    assert s["input"] == 0 and s["output"] == 10 and s["reasoning"] == 50, s
+    assert s["telemetry_complete"] is False
+    # agy thinking > output: output clamps to 0, flagged
+    acc = UsageAccumulator()
+    acc.feed_line(json.dumps({"event": "result", "result": {"conversation_id": "c2", "usage": {
+        "input_tokens": 10, "output_tokens": 5, "thinking_tokens": 9, "cache_read_tokens": 0, "total_tokens": 15}}}))
+    s = acc.snapshot()
+    assert s["output"] == 0 and s["input"] == 10 and s["telemetry_complete"] is False, s
+    # legacy step_finish with a negative figure
+    acc = UsageAccumulator()
+    acc.feed_line(json.dumps({"type": "step_finish", "part": {"id": "p1", "cost": 0.1, "tokens": {
+        "total": -5, "input": -3, "output": 2, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}))
+    s = acc.snapshot()
+    assert s["input"] == 0 and s["provider_total"] == 0 and s["telemetry_complete"] is False, s

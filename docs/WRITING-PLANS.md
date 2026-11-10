@@ -14,7 +14,7 @@ Decide the shape. One small, well-specified piece of work is a `quick`, not a pl
 4. `LANES:` is for items that share a recipe. Ten different tasks are ten phases or ten quicks, not ten lanes.
 5. `REVIEW: on` costs a Codex dispatch. Spend it on code that lands, not on notes.
 6. `SURFACE:` scores prose. Name the register (`operator-doc`, `research-note`, `commit-message`) and the glob.
-7. Everything irreversible sits behind a `(gate)`: pushes to shared branches, deletions, deploys, external sends. The sentinel path is named in the plan.
+7. Everything irreversible sits behind a `(gate)`: pushes to shared branches, deletions, deploys, external sends. The sentinel path is named in the plan. A relative `GATE:` path is relative to the plan file's directory, not `WORKDIR`; prefer an absolute path. `pipeline plan-check` refuses a gate whose parent directory does not exist.
 8. Briefs carry task facts: exact paths, exact commit subjects, scope fences ("git add X only"), the suite entrypoint, the verification grep. Do not restate the worker contract; the role prompt already carries it.
 9. Ceremony is where workers die. Name it exactly and give the finisher something to check: `EXIT: git log -1 --format=%s | grep -qxF '<subject>'`.
 10. When a judgment call changes the plan, ask once and record the answer: `DECISION <name>: <choice and why>` in the preamble.

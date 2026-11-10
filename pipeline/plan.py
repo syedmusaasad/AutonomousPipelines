@@ -22,6 +22,7 @@ Free text before the first heading is the plan preamble (shared context). The
 preamble may carry `WORKDIR: <path>` (worker cwd; default is the plan's directory)
 and `DECISION <name>: ...` lines recording named operator decisions."""
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +76,12 @@ class Phase:
     @property
     def is_gate(self) -> bool:
         return self.role == GATE_ROLE
+
+    def gate_sentinel(self, plan_dir: Path) -> Path:
+        """The sentinel path the engine waits on: a relative GATE is relative to the
+        plan file's directory (not WORKDIR); an absolute GATE is used as written."""
+        g = Path(self.gate)
+        return Path(os.path.abspath(g if g.is_absolute() else Path(plan_dir) / g))
 
     def default_gate_sentinel(self, plan_dir: Path) -> Path:
         return plan_dir / f".gate-{self.number}"
