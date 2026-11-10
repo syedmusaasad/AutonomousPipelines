@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import paths, registry
 from .journal import Journal, run_ids
-from .util import liveness, mtime_or_none, pid_alive, read_json
+from .util import live_engine_pid, liveness, mtime_or_none, pid_alive, read_json
 
 STALL_AFTER_S = int(os.environ.get("PIPELINE_STALL_S", "900"))
 
@@ -19,6 +19,10 @@ def run_report(run_id: str) -> dict:
     j = Journal(run_id)
     st = j.state()
     rdir = paths.run_dir(run_id)
+    # the lock holder is the truth; the journal's pid can be a launch that lost the lock
+    live = live_engine_pid(rdir, run_id)
+    if live:
+        st["engine_pid"] = live
     engine_alive = pid_alive(st.get("engine_pid"))
     stopped_receipt = (rdir / "STOPPED").exists()
     workers = []
@@ -129,3 +133,86 @@ def render(reports: list, *, scope: str) -> str:
     for w in waiting:
         lines.append(f"  - {w}")
     return "\n".join(lines) + "\n"
+
+
+# ---- inspect: everything about one run, in one read-only report ----------------
+
+_EVENT_KEYS = ("phase", "role", "model", "outcome", "wall_s", "ok", "verdict", "reviewer", "reason", "detail",
+               "by", "old_pid", "new_pid", "pid", "sentinel", "attempt", "note")
+
+
+def _hms(t) -> str:
+    return time.strftime("%m-%d %H:%M:%S", time.gmtime(t)) if t else "?"
+
+
+def inspect(run_id: str, events: int = 15) -> str:
+    """The engine, its workers, phases, reviews, sentry relights and the latest journal
+    events for one run. Read-only. This is the interactive seat's eyes on the engine."""
+    rdir = paths.run_dir(run_id)
+    if not (rdir / "journal.jsonl").exists():
+        raise FileNotFoundError(f"no such run: {run_id}")
+    j = Journal(run_id)
+    rows = j.rows()
+    rep = run_report(run_id)
+    st = j.state()
+    now = time.time()
+    out = [f"{run_id}  {rep['verdict']}  plan={rep['plan']}"]
+    if st.get("stopped"):
+        out.append(f"  stop: [{st['stopped']}] {(st.get('stop_detail') or '')[:400]}")
+        out.append(f"  resume with: pipeline resume {run_id}   (after fixing the cause)")
+
+    # engine: the lock holder is the truth
+    live = live_engine_pid(rdir, run_id)
+    journal_pid = st.get("engine_pid")
+    if live:
+        line = f"  engine: pid={live} ALIVE (holds the run lock)"
+        if journal_pid and journal_pid != live:
+            line += f"; journal names pid={journal_pid}, a launch that lost the lock (harmless)"
+    elif st["closed"]:
+        line = f"  engine: none (run closed: {st['closed']})"
+    else:
+        line = (f"  engine: DEAD (journal pid={journal_pid} is gone, nobody holds the lock). Live workers below are "
+                f"unsupervised; `pipeline resume {run_id}` relights the engine.")
+    out.append(line)
+    relights = [r for r in rows if r["event"] == "relight" and not r.get("note")]
+    if relights:
+        last = relights[-1]
+        out.append(f"  relights: {len(relights)} total, last {_hms(last.get('t'))} by {last.get('by')}"
+                   + ("; sentry relight budget exhausted" if any(r["event"] == "relight.exhausted" for r in rows) else ""))
+    log = rdir / "engine.log"
+    if log.exists():
+        tail = log.read_text(errors="replace").strip().splitlines()[-4:]
+        out += ["  engine.log tail:"] + [f"    {l[:200]}" for l in tail]
+
+    out.append("  phases:")
+    for k, p in sorted(rep["phases"].items(), key=lambda kv: int(kv[0])):
+        line = f"    {k}: {p.get('status')} role={p.get('role')} attempts={p.get('attempts')}"
+        if p.get("status") == "waiting":
+            line += f"  waiting on sentinel {p.get('waiting_on')}"
+        if p.get("status") in ("failed", "corpse") and p.get("last_reason"):
+            line += f"  last failure: {p['last_reason'][:240]!r}"
+        out.append(line)
+
+    out.append("  workers in flight:" if rep["workers"] else "  workers in flight: none")
+    for w in rep["workers"]:
+        state = "stalled" if w["stalled"] else ("alive" if w["alive"] else "DEAD")
+        age = f"{int(w['age'])}s" if w.get("age") is not None else "n/a"
+        ran = f"{int(now - w['started_t'])}s" if w.get("started_t") else "?"
+        out.append(f"    {w['id']} phase={w['phase']} role={w['role']} model={w['model']} pid={w['pid']} {state} "
+                   f"running={ran} transcript_age={age}")
+        out.append(f"      transcript: {w.get('transcript')}")
+
+    verdicts = [r for r in rows if r["event"] == "review.verdict"]
+    if verdicts:
+        out.append("  reviews:")
+        out += [f"    {_hms(r.get('t'))} phase={r.get('phase')} {r.get('verdict')} by {r.get('model')}  {r.get('review')}"
+                for r in verdicts[-6:]]
+    if rep["waiting_on_operator"]:
+        out.append("  waiting on operator:")
+        out += [f"    - {w[:300]}" for w in rep["waiting_on_operator"]]
+    out.append(f"  tokens={rep['tokens_total']} cost=${rep['cost_total']}  journal: {rdir / 'journal.jsonl'}")
+    out.append(f"  last {min(events, len(rows))} journal events:")
+    for r in rows[-events:]:
+        fields = " ".join(f"{k}={str(r[k])[:90]}" for k in _EVENT_KEYS if r.get(k) is not None)
+        out.append(f"    {_hms(r.get('t'))} {r['event']} {fields}".rstrip())
+    return "\n".join(out) + "\n"

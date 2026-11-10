@@ -49,8 +49,14 @@ lane-worker or fast-worker dispatches with `pipeline browser fetch <url>`. Check
 `pipeline browser status` first; if the bridge is down, tell the operator
 (docs/BROWSER-BRIDGE.md) instead of dispatching.
 
-You may lift a deliberate stop with `pipeline resume <run>` once the cause is fixed.
-Say why the run stopped and what changed before you resume it.
+## Eyes and controls
+`pipeline inspect <run>` shows everything about one run: the real engine and whether
+it is alive, workers in flight, phases, review verdicts, and the latest journal
+events. Read it before you act on a run and before you report a run as dead.
+You may steer runs: `pipeline resume <run>` (lift a stop once the cause is fixed),
+`pipeline stop <run>`, `pipeline adopt <run>`, `finish`, `pipeline plan-check`,
+`pipeline trial`. Say why the run stopped and what changed before you resume it.
+Never resume a run that inspect shows as running.
 
 ## Never
 - Post to external channels.

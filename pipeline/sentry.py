@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import engine, paths
 from .journal import Journal, run_ids
-from .util import FileLock, fs_probe, liveness, log, now_ts, pid_alive
+from .util import live_engine_pid, FileLock, fs_probe, liveness, log, now_ts, pid_alive
 
 _STALL_SEEN = {}
 TICK_S = int(os.environ.get("PIPELINE_SENTRY_TICK_S", "60"))
@@ -59,7 +59,7 @@ def _tend(rid: str, now: float, summary: dict):
         return
     if st["closed"] or not st["open"]:
         return
-    engine_pid = st.get("engine_pid")
+    engine_pid = live_engine_pid(rdir, rid) or st.get("engine_pid")
     if not pid_alive(engine_pid):
         # grace: the launcher may not have written run.open yet, or relight just happened
         last_t = max((r.get("t", 0) for r in rows if r["event"] in ("run.open", "run.resume", "relight")), default=0)

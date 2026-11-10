@@ -126,6 +126,20 @@ def read_json(path: Path, default=None):
         return default
 
 
+def live_engine_pid(run_dir, run_id: str):
+    """The pid of the engine that really owns `run_id`, or None. The engine writes its
+    pid into <run>/engine.lock when it takes the lock; that pid counts only while the
+    process is alive and is an engine for this run (pids get reused). The journal's
+    engine pid can go stale when a second launch loses the lock race and exits."""
+    try:
+        pid = int((Path(run_dir) / "engine.lock").read_text().strip())
+        cmd = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except (OSError, ValueError):
+        return None
+    args = [c.decode(errors="replace") for c in cmd]
+    return pid if ("engine" in args and run_id in args) else None
+
+
 def pid_alive(pid) -> bool:
     if not pid:
         return False

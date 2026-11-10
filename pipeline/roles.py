@@ -22,17 +22,31 @@ EFFORTS = {"claude": ("low", "medium", "high", "xhigh", "max"), "codex": ("minim
            "agy": ("low", "medium", "high", "xhigh", "max")}
 RETIRED_FIELDS = ("fallback", "quota_fallback")
 
-INTERACTIVE_ALLOWED_BASH = (
-    "run *", "run", "quick *", "quick", "status *", "status", "pipeline defects *", "pipeline defects",
-    "pipeline status *", "pipeline status", "pipeline conv *", "pipeline conv",
-    "ls *", "ls", "cat *", "cat", "grep *", "grep", "head *", "head", "tail *", "tail",
-    "git status*", "git log*", "git diff*", "git show*", "wc *", "wc", "find *", "find", "echo *", "echo",
-    "ps *", "ps", "which *", "which", "df *", "df", "du *", "du",
-    "readlink *", "readlink", "type *", "type", "pipeline check-agents", "pipeline check-agents *",
-    "codex login status", "pipeline browser status",
-    # operator decision 2026-11-10: the interactive seat may lift a deliberate stop itself
-    "pipeline resume *",
+# Engine eyes and controls for the interactive seat (operator decision 2026-11-10): it
+# may see everything about a run and trigger every supported run-control command.
+# Held back on purpose: `pipeline engine` (internal), `render-agents` and `trial-apply`
+# (they rewrite this seat's own permissions and the operator's model seats), `gc --sweep`
+# (deletes run data), `suite` and `tui`.
+PIPELINE_COMMANDS = (
+    "run *", "run", "quick *", "quick", "status *", "status", "finish *",
+    "pipeline run *", "pipeline quick *", "pipeline finish *",
+    "pipeline status *", "pipeline status", "pipeline inspect *", "pipeline conv *", "pipeline conv",
+    "pipeline defects *", "pipeline defects", "pipeline bench", "pipeline trial-report *", "pipeline cold-get *",
+    "pipeline resume *", "pipeline stop *", "pipeline adopt *",
+    "pipeline plan-check *", "pipeline validate *", "pipeline materialize *", "pipeline trial *",
+    "pipeline sentry --once", "pipeline gc --dry-run", "pipeline gc --dry-run *",
+    "pipeline check-agents", "pipeline check-agents *", "pipeline browser status",
 )
+READONLY_SHELL = (
+    "ls *", "ls", "cat *", "cat", "grep *", "grep", "head *", "head", "tail *", "tail", "wc *", "wc",
+    "git status*", "git log*", "git diff*", "git show*",
+    "git -C * status*", "git -C * log*", "git -C * diff*", "git -C * show*",
+    "ps *", "ps", "which *", "which", "df *", "df", "du *", "du", "readlink *", "readlink", "type *", "type",
+    "date", "date *", "codex login status",
+)
+INTERACTIVE_DENY_BASH = ("pipeline gc *--sweep*", "pipeline engine *", "pipeline render-agents*", "pipeline trial-apply *")
+
+INTERACTIVE_ALLOWED_BASH = PIPELINE_COMMANDS + READONLY_SHELL + ("find *", "find", "echo *", "echo")
 
 EXTERNAL_CHANNEL_PATTERNS = (
     # No role can post to external channels. Denied at the bash-permission level and
@@ -190,7 +204,8 @@ def claude_permissions(role: str, reg: dict) -> dict:
     deny = [f"Bash({p})" for p in EXTERNAL_CHANNEL_PATTERNS]
     if role == "interactive":
         allow = [t for t in tools if t != "Bash"] + [f"Bash({v})" for v in INTERACTIVE_ALLOWED_BASH]
-        deny = ["Edit", "Write", "NotebookEdit"] + [f"Bash({p})" for p in SEALED_BASH_DENY] + deny
+        deny = (["Edit", "Write", "NotebookEdit"] + [f"Bash({p})" for p in SEALED_BASH_DENY + INTERACTIVE_DENY_BASH]
+                + deny)
     else:
         allow = tools
         if s.get("sealed"):
@@ -309,6 +324,45 @@ def drift(dest: Path = None, reg: dict = None) -> list:
             bad.append(str(p))
     bad += [str(p) for p in sorted(dest.glob(f"{AGENT_PREFIX}*.md")) if p.name not in files]
     return bad
+
+
+# ---- user-level allow rules: the seat keeps its eyes however it was launched ----
+#
+# `pl` passes the seat's settings file. A session resumed with plain `claude --resume`
+# keeps the agent and its "don't ask" mode but loses that file, and with it every allowed
+# command. These allow rules (pipeline commands and read-only shell, nothing that
+# writes) also live in the user's Claude settings so the seat can still see and steer
+# the engine. Deny rules and the write guard stay in the seat's own settings.
+
+def user_allow_rules() -> list:
+    return [f"Bash({v})" for v in PIPELINE_COMMANDS + READONLY_SHELL]
+
+
+def user_settings_path() -> Path:
+    override = os.environ.get("PIPELINE_CLAUDE_SETTINGS")
+    return Path(override) if override else Path.home() / ".claude" / "settings.json"
+
+
+def write_user_settings(path: Path = None) -> Path:
+    """Add missing allow rules to the user's Claude settings; everything else is kept."""
+    path = path or user_settings_path()
+    cfg = json.loads(path.read_text()) if path.exists() and path.read_text().strip() else {}
+    allow = cfg.setdefault("permissions", {}).setdefault("allow", [])
+    missing = [r for r in user_allow_rules() if r not in allow]
+    if missing:
+        allow.extend(missing)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cfg, indent=2) + "\n")
+    return path
+
+
+def user_settings_drift(path: Path = None) -> list:
+    path = path or user_settings_path()
+    try:
+        allow = (json.loads(path.read_text()).get("permissions") or {}).get("allow") or []
+    except (OSError, ValueError):
+        allow = []
+    return [] if all(r in allow for r in user_allow_rules()) else [f"{path} (pipeline allow rules missing)"]
 
 
 def codex_rules_drift(dest: Path = None) -> list:

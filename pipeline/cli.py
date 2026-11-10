@@ -5,6 +5,7 @@
   finish --subject S --paths..  finisher dispatch: land the exact expected commit
   engine <run> <plan>           (internal) the engine process itself
   status [--mine|--conv ID] [--json]
+  inspect <run> [-n N]          everything about one run: engine, workers, phases, reviews, last events
   conv [ID]                     what did this conversation set in motion
   resume <run>                  lift a deliberate stop after judging; relaunch
   stop <run>                    write a deliberate-stop receipt and SIGTERM the engine
@@ -47,6 +48,7 @@ def main(argv=None) -> int:
     p.add_argument("--verify"); p.add_argument("--push"); p.add_argument("--suite"); p.add_argument("-C", "--cwd", default=os.getcwd())
     p = sub.add_parser("engine"); p.add_argument("run"); p.add_argument("plan")
     p = sub.add_parser("status"); p.add_argument("--mine", action="store_true"); p.add_argument("--conv"); p.add_argument("--json", action="store_true"); p.add_argument("run", nargs="?")
+    p = sub.add_parser("inspect"); p.add_argument("run"); p.add_argument("-n", "--events", type=int, default=15)
     p = sub.add_parser("conv"); p.add_argument("id", nargs="?")
     p = sub.add_parser("resume"); p.add_argument("run")
     p = sub.add_parser("stop"); p.add_argument("run"); p.add_argument("--reason", default="operator")
@@ -125,6 +127,15 @@ def cmd_status(a):
     return 0
 
 
+def cmd_inspect(a):
+    try:
+        sys.stdout.write(status.inspect(a.run, events=a.events))
+    except FileNotFoundError as e:
+        print(f"pipeline inspect: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_conv(a):
     conv = a.id or registry.current_conversation()
     rows = registry.for_conversation(conv)
@@ -134,8 +145,13 @@ def cmd_conv(a):
 
 
 def cmd_resume(a):
+    from .util import live_engine_pid
+    live = live_engine_pid(paths.run_dir(a.run), a.run)
     pid = engine.relaunch(a.run, by="operator", cleared=True)
-    print(f"resumed {a.run} engine_pid={pid}")
+    if live:
+        print(f"{a.run} is already running (engine_pid={live}); nothing to resume")
+    else:
+        print(f"resumed {a.run} engine_pid={pid}")
     return 0
 
 
@@ -179,11 +195,12 @@ def cmd_render_agents(a):
     for p in roles_mod.write_agents():
         print(p)
     print(roles_mod.write_codex_rules())
+    print(roles_mod.write_user_settings())
     return 0
 
 
 def cmd_check_agents(a):
-    d = roles_mod.drift() + roles_mod.codex_rules_drift()
+    d = roles_mod.drift() + roles_mod.codex_rules_drift() + roles_mod.user_settings_drift()
     if d:
         print("DRIFT: generated agent files differ from registry rendering:")
         for x in d:

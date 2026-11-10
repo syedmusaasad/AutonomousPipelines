@@ -30,7 +30,7 @@ from pathlib import Path
 from . import dispatch as dsp
 from . import paths, plan as planmod, registry, roles as roles_mod, surface as surfmod
 from .journal import Journal
-from .util import FileLock, fs_probe, log, new_id, now_ts, pid_alive, with_storm_armor, read_json
+from .util import live_engine_pid, FileLock, fs_probe, log, new_id, now_ts, pid_alive, with_storm_armor, read_json
 
 POLL_S = float(os.environ.get("PIPELINE_POLL_S", "5"))
 GATE_POLL_S = float(os.environ.get("PIPELINE_GATE_POLL_S", "10"))
@@ -780,6 +780,14 @@ def relaunch(run_id: str, *, by: str = "sentry", cleared: bool = False) -> int:
     j = Journal(run_id)
     st = j.state()
     old = st.get("engine_pid")
+    live = live_engine_pid(rdir, run_id)
+    if live:
+        # The run already has an engine. Launching another would lose the lock and exit,
+        # but its pid would be journaled as "the engine" and the run would read as dead.
+        if live != old:
+            # not a relight: nothing was launched, so it must not use up the sentry's budget
+            j.write("engine.adopt", by=by, old_pid=old, pid=live)
+        return live
     if cleared:
         stopped = rdir / "STOPPED"
         if stopped.exists():

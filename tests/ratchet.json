@@ -1,5 +1,5 @@
 {
- "min_tests": 271,
+ "min_tests": 273,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -111,6 +111,7 @@
   "registry_seats_match_operator_choice",
   "registry_validates_clis_seals_and_retired_fallbacks",
   "render_agents_claude_seats_only_with_drift_guard",
+  "resume_on_a_live_run_launches_no_second_engine",
   "resume_restores_cwd_and_exit_stopped_run_resumes",
   "review_integrity_missing_verdict_reask_and_blocked_revision_cap",
   "review_provenance_test_both_reviewers_blocking_stops_phase",
@@ -270,6 +271,7 @@
   "usage_limit_signature_from_claude_and_codex_events",
   "usage_limit_stops_run_without_burning_an_attempt",
   "usage_normalizes_claude_result_and_codex_turns",
+  "user_settings_carry_seat_allow_rules_for_any_launch",
   "worker_contract_names_every_clause",
   "worker_failure_also_retries"
  ]

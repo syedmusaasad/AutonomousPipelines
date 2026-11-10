@@ -124,6 +124,8 @@ def derive_state(rows: list) -> dict:
         elif ev == "relight":
             st["relights"] += 1
             st["engine_pid"] = r.get("new_pid")
+        elif ev == "engine.adopt":  # a resume found the live engine; the journal's pid was stale
+            st["engine_pid"] = r.get("pid")
         elif ev == "recover.stall":
             st["recoveries"][r["phase"]] = st["recoveries"].get(r["phase"], 0) + 1
     st["open_dispatches"] = [d for d in st["dispatches"].values() if d.get("outcome") is None]

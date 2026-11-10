@@ -2406,6 +2406,70 @@ def browser_cli_refuses_unlisted_sites_and_reports_bridge_down():
 
 
 @test
+def resume_on_a_live_run_launches_no_second_engine():
+    """A second `pipeline resume` (or a sentry relight) on a run whose engine is alive
+    must not journal a new engine pid: that made a healthy run read as dead-engine."""
+    with Estate() as E:
+        p = E.plan("## Phase 1: a (fast-worker)\nTIMEOUT: 60\nEXIT: test -f a\nFAKE: sleep 6\nFAKE: touch a\n")
+        row = engine.launch(p, run_id="live1", conversation="ses_test_conv")
+        j = jmod.Journal("live1")
+        rdir = E.estate / "runs" / "live1"
+        wait_for(lambda: util.live_engine_pid(rdir, "live1"), timeout=20)
+        real = util.live_engine_pid(rdir, "live1")
+        assert real == row["engine_pid"] or util.pid_alive(real)
+        r = E.cli("resume", "live1")
+        assert "already running" in r.stdout and f"engine_pid={real}" in r.stdout, r.stdout
+        assert engine.relaunch("live1", by="sentry") == real
+        rep = status.run_report("live1")
+        assert rep["verdict"] == "running" and rep["engine_pid"] == real and rep["engine_alive"]
+        # a stale journal pid (an engine that lost the lock) is overridden by the lock holder
+        j.write("relight", by="test", old_pid=real, new_pid=999999)
+        assert j.state()["engine_pid"] == 999999
+        rep = status.run_report("live1")
+        assert rep["verdict"] == "running" and rep["engine_pid"] == real
+        # inspect: the seat's eyes. It names the real engine and the worker in flight.
+        text = E.cli("inspect", "live1").stdout
+        assert f"engine: pid={real} ALIVE (holds the run lock)" in text and "a launch that lost the lock" in text, text
+        assert "workers in flight:" in text and "role=fast-worker" in text and "transcript:" in text
+        assert "journal events:" in text and "dispatch.start" in text
+        # adopting the live engine is not a relight: the sentry's budget is untouched
+        assert E.cli("resume", "live1").returncode == 0
+        assert any(x["event"] == "engine.adopt" for x in j.rows())
+        assert len([x for x in j.rows() if x["event"] == "relight" and x.get("by") != "test"]) == 0
+        assert sentry.tick() is not None and util.live_engine_pid(rdir, "live1") == real
+        assert len([x for x in j.rows() if x["event"] == "relight" and x.get("by") == "sentry"]) == 0
+        wait_for(lambda: j.state()["closed"] == "done", timeout=40)
+        wait_for(lambda: util.live_engine_pid(rdir, "live1") is None, timeout=15)  # a finished engine's pid no longer counts
+        assert len([c for c in E.fake_calls()]) == 1          # the worker ran once
+        done = E.cli("inspect", "live1").stdout
+        assert "engine: none (run closed: done)" in done and "workers in flight: none" in done
+        r = E.cli("inspect", "no_such_run")
+        assert r.returncode == 1 and "no such run" in r.stderr
+
+
+@test
+def user_settings_carry_seat_allow_rules_for_any_launch():
+    """A seat resumed with plain `claude --resume` loses the pl settings file; the
+    pipeline and read-only allow rules also live in the user's Claude settings."""
+    with Estate() as E:
+        path = E.tmp / "claude-settings.json"
+        path.write_text(json.dumps({"theme": "auto", "hooks": {"SessionStart": []}, "permissions": {"allow": ["Bash(make *)"]}}))
+        assert roles_mod.user_settings_drift(path)
+        roles_mod.write_user_settings(path)
+        cfg = json.loads(path.read_text())
+        allow = cfg["permissions"]["allow"]
+        assert cfg["theme"] == "auto" and "hooks" in cfg and allow[0] == "Bash(make *)"   # existing settings kept
+        for rule in ("Bash(pipeline inspect *)", "Bash(pipeline resume *)", "Bash(status)", "Bash(quick *)", "Bash(ps *)"):
+            assert rule in allow, rule
+        # nothing that writes, and no deny rules, go to the user level
+        assert not any(r in allow for r in ("Bash(echo *)", "Bash(find *)", "Bash(pipeline *)", "Edit", "Write"))
+        assert "deny" not in cfg["permissions"]
+        before = path.read_text()
+        roles_mod.write_user_settings(path)                                               # idempotent
+        assert path.read_text() == before and roles_mod.user_settings_drift(path) == []
+
+
+@test
 def fake_worker_rejects_retired_devpass_argv():
     with Estate() as E:
         for argv in (["run", "--format", "json", "--agent", "pl-x", "--model", "p/m", "--auto"],
@@ -3144,8 +3208,15 @@ def interactive_seat_guard_refuses_writes():
     assert "Bash(run *)" in settings["allow"] and "Bash(quick *)" in settings["allow"]
     assert "Bash(readlink *)" in settings["allow"] and "Bash(pipeline check-agents)" in settings["allow"]
     assert "Bash(pipeline defects *)" in settings["allow"]
-    assert "Bash(pipeline resume *)" in settings["allow"]  # operator decision 2026-11-10
-    assert "Bash(pipeline stop *)" not in settings["allow"] and "Bash(pipeline adopt *)" not in settings["allow"]
+    # operator decision 2026-11-10: full eyes on the engine and every run-control command
+    for rule in ("Bash(pipeline inspect *)", "Bash(pipeline resume *)", "Bash(pipeline stop *)", "Bash(pipeline adopt *)",
+                 "Bash(finish *)", "Bash(pipeline plan-check *)", "Bash(pipeline trial *)", "Bash(git -C * log*)", "Bash(ps *)"):
+        assert rule in settings["allow"], rule
+    # held back: the internal engine entry, commands that rewrite its own permissions or the
+    # operator's seats, and the sweep that deletes run data
+    for held in ("pipeline engine *", "pipeline render-agents*", "pipeline trial-apply *", "pipeline gc *--sweep*"):
+        assert f"Bash({held})" in settings["deny"] and f"Bash({held})" not in settings["allow"], held
+    assert not any(a.startswith("Bash(pipeline suite") or a == "Bash(pipeline *)" for a in settings["allow"])
     forbidden = ("Bash(git commit*)", "Bash(rm *)", "Bash(touch *)", "Bash(pip *)", "Edit", "Write")
     assert not any(f in settings["allow"] for f in forbidden), "write commands must be refused"
     rendered = rmod.render_agent("interactive", reg)
