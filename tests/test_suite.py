@@ -2366,6 +2366,8 @@ def browser_fetch_reads_page_over_devtools_and_closes_its_tab():
         methods = [m for _, m, _ in chrome.calls]
         assert methods[0] == "Target.createTarget" and chrome.calls[0][2]["background"] is True
         assert "Page.navigate" in methods and methods[-1] == "Target.closeTarget"
+        # background tab, rendered as if focused (hidden tabs lay out no text on some sites)
+        assert methods.index("Emulation.setFocusEmulationEnabled") < methods.index("Page.navigate")
         assert chrome.closed_targets == ["T1"]                      # never leaves tabs in the operator's browser
         text = browser.render(page, max_chars=50, links=True)
         assert "[truncated at 50 of" in text and "Next\thttps://www.glassdoor.com/Reviews/acme_P2" in text

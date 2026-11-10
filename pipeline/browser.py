@@ -306,6 +306,13 @@ def fetch(url: str, cfg: dict, *, wait: float = 3.0, scroll: int = 0, timeout: f
         page = CDP(f"{_ws_base(cfg)}/devtools/page/{target}")
         try:
             page.call("Page.enable")
+            try:
+                # The tab stays in the background so it never takes focus on the operator's
+                # screen, but some sites (Blind) lay out no text in a hidden tab. Chrome's
+                # "emulate a focused page" option makes the page render as if visible.
+                page.call("Emulation.setFocusEmulationEnabled", {"enabled": True}, timeout=10)
+            except BrowserError:
+                pass  # older Chrome: read whatever the hidden tab renders
             nav = page.call("Page.navigate", {"url": url}, timeout=timeout)
             if nav.get("errorText"):
                 raise BrowserError(f"navigation failed: {nav['errorText']}")
