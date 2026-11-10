@@ -33,9 +33,10 @@ PIPELINE_COMMANDS = (
     "pipeline status *", "pipeline status", "pipeline inspect *", "pipeline conv *", "pipeline conv",
     "pipeline defects *", "pipeline defects", "pipeline bench", "pipeline trial-report *", "pipeline cold-get *",
     "pipeline resume *", "pipeline stop *", "pipeline adopt *",
-    "pipeline plan-check *", "pipeline validate *", "pipeline materialize *", "pipeline trial *",
+    "pipeline plan-check *", "pipeline plan-write *", "pipeline validate *", "pipeline materialize *", "pipeline trial *",
     "pipeline sentry --once", "pipeline gc --dry-run", "pipeline gc --dry-run *",
     "pipeline check-agents", "pipeline check-agents *", "pipeline browser status",
+    "pipeline --help", "pipeline -h", "pipeline * --help",
 )
 READONLY_SHELL = (
     "ls *", "ls", "cat *", "cat", "grep *", "grep", "head *", "head", "tail *", "tail", "wc *", "wc",
@@ -330,9 +331,9 @@ def drift(dest: Path = None, reg: dict = None) -> list:
 #
 # `pl` passes the seat's settings file. A session resumed with plain `claude --resume`
 # keeps the agent and its "don't ask" mode but loses that file, and with it every allowed
-# command. These allow rules (pipeline commands and read-only shell, nothing that
-# writes) also live in the user's Claude settings so the seat can still see and steer
-# the engine. Deny rules and the write guard stay in the seat's own settings.
+# command. These allow rules (pipeline commands and read-only shell; the only write is
+# `pipeline plan-write`, which writes plan.md files that pass plan-check) also live in
+# the user's Claude settings so the seat can still see and steer the engine. Deny rules and the write guard stay in the seat's own settings.
 
 def user_allow_rules() -> list:
     return [f"Bash({v})" for v in PIPELINE_COMMANDS + READONLY_SHELL]

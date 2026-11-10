@@ -20,6 +20,7 @@
   sentry [--once]               the sentry daemon (or one tick)
   suite                         run the characterization suite and log it
   validate <plan.md>            parse and validate a plan
+  plan-write <dir>/plan.md      write a plan from stdin (only files named plan.md; refused unless plan-check passes)
   cold-get <run>                print a local cold archive path or Drive hint
   browser status|fetch <url>    read a page through the operator's signed-in browser (docs/BROWSER-BRIDGE.md)
 """
@@ -64,6 +65,7 @@ def main(argv=None) -> int:
     sub.add_parser("suite")
     p = sub.add_parser("materialize"); p.add_argument("workflow"); p.add_argument("out"); p.add_argument("--workdir", default="."); p.add_argument("--brief", default=""); p.add_argument("--exit", default="true")
     p = sub.add_parser("plan-check"); p.add_argument("plan")
+    p = sub.add_parser("plan-write"); p.add_argument("path")
     p = sub.add_parser("defects"); p.add_argument("-C", "--cwd", default=os.getcwd())
     p = sub.add_parser("validate"); p.add_argument("plan")
     p = sub.add_parser("gc"); p.add_argument("--dry-run", action="store_true"); p.add_argument("--sweep", action="store_true")
@@ -358,6 +360,39 @@ def cmd_materialize(a):
             print("  " + f)
         return 1
     print(f"materialized {a.workflow} -> {out}")
+    return 0
+
+
+def cmd_plan_write(a):
+    """The interactive seat cannot write files; this is its one sanctioned write. It
+    takes the plan on stdin, writes only a file named plan.md, and keeps the file only
+    if plan-check passes. A plan it replaces is kept as plan.md.bak."""
+    from . import workflows as wf
+    path = Path(a.path)
+    if path.name != "plan.md":
+        print(f"plan-write: refuses {path.name!r}; it only writes files named plan.md", file=sys.stderr)
+        return 2
+    text = sys.stdin.read()
+    if not text.strip():
+        print("plan-write: no plan on stdin (use: pipeline plan-write <dir>/plan.md <<'EOF' ... EOF)", file=sys.stderr)
+        return 2
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.parent / ".plan.md.incoming"
+    tmp.write_text(text if text.endswith("\n") else text + "\n")
+    try:
+        fails = wf.check_plan(tmp)
+    except Exception as e:  # a plan too broken to parse
+        fails = [str(e)]
+    if fails:
+        tmp.unlink()
+        print("plan-write: not written, plan-check FAILED:")
+        for f in fails:
+            print("  " + f)
+        return 1
+    if path.exists():
+        os.replace(path, path.with_name("plan.md.bak"))
+    os.replace(tmp, path)
+    print(f"wrote {path} ({len(planmod.parse_file(path).phases)} phase(s)); plan-check: pass")
     return 0
 
 

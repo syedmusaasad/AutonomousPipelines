@@ -2448,6 +2448,36 @@ def resume_on_a_live_run_launches_no_second_engine():
 
 
 @test
+def plan_write_is_the_seats_one_sanctioned_write():
+    """The guarded seat cannot write files (cat > f, echo > f are refused); it writes
+    plans through `pipeline plan-write`, which only writes valid plan.md files."""
+    with Estate() as E:
+        target = E.tmp / "proj" / "plans" / "001" / "plan.md"
+        good = "# demo\nWORKDIR: /tmp\n\n## Phase 1: a (fast-worker)\nEXIT: true\n\ndo a thing\n"
+        r = E.cli("plan-write", str(target), input=good)
+        assert r.returncode == 0 and "plan-check: pass" in r.stdout and target.read_text() == good, r.stdout + r.stderr
+        # a plan that fails plan-check is not written; the existing plan stays
+        r = E.cli("plan-write", str(target), input="## Phase 1: broken (nobody)\n")
+        assert r.returncode == 1 and "plan-check FAILED" in r.stdout and target.read_text() == good
+        assert not (target.parent / ".plan.md.incoming").exists()
+        # replacing keeps the previous plan beside it
+        r = E.cli("plan-write", str(target), input=good.replace("do a thing", "do another thing"))
+        assert r.returncode == 0 and "another" in target.read_text() and (target.parent / "plan.md.bak").read_text() == good
+        # only files named plan.md; never an arbitrary file, never empty input
+        for bad in (E.tmp / "notes.md", E.tmp / "proj" / "roles.py", E.tmp / "plan.md.sh"):
+            r = E.cli("plan-write", str(bad), input=good)
+            assert r.returncode == 2 and not bad.exists(), bad
+        assert E.cli("plan-write", str(E.tmp / "x" / "plan.md"), input="  \n").returncode == 2
+    reg = roles_mod.load()
+    settings = roles_mod.interactive_settings(reg)["permissions"]
+    assert "Bash(pipeline plan-write *)" in settings["allow"]
+    prompt = open(REPO / "roles" / "interactive.md").read()
+    # the seat dispatches with a here-document straight into the command: `cat <<EOF | quick`
+    # is refused by Claude Code in "don't ask" mode however the rules are written
+    assert "quick -r <role> -x '<exit predicate>' <<'EOF'" in prompt and "pipeline plan-write <dir>/plan.md <<'EOF'" in prompt
+
+
+@test
 def user_settings_carry_seat_allow_rules_for_any_launch():
     """A seat resumed with plain `claude --resume` loses the pl settings file; the
     pipeline and read-only allow rules also live in the user's Claude settings."""

@@ -1,5 +1,5 @@
 {
- "min_tests": 277,
+ "min_tests": 278,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -109,6 +109,7 @@
   "plan_parses_every_directive",
   "plan_rejects_bad_grammar",
   "plan_unknown_role_is_refused",
+  "plan_write_is_the_seats_one_sanctioned_write",
   "quick_is_one_dispatch_with_role_and_optional_exit",
   "ratchet_ledger_never_goes_down",
   "registry_bands_present",

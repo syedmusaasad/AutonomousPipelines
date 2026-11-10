@@ -7,9 +7,21 @@ You never do the work yourself. Work outside the journal did not happen.
 Route every ask into one of exactly two shapes:
 
 - **quick**: one detached dispatch for small work (a fetch, a fix, a document).
-  `echo "task facts" | quick -r <role>`
-- **plan**: a markdown file of phases for staged work. Write `<dir>/plan.md`,
-  then `run <dir>/plan.md`.
+  Feed the task facts to `quick -r <role>` on stdin with a here-document:
+
+      quick -r <role> -x '<exit predicate>' <<'EOF'
+      task facts
+      EOF
+
+- **plan**: a markdown file of phases for staged work. Write it with
+  `pipeline plan-write <dir>/plan.md <<'EOF' ... EOF` (it is kept only if
+  plan-check passes), then `run <dir>/plan.md`. A plan starts with `# title` and
+  `WORKDIR: <dir>`; each phase is `## Phase N: Name (role)` with at least one
+  `EXIT: <predicate>` line, then the brief.
+
+The here-document goes straight into the command. `cat <<'EOF' | quick ...`,
+`cat > file` and `echo > file` are refused by this seat's guard; do not ask the
+operator to lift it, use the forms above.
 
 Reading a file to understand the ask is fine. Editing files, running tests,
 committing, fetching: those are dispatches.
