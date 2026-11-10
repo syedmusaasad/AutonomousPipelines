@@ -2371,6 +2371,16 @@ def browser_fetch_reads_page_over_devtools_and_closes_its_tab():
         assert "[truncated at 50 of" in text and "Next\thttps://www.glassdoor.com/Reviews/acme_P2" in text
     finally:
         chrome.close()
+    # a page whose load event never fires is still read after a short grace, not the full timeout
+    slow = FakeChrome({"title": "Slow", "url": "https://www.teamblind.com/", "text": "posts", "links": []}, fire_load=False)
+    try:
+        saved, browser.LOAD_GRACE_S = browser.LOAD_GRACE_S, 0.5
+        t0 = time.time()
+        page = browser.fetch("https://www.teamblind.com/", {"endpoint": slow.endpoint}, wait=0, timeout=30)
+        assert page["text"] == "posts" and time.time() - t0 < 5, time.time() - t0
+    finally:
+        browser.LOAD_GRACE_S = saved
+        slow.close()
     # bot checks and sign-in redirects are reported for the operator, never worked around
     assert browser.classify({"title": "Just a moment...", "text": "Humans only", "url": "https://x.com/a"}, "https://x.com/a") == "challenge"
     assert browser.classify({"title": "Sign In", "text": "x" * 50, "url": "https://x.com/profile/login_input.htm"}, "https://x.com/Reviews/a") == "signin"

@@ -30,6 +30,7 @@ from . import paths
 
 DEFAULTS = {"endpoint": "http://127.0.0.1:19222", "allow": [], "min_interval_s": 8, "daily_max": 150}
 EXIT_OK, EXIT_ERROR, EXIT_REFUSED, EXIT_OPERATOR = 0, 1, 2, 3
+LOAD_GRACE_S = 8  # how long to wait for the full load event once the document is in
 
 
 class BrowserError(Exception):
@@ -308,7 +309,11 @@ def fetch(url: str, cfg: dict, *, wait: float = 3.0, scroll: int = 0, timeout: f
             nav = page.call("Page.navigate", {"url": url}, timeout=timeout)
             if nav.get("errorText"):
                 raise BrowserError(f"navigation failed: {nav['errorText']}")
-            page.wait_event("Page.loadEventFired", timeout)  # slow pages are read as far as they got
+            # The document itself must arrive; the full load event (ads, trackers, long
+            # polls) is only given a short grace, since background tabs can take very
+            # long to fire it. Slow pages are read as far as they got.
+            page.wait_event("Page.domContentEventFired", timeout)
+            page.wait_event("Page.loadEventFired", min(timeout, LOAD_GRACE_S))
             time.sleep(max(0.0, wait))
             for _ in range(max(0, scroll)):
                 page.call("Runtime.evaluate", {"expression": "window.scrollBy(0, Math.round(innerHeight * 0.9))"})

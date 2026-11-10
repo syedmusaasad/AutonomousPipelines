@@ -12,11 +12,12 @@ GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
 class FakeChrome:
-    def __init__(self, page: dict, big_ping: bool = True):
+    def __init__(self, page: dict, big_ping: bool = True, fire_load: bool = True):
         self.page = page            # {"title", "url", "text", "links"} returned by Runtime.evaluate
         self.calls = []             # (path, method, params)
         self.closed_targets = []
         self.big_ping = big_ping
+        self.fire_load = fire_load  # False: a page whose load event never comes
         self.srv = socket.socket()
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind(("127.0.0.1", 0))
@@ -121,4 +122,6 @@ class FakeChrome:
                 self._send(conn, "", opcode=0x9)  # a ping the client must answer and skip
             self._send(conn, json.dumps({"id": msg["id"], "result": result}))
             if method == "Page.navigate":
-                self._send(conn, json.dumps({"method": "Page.loadEventFired", "params": {"timestamp": 1}}))
+                self._send(conn, json.dumps({"method": "Page.domContentEventFired", "params": {"timestamp": 1}}))
+                if self.fire_load:
+                    self._send(conn, json.dumps({"method": "Page.loadEventFired", "params": {"timestamp": 1}}))
