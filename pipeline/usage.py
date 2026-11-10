@@ -21,19 +21,25 @@ def _int(v):
 
 def _nonneg(part: dict) -> dict:
     """Token counts are never negative. A negative figure means the CLI's fields could not
-    be reconciled: record the non-negative best figure (0) and mark the part incomplete."""
-    tokens = part.get("tokens") or {}
-    for k in ("input", "output", "reasoning", "total"):
-        v = tokens.get(k)
-        if isinstance(v, int) and v < 0:
-            tokens[k] = 0
+    be reconciled: record the non-negative best figure (0) and mark the part incomplete.
+    Judged after numeric conversion, so "-3" and -3.5 are caught as well as -3."""
+    def clamp(d, k):
+        v = d.get(k)
+        if v is None or isinstance(v, bool):
+            return
+        n = _int(v)
+        if n is not None and n < 0:
+            d[k] = 0
             part["incomplete"] = True
+    tokens = part.get("tokens")
+    if not isinstance(tokens, dict):
+        return part
+    for k in ("input", "output", "reasoning", "total"):
+        clamp(tokens, k)
     cache = tokens.get("cache")
     if isinstance(cache, dict):
-        for k, v in cache.items():
-            if isinstance(v, int) and v < 0:
-                cache[k] = 0
-                part["incomplete"] = True
+        for k in list(cache):
+            clamp(cache, k)
     return part
 
 

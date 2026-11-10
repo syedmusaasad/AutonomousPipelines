@@ -3426,3 +3426,11 @@ def irreconcilable_usage_is_clamped_and_marked_incomplete():
         "total": -5, "input": -3, "output": 2, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}))
     s = acc.snapshot()
     assert s["input"] == 0 and s["provider_total"] == 0 and s["telemetry_complete"] is False, s
+    # legacy step_finish whose negative figures arrive as a string or a float
+    for bad in ("-3", -3.5):
+        acc = UsageAccumulator()
+        acc.feed_line(json.dumps({"type": "step_finish", "part": {"id": "p2", "cost": 0.1, "tokens": {
+            "total": bad, "input": bad, "output": 2, "reasoning": 0, "cache": {"read": bad, "write": 0}}}}))
+        s = acc.snapshot()
+        assert s["input"] == 0 and s["provider_total"] == 0 and s["cache_read"] == 0, (bad, s)
+        assert s["telemetry_complete"] is False, (bad, s)
