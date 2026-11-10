@@ -19,6 +19,15 @@
     "openai": "codex",
     "google": "agy"
   },
+  "browser": {
+    "endpoint": "http://127.0.0.1:19222",
+    "allow": [
+      "glassdoor.com",
+      "teamblind.com"
+    ],
+    "min_interval_s": 8,
+    "daily_max": 150
+  },
   "roles": {
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
@@ -192,7 +201,8 @@
         "bash": true,
         "edit": true,
         "webfetch": true,
-        "task": false
+        "task": false,
+        "browser": true
       },
       "external_post": false,
       "history": [
@@ -272,7 +282,8 @@
         "bash": true,
         "edit": true,
         "webfetch": true,
-        "task": false
+        "task": false,
+        "browser": true
       },
       "external_post": false,
       "history": [
@@ -340,7 +351,8 @@
         "bash": true,
         "edit": true,
         "webfetch": true,
-        "task": false
+        "task": false,
+        "browser": true
       },
       "external_post": false,
       "history": [

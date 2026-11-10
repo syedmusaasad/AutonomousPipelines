@@ -20,6 +20,7 @@
   suite                         run the characterization suite and log it
   validate <plan.md>            parse and validate a plan
   cold-get <run>                print a local cold archive path or Drive hint
+  browser status|fetch <url>    read a page through the operator's signed-in browser (docs/BROWSER-BRIDGE.md)
 """
 
 import argparse
@@ -67,8 +68,18 @@ def main(argv=None) -> int:
     p.add_argument("--buffer-hours", type=float, default=72.0); p.add_argument("--quick-only", action="store_true")
     p.add_argument("--cloud")
     p = sub.add_parser("cold-get"); p.add_argument("run")
+    p = sub.add_parser("browser"); p.add_argument("action", choices=["status", "fetch"]); p.add_argument("url", nargs="?")
+    p.add_argument("--wait", type=float, default=3.0, help="seconds to let the page settle after load")
+    p.add_argument("--scroll", type=int, default=0, help="page-downs to trigger lazy content")
+    p.add_argument("--links", action="store_true"); p.add_argument("--json", action="store_true")
+    p.add_argument("--out"); p.add_argument("--max-chars", type=int, default=40000); p.add_argument("--timeout", type=float, default=45)
     a = ap.parse_args(argv)
     return globals()["cmd_" + a.cmd.replace("-", "_")](a)
+
+
+def cmd_browser(a):
+    from . import browser
+    return browser.cmd(a, roles_mod.load())
 
 
 def cmd_run(a):

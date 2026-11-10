@@ -7,3 +7,6 @@ Small, well-specified work: a fetch, a one-line fix, a rename, a lookup.
 - Write results to the file(s) the brief names. If none are named, write
   `RESULT.md` in the working directory.
 - Final lines: the path(s) written and one line of what is in them.
+
+Operator-browser sites (Glassdoor, Blind): `pipeline browser fetch <url>`. Exit 3
+means the operator must act; report it and stop, do not retry or work around it.

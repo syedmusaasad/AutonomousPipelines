@@ -29,7 +29,7 @@ INTERACTIVE_ALLOWED_BASH = (
     "git status*", "git log*", "git diff*", "git show*", "wc *", "wc", "find *", "find", "echo *", "echo",
     "ps *", "ps", "which *", "which", "df *", "df", "du *", "du",
     "readlink *", "readlink", "type *", "type", "pipeline check-agents", "pipeline check-agents *",
-    "codex login status",
+    "codex login status", "pipeline browser status",
 )
 
 EXTERNAL_CHANNEL_PATTERNS = (
@@ -101,6 +101,11 @@ def validate(reg: dict) -> None:
                 raise RegistryError(f"role {name}: reviewers must be sealed")
             if r["tools"].get("edit"):
                 raise RegistryError(f"role {name}: sealed reviewers get no edit grant")
+    try:
+        from . import browser
+        browser.validate(reg)
+    except ValueError as e:
+        raise RegistryError(str(e))
     if cli_of(roles["interactive"]["model"], reg) != "claude":
         raise RegistryError("interactive seat must run on Claude Code (agent file + settings)")
 

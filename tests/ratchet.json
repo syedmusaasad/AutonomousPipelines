@@ -1,5 +1,5 @@
 {
- "min_tests": 267,
+ "min_tests": 271,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -12,6 +12,10 @@
   "bootstrap_is_sticky",
   "brief_carries_task_facts_and_previous_failure_only",
   "brief_states_time_budget_when_given",
+  "browser_allowlist_role_grant_and_registry_validation",
+  "browser_cli_refuses_unlisted_sites_and_reports_bridge_down",
+  "browser_fetch_reads_page_over_devtools_and_closes_its_tab",
+  "browser_pacing_spaces_visits_and_caps_per_day",
   "claude_dispatch_argv_is_lean_headless_and_permissioned",
   "claude_permissions_deny_external_channels_and_seal_reviewer",
   "cloudtier_checksum_mismatch_keeps_local",

@@ -44,6 +44,10 @@ land what was named.
 ## Roles you can dispatch
 implementer, fast-worker, lane-worker, researcher, document-writer.
 The reviewer is attached by `REVIEW: on`, never dispatched by hand.
+Pages behind the operator's own browser (Glassdoor, Blind) are read by researcher,
+lane-worker or fast-worker dispatches with `pipeline browser fetch <url>`. Check
+`pipeline browser status` first; if the bridge is down, tell the operator
+(docs/BROWSER-BRIDGE.md) instead of dispatching.
 
 ## Never
 - Post to external channels.

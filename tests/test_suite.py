@@ -2290,6 +2290,110 @@ def codex_rules_forbid_external_posting_and_drift_guard():
 
 
 @test
+def browser_allowlist_role_grant_and_registry_validation():
+    from pipeline import browser
+    reg = roles_mod.load()
+    cfg = browser.config(reg)
+    assert urlparse_host(cfg["endpoint"]) in ("127.0.0.1", "localhost")
+    allow = ["glassdoor.com", "teamblind.com"]
+    assert browser.host_allowed("https://www.glassdoor.com/Reviews/x.htm", allow)
+    assert browser.host_allowed("https://teamblind.com/company/Acme", allow)
+    for bad in ("https://glassdoor.com.evil.io/", "https://notglassdoor.com/", "file:///etc/passwd",
+                "https://example.com/?next=glassdoor.com", "javascript:alert(1)", "glassdoor.com"):
+        assert not browser.host_allowed(bad, allow), bad
+    # grants: researcher/lane/fast workers only; the operator's own shell (no role) may use it
+    assert browser.role_allowed(reg, "researcher") and browser.role_allowed(reg, "lane-worker")
+    assert not browser.role_allowed(reg, "implementer") and not browser.role_allowed(reg, "reviewer")
+    assert browser.role_allowed(reg, "")
+    import copy
+    for mutate in (lambda b: b["browser"].__setitem__("endpoint", "http://10.0.0.5:9222"),
+                   lambda b: b["browser"].__setitem__("allow", ["https://glassdoor.com/"]),
+                   lambda b: b["browser"].__setitem__("allow", ["com"])):
+        bad = copy.deepcopy(reg)
+        mutate(bad)
+        try:
+            roles_mod.validate(bad)
+        except roles_mod.RegistryError:
+            pass
+        else:
+            raise AssertionError("bad browser config accepted")
+
+
+def urlparse_host(u):
+    from urllib.parse import urlparse
+    return urlparse(u).hostname
+
+
+@test
+def browser_pacing_spaces_visits_and_caps_per_day():
+    from pipeline import browser
+    with Estate() as E:
+        state = E.tmp / "pace.json"
+        clock = {"t": 1_800_000_000.0}
+        slept = []
+        def sleep(s):
+            slept.append(s)
+            clock["t"] += s
+        cfg = {"min_interval_s": 8, "daily_max": 3}
+        assert browser.pace("a.com", cfg, state=state, sleep=sleep, now=lambda: clock["t"]) == 0
+        w = browser.pace("a.com", cfg, state=state, sleep=sleep, now=lambda: clock["t"])
+        assert 8 <= w <= 12 and slept == [w]                       # second visit waits the gap (+ jitter)
+        assert browser.pace("b.com", cfg, state=state, sleep=sleep, now=lambda: clock["t"]) == 0  # per host
+        clock["t"] += 60
+        browser.pace("a.com", cfg, state=state, sleep=sleep, now=lambda: clock["t"])
+        try:
+            browser.pace("a.com", cfg, state=state, sleep=sleep, now=lambda: clock["t"])
+        except browser.BrowserError as e:
+            assert e.code == browser.EXIT_REFUSED and "daily cap" in str(e)
+        else:
+            raise AssertionError("daily cap not enforced")
+        clock["t"] += 86400                                          # a new day resets the count
+        browser.pace("a.com", cfg, state=state, sleep=sleep, now=lambda: clock["t"])
+
+
+@test
+def browser_fetch_reads_page_over_devtools_and_closes_its_tab():
+    from pipeline import browser
+    from fake_cdp import FakeChrome
+    big = "review text " * 9000   # > 64 KiB: exercises the 8-byte frame length
+    chrome = FakeChrome({"title": "Acme Reviews", "url": "https://www.glassdoor.com/Reviews/acme", "text": big,
+                         "links": [{"t": "Next", "h": "https://www.glassdoor.com/Reviews/acme_P2"}]})
+    try:
+        cfg = {"endpoint": chrome.endpoint, "allow": ["glassdoor.com"], "min_interval_s": 0, "daily_max": 9}
+        assert browser.version(cfg)["Browser"] == "FakeChrome/1.0"
+        page = browser.fetch("https://www.glassdoor.com/Reviews/acme", cfg, wait=0, scroll=1, timeout=10)
+        assert page["title"] == "Acme Reviews" and page["text"] == big and page["status"] == ""
+        methods = [m for _, m, _ in chrome.calls]
+        assert methods[0] == "Target.createTarget" and chrome.calls[0][2]["background"] is True
+        assert "Page.navigate" in methods and methods[-1] == "Target.closeTarget"
+        assert chrome.closed_targets == ["T1"]                      # never leaves tabs in the operator's browser
+        text = browser.render(page, max_chars=50, links=True)
+        assert "[truncated at 50 of" in text and "Next\thttps://www.glassdoor.com/Reviews/acme_P2" in text
+    finally:
+        chrome.close()
+    # bot checks and sign-in redirects are reported for the operator, never worked around
+    assert browser.classify({"title": "Just a moment...", "text": "Humans only", "url": "https://x.com/a"}, "https://x.com/a") == "challenge"
+    assert browser.classify({"title": "Sign In", "text": "x" * 50, "url": "https://x.com/profile/login_input.htm"}, "https://x.com/Reviews/a") == "signin"
+    assert browser.classify({"title": "Reviews", "text": "captcha " + "long review " * 400, "url": "https://x.com/r"}, "https://x.com/r") == ""
+
+
+@test
+def browser_cli_refuses_unlisted_sites_and_reports_bridge_down():
+    with Estate() as E:
+        env = {**os.environ, "PIPELINE_BROWSER_ENDPOINT": "http://127.0.0.1:9", "PIPELINE_ROLE": "researcher"}
+        r = subprocess.run([sys.executable, "-m", "pipeline.cli", "browser", "fetch", "https://example.org/"],
+                           capture_output=True, text=True, env=env, cwd=str(REPO))
+        assert r.returncode == 2 and "not in browser.allow" in r.stderr, r.stderr
+        r = subprocess.run([sys.executable, "-m", "pipeline.cli", "browser", "fetch", "https://www.glassdoor.com/"],
+                           capture_output=True, text=True, env={**env, "PIPELINE_ROLE": "implementer"}, cwd=str(REPO))
+        assert r.returncode == 2 and "no `browser` tool grant" in r.stderr, r.stderr
+        r = subprocess.run([sys.executable, "-m", "pipeline.cli", "browser", "fetch", "https://www.glassdoor.com/"],
+                           capture_output=True, text=True, env=env, cwd=str(REPO))
+        assert r.returncode == 3 and "not reachable" in r.stderr and "No page was fetched" in r.stderr, r.stderr
+        assert not (E.estate / "state" / "browser-pace.json").exists()  # a down bridge spends no paced slot
+
+
+@test
 def fake_worker_rejects_retired_devpass_argv():
     with Estate() as E:
         for argv in (["run", "--format", "json", "--agent", "pl-x", "--model", "p/m", "--auto"],

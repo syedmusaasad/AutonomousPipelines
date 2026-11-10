@@ -85,6 +85,14 @@ non-essential traffic, claude.ai connectors and stray MCP servers are off, there
 session persistence (the transcript is the record), and per-machine prompt sections
 are moved out of the system prompt so workers share one prompt-cache prefix.
 
+## Browser bridge
+
+`pipeline browser fetch <url>` reads a page through a Chrome on the operator's own Mac
+(signed in, home network), reached over a reverse SSH tunnel that `mac/browser-bridge.sh`
+keeps up. Only allowlisted sites and granted roles, one paced page at a time; bot
+checks and sign-in pages are handed to the operator, never worked around. See
+docs/BROWSER-BRIDGE.md.
+
 ## Status
 
 `status` reports from the journal: runs, phases, live workers with model, tokens, and
@@ -118,6 +126,7 @@ session moves entries to # Fixed with the landing hash.
 pipeline/   engine, dispatch, journal, sentry, gc, cloudtier, tui, workflows, defects
 roles/      registry.json, role prompts, CONTRACT.md
 plugin/     Claude Code SessionStart hook (conversation id)
+mac/        browser bridge installer for the operator's Mac
 registers/  writing-register standards
 tests/      suite, ratchet ledger, fake worker, probe, hygiene gates
 plans/      executed plan records

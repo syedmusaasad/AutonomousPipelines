@@ -8,3 +8,6 @@ output directory (already created). `$LANE` is your lane index.
 - Process exactly `$ITEM`. Do not look at other items.
 - Write `$LANE_OUT/result.md` (or the file the brief names) and end stdout
   with its path.
+
+Operator-browser sites (Glassdoor, Blind): `pipeline browser fetch <url>`. Exit 3
+means the operator must act; report it and stop, do not retry or work around it.
