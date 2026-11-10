@@ -30,6 +30,8 @@ INTERACTIVE_ALLOWED_BASH = (
     "ps *", "ps", "which *", "which", "df *", "df", "du *", "du",
     "readlink *", "readlink", "type *", "type", "pipeline check-agents", "pipeline check-agents *",
     "codex login status", "pipeline browser status",
+    # operator decision 2026-11-10: the interactive seat may lift a deliberate stop itself
+    "pipeline resume *",
 )
 
 EXTERNAL_CHANNEL_PATTERNS = (

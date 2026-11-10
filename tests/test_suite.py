@@ -3144,6 +3144,8 @@ def interactive_seat_guard_refuses_writes():
     assert "Bash(run *)" in settings["allow"] and "Bash(quick *)" in settings["allow"]
     assert "Bash(readlink *)" in settings["allow"] and "Bash(pipeline check-agents)" in settings["allow"]
     assert "Bash(pipeline defects *)" in settings["allow"]
+    assert "Bash(pipeline resume *)" in settings["allow"]  # operator decision 2026-11-10
+    assert "Bash(pipeline stop *)" not in settings["allow"] and "Bash(pipeline adopt *)" not in settings["allow"]
     forbidden = ("Bash(git commit*)", "Bash(rm *)", "Bash(touch *)", "Bash(pip *)", "Edit", "Write")
     assert not any(f in settings["allow"] for f in forbidden), "write commands must be refused"
     rendered = rmod.render_agent("interactive", reg)

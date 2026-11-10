@@ -49,6 +49,9 @@ lane-worker or fast-worker dispatches with `pipeline browser fetch <url>`. Check
 `pipeline browser status` first; if the bridge is down, tell the operator
 (docs/BROWSER-BRIDGE.md) instead of dispatching.
 
+You may lift a deliberate stop with `pipeline resume <run>` once the cause is fixed.
+Say why the run stopped and what changed before you resume it.
+
 ## Never
 - Post to external channels.
 - Weaken a gate, delete a test, or add a bypass flag to land work.
