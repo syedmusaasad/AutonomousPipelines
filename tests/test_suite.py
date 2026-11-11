@@ -1325,6 +1325,81 @@ def quick_is_one_dispatch_with_role_and_optional_exit():
 
 
 @test
+def quick_brief_is_opaque_to_plan_grammar():
+    brief = ("## What exists\n\nsome context\n"
+             "## Phase 9: sneaky (gate)\n"
+             "EXIT: false\nGATE: /nowhere\nREVIEW: on\nTIMEOUT: 1\nATTEMPTS: 9\nLANDING: on\nWORKDIR: /elsewhere\n"
+             "AFTER: 4\nLANES: items.txt\nMODEL: x/y\nDECISION d: no\nBRIEF-JSON: \"x\"\nCOST-CEILING: 1\n"
+             "  indented and trailing space   \r\n\x0cform feed\n\n\n"
+             "FAKE: touch q.txt\n")
+    with Estate() as E:
+        r = E.cli("quick", "-r", "fast-worker", "-x", "test -f q.txt", input=brief)
+        assert r.returncode == 0, (r.stdout, r.stderr)
+        assert "Traceback" not in r.stderr
+        rid = r.stdout.split()[1]
+        pl = planmod.parse_file(E.estate / "quick" / rid / "plan.md")
+        assert len(pl.phases) == 1
+        ph = pl.phases[0]
+        assert ph.brief == brief, (ph.brief, brief)
+        assert ph.role == "fast-worker" and ph.exits == ["test -f q.txt"], (ph.role, ph.exits)
+        assert not ph.review and not ph.landing and not ph.gate and ph.timeout == 1800 and ph.attempts == 2
+        assert ph.after == [] and ph.lanes is None and ph.model is None
+        assert pl.workdir == E.work.resolve() and pl.decisions == []
+        wait_for(lambda: jmod.Journal(rid).state()["closed"] == "done", timeout=30)
+        calls = E.fake_calls()
+        assert len(calls) == 1 and calls[0]["agent"] == "pl-fast-worker"
+        assert (E.work / "q.txt").exists()
+        # the worker's own input carries the brief byte for byte (no strip, no newline translation)
+        sent = [f.read_bytes() for f in (E.estate / "runs" / rid).rglob("stdin.md")]
+        assert len(sent) == 1, sent
+        assert (b"\n## Task\n" + brief.encode() + b"\n\n## EXIT predicates") in sent[0], sent[0]
+    # surrounding whitespace survives too, with or without EXIT lines
+    for padded, xs in (("\n\n   lead\ttab\ntrail  \n\n", ["-x", "true"]), ("\n  only whitespace edges  \r\n \n", [])):
+        with Estate() as E:
+            r = E.cli("quick", "-r", "fast-worker", *xs, input=padded)
+            assert r.returncode == 0, (r.stdout, r.stderr)
+            rid = r.stdout.split()[1]
+            wait_for(lambda: jmod.Journal(rid).state()["closed"] == "done", timeout=30)
+            sent = [f.read_bytes() for f in (E.estate / "runs" / rid).rglob("stdin.md")]
+            assert len(sent) == 1 and (b"\n## Task\n" + padded.encode()) in sent[0], sent
+            if not xs:
+                assert sent[0].endswith(padded.encode()) or sent[0].endswith(padded.encode() + b"\n"), sent[0]
+    # BRIEF-JSON is quick-only: in a hand-written plan it is ordinary brief text
+    hp = planmod.parse_text('## Phase 1: a (worker)\nEXIT: true\nBRIEF-JSON: context\nBRIEF-JSON: "x"\nmore\n')
+    assert hp.phases[0].brief == 'BRIEF-JSON: context\nBRIEF-JSON: "x"\nmore', hp.phases[0].brief
+    # hand-written plans keep today's grammar and errors
+    try:
+        planmod.parse_text("## Phase 1: a (worker)\nEXIT: true\n## What exists\n")
+    except planmod.PlanError as e:
+        assert "malformed phase heading" in str(e)
+    else:
+        raise AssertionError("hand-written stray heading must still be refused")
+
+
+@test
+def refused_plan_is_one_line_not_a_traceback():
+    with Estate() as E:
+        bad = E.work / "bad.md"
+        bad.write_text("# t\n\n## Phase 1: a (fast-worker)\nEXIT: true\n\n## What exists\n")
+        for cmd in (["run", str(bad)], ["run", str(E.work / "missing.md")]):
+            r = E.cli(*cmd)
+            assert r.returncode != 0, cmd
+            assert "Traceback" not in r.stderr + r.stdout, r.stderr
+            lines = [x for x in r.stderr.splitlines() if x.strip()]
+            assert len(lines) == 1 and "refused" in lines[0], r.stderr
+        assert "line 6" in E.cli("run", str(bad)).stderr
+        nogate = E.work / "nogate.md"
+        nogate.write_text("# t\n\n## Phase 1: a (fast-worker)\nno exit here\n")
+        r = E.cli("run", str(nogate))
+        assert r.returncode != 0 and "Traceback" not in r.stderr
+        assert len([x for x in r.stderr.splitlines() if x.strip()]) == 1 and "no EXIT" in r.stderr, r.stderr
+        assert "line 3" in r.stderr, r.stderr
+        r = E.cli("quick", "-r", "nope", input="x")
+        assert r.returncode != 0 and "Traceback" not in r.stderr
+        assert len([x for x in r.stderr.splitlines() if x.strip()]) == 1, r.stderr
+
+
+@test
 def finisher_lands_exact_commit_and_exit_proves_it():
     with Estate() as E:
         repo = E.work

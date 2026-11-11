@@ -71,10 +71,18 @@ def main(argv):
         except Exception as e:
             print(f"(could not log suite result: {e})")
         if tests_passed == len(tests) and len(tests) > ledger["min_tests"]:
-            ledger["min_tests"] = len(tests)
-            ledger["required"] = sorted({*ledger["required"], *(t.__name__ for t in tests)})
-            ledger_p.write_text(json.dumps(ledger, indent=1) + "\n")
-            print(f"ratchet raised to {len(tests)}")
+            # Concurrent runs: lock, re-read, only ever raise, replace atomically.
+            import fcntl
+            with open(Path(__file__), "rb") as lk:  # lock on this file; no stray lock file
+                fcntl.flock(lk, fcntl.LOCK_EX)
+                ledger = json.loads(ledger_p.read_text())
+                if len(tests) > ledger["min_tests"]:
+                    ledger["min_tests"] = len(tests)
+                    ledger["required"] = sorted({*ledger["required"], *(t.__name__ for t in tests)})
+                    tmp = ledger_p.with_name(f".ratchet.json.{os.getpid()}")
+                    tmp.write_text(json.dumps(ledger, indent=1) + "\n")
+                    os.replace(tmp, ledger_p)
+                    print(f"ratchet raised to {len(tests)}")
     return 1 if (failed or hygiene_failures) else 0
 
 

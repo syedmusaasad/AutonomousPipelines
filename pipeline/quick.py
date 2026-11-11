@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from . import engine, paths, registry
+from . import plan as planmod
 from .util import new_id
 
 
@@ -16,14 +17,17 @@ def launch_quick(task: str, *, role: str, cwd: Path, exits: list = (), timeout: 
     run_id = new_id("q")
     qdir = paths.quick_dir() / run_id
     qdir.mkdir(parents=True, exist_ok=True)
-    lines = [f"# quick: {task.strip().splitlines()[0][:80]}", f"WORKDIR: {Path(cwd).resolve()}", "",
+    first = (task.strip().splitlines() or [""])[0][:80]
+    lines = [f"# quick: {first}", f"WORKDIR: {Path(cwd).resolve()}", "",
              f"## Phase 1: quick ({role})", f"TIMEOUT: {timeout}", "ATTEMPTS: 2"]
     if landing:
         lines.append("LANDING: on")
     lines += [f"EXIT: {e}" for e in exits]
     if review:
         lines.append("REVIEW: on")
-    lines += ["", task.strip(), ""]
+    # The brief is written as one escaped line so no brief line can be read as a phase
+    # heading or directive; the parser hands the worker the original text byte for byte.
+    lines += [planmod.encode_brief(task), ""]
     plan_path = qdir / "plan.md"
     plan_path.write_text("\n".join(lines))
     row = engine.launch(plan_path, run_id=run_id, conversation=conversation, kind="quick")

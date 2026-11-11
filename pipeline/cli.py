@@ -78,7 +78,12 @@ def main(argv=None) -> int:
     p.add_argument("--links", action="store_true"); p.add_argument("--json", action="store_true")
     p.add_argument("--out"); p.add_argument("--max-chars", type=int, default=40000); p.add_argument("--timeout", type=float, default=45)
     a = ap.parse_args(argv)
-    return globals()["cmd_" + a.cmd.replace("-", "_")](a)
+    try:
+        return globals()["cmd_" + a.cmd.replace("-", "_")](a)
+    except planmod.PlanError as e:
+        # A refused plan (grammar or plan-check) is an operator error: one line, no traceback.
+        print(f"pipeline {a.cmd}: refused: {' '.join(str(e).split())}", file=sys.stderr)
+        return 1
 
 
 def cmd_browser(a):
@@ -94,7 +99,7 @@ def cmd_run(a):
 
 
 def cmd_quick(a):
-    task = sys.stdin.read()
+    task = sys.stdin.buffer.read().decode("utf-8", errors="replace")  # bytes: no newline translation
     if not task.strip():
         print("quick: task on stdin is empty", file=sys.stderr)
         return 2

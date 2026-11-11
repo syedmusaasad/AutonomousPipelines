@@ -236,14 +236,15 @@ def build_brief(*, task: str, role: str, cwd: Path, exits: list = (), extras: di
             parts.append(f"{k}: {v}")
     if preamble:
         parts.append("\n## Plan context\n" + preamble.strip())
-    parts.append("\n## Task\n" + task.strip())
+    parts.append("\n## Task\n" + task)  # verbatim: the worker gets the task text byte for byte
     if exits:
         parts.append("\n## EXIT predicates (the engine runs these after you finish; all must pass)")
         for e in exits:
             parts.append(f"- `{e}`")
     if previous_failure:
         parts.append("\n## Previous attempt failed. Attack this failure first.\n" + previous_failure.strip())
-    return "\n".join(parts).rstrip() + "\n"
+    out = "\n".join(parts)
+    return out if out.endswith("\n") else out + "\n"
 
 
 class DispatchResult:
@@ -286,7 +287,7 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     out_dir.mkdir(parents=True, exist_ok=True)
     transcript = out_dir / "transcript.jsonl"
     brief_path = out_dir / "brief.md"
-    brief_path.write_text(brief)
+    brief_path.write_bytes(brief.encode("utf-8"))  # bytes: no newline translation
     (out_dir / "meta.json").write_text(json.dumps({
         "role": role, "model": model, "cli": roles_mod.cli_of(model, reg), "cwd": str(cwd), "started": now_iso(), "timeout": timeout,
     }, indent=1))
@@ -294,11 +295,12 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     cli = roles_mod.cli_of(model, reg)
     perms = roles_mod.claude_permissions(role, reg) if cli == "claude" else None
     stdin_path = out_dir / "stdin.md"
-    stdin_path.write_text(worker_stdin(cli, role, brief))
+    stdin_text = worker_stdin(cli, role, brief)
+    stdin_path.write_bytes(stdin_text.encode("utf-8"))
     argv = build_argv(binary=worker_bin(cli), cli=cli, agent=s["agent"], model=model, effort=effective_effort,
                       cwd=Path(cwd).resolve(), out_dir=out_dir.resolve(), permissions=perms,
                       sealed=bool(s.get("sealed")),
-                      prompt=agy_prompt(stdin_path.read_text(), stdin_path.resolve()) if cli == "agy" else None,
+                      prompt=agy_prompt(stdin_text, stdin_path.resolve()) if cli == "agy" else None,
                       settings=roles_mod.agy_settings(role, reg) if cli == "agy" else None)
     full_env = dict(os.environ)
     if cli == "claude":

@@ -3,9 +3,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 from unittest import mock
@@ -14,9 +16,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-SERVER = "pipeline-tui-probe"
+# Per-process names: two suite runs at once must not share a tmux server or a fixture dir.
+SERVER = f"pipeline-tui-probe-{os.getpid()}-{os.urandom(3).hex()}"
 SESSION = "tui-probe"
-FIXTURE = Path("/tmp/devpass-code/tui-probe-fixture")
+FIXTURE = Path(tempfile.gettempdir()) / f"tui-probe-fixture-{os.getpid()}-{os.urandom(3).hex()}"
 CONV_DB = FIXTURE / "conversation.db"
 PROBE_SESSION_ID = "ses_probe"
 DONE_TRANSCRIPT_LINES = 500  # hundreds of lines: enough to make the item view genuinely scrollable
@@ -450,11 +453,19 @@ def assert_replay(tmux_session):
     capture-poll loop here: a slow replay is an app bug, not a probe retry."""
     subprocess.run([sys.executable, str(Path(__file__).parent / "fixtures" / "tui_giant_fixture.py"),
                     "--target", str(GIANT_FIXTURE)], check=True)
-    started = time.monotonic()
     boot_tui(tmux_session, conv="ses_giant", db_path=GIANT_DB, settle=False)
-    # Give curses one draw tick to create the loading state, then switch to the
-    # attached conversation before taking the required immediate capture.
-    time.sleep(0.10)
+    # Wait for curses' first paint (process start is CPU-load dependent and is the
+    # boot assertion's concern, not the replay budget's), then switch to the
+    # attached conversation before taking the required immediate capture. The
+    # replay budget runs from that first paint; this is a start gate, not a
+    # capture-poll on replay content.
+    boot_deadline = time.monotonic() + 15
+    while not capture(tmux_session).strip():
+        if time.monotonic() > boot_deadline:
+            raise AssertionError("giant replay: TUI never painted after boot")
+        time.sleep(0.02)
+    started = time.monotonic()
+    time.sleep(0.05)
     send_key(tmux_session, "4")
     time.sleep(0.05)  # one paint after the tab key; this is not a capture poll
     progress_cap = capture(tmux_session)
@@ -616,6 +627,8 @@ def main(argv):
     if not names:
         print(f"no assertion matches --only {only!r}; known: {', '.join(ASSERTIONS)}", file=sys.stderr)
         return 1
+    # Make SIGTERM run the finally block so the private tmux server is always killed.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     fixup_env()
     build_fixture()
     failed = []
@@ -634,6 +647,7 @@ def main(argv):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["tmux", "-L", SERVER, "kill-server"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        shutil.rmtree(FIXTURE, ignore_errors=True)
 
 
 if __name__ == "__main__":
