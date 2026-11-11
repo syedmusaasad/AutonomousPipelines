@@ -95,12 +95,17 @@ def check_plan(path: Path) -> list:
     if len(pl.phases) != header_count:
         named = [p.number for p in pl.phases]
         dropped = sorted(set(range(1, header_count + 1)) - set(named))
-        failures.append(f"phase headers in file ({header_count}) != parsed ({len(pl.phases)}); dropped: {dropped}")
+        parsed_lines = {p.line for p in pl.phases}
+        header_lines = [i for i, ln in enumerate(text.splitlines(), 1) if re.match(r"##\s*Phase\s+\d+", ln)]
+        at = ", ".join(str(i) for i in header_lines if i not in parsed_lines) or ", ".join(map(str, header_lines))
+        failures.append(f"phase headers in file ({header_count}) != parsed ({len(pl.phases)}); dropped: {dropped} "
+                        f"(heading line {at})")
     workflow = plan_workflow(text)
     if workflow and workflow in REQUIRED_EXITS:
         with_exit = [p for p in pl.phases if p.exits]
         if len(with_exit) < REQUIRED_EXITS[workflow]:
-            failures.append(f"workflow {workflow} requires at least {REQUIRED_EXITS[workflow]} phase with EXIT lines")
+            title_line = next((i for i, ln in enumerate(text.splitlines(), 1) if ln.strip()), 1)
+            failures.append(f"line {title_line}: workflow {workflow} requires at least {REQUIRED_EXITS[workflow]} phase with EXIT lines")
     is_quick = text.lstrip().startswith("# quick:")
     for p in pl.phases:
         if not is_quick and not p.is_gate and not p.exits and not p.lanes:

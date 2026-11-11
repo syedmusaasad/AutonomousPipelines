@@ -1364,9 +1364,28 @@ def quick_brief_is_opaque_to_plan_grammar():
             assert len(sent) == 1 and (b"\n## Task\n" + padded.encode()) in sent[0], sent
             if not xs:
                 assert sent[0].endswith(padded.encode()) or sent[0].endswith(padded.encode() + b"\n"), sent[0]
-    # BRIEF-JSON is quick-only: in a hand-written plan it is ordinary brief text
-    hp = planmod.parse_text('## Phase 1: a (worker)\nEXIT: true\nBRIEF-JSON: context\nBRIEF-JSON: "x"\nmore\n')
-    assert hp.phases[0].brief == 'BRIEF-JSON: context\nBRIEF-JSON: "x"\nmore', hp.phases[0].brief
+    # resumed run: a later, separate process re-reading the plan (engine resume) gets the same brief
+    with Estate() as E:
+        r = E.cli("quick", "-r", "fast-worker", input=brief)
+        assert r.returncode == 0, (r.stdout, r.stderr)
+        rid = r.stdout.split()[1]
+        wait_for(lambda: jmod.Journal(rid).state()["closed"] == "done", timeout=30)
+        code = (f"import sys, json; sys.path.insert(0, {str(REPO)!r}); from pipeline import plan; "
+                "print(json.dumps(plan.parse_file(sys.argv[1]).phases[0].brief))")
+        out = subprocess.run([sys.executable, "-I", "-c", code, str(E.estate / "quick" / rid / "plan.md")],
+                             env={**os.environ, "PYTHONPATH": str(REPO)}, capture_output=True, text=True)
+        assert out.returncode == 0 and json.loads(out.stdout) == brief, (out.stdout, out.stderr)
+        # the plan text itself never carries the brief
+        assert "sneaky" not in (E.estate / "quick" / rid / "plan.md").read_text()
+        # a sidecar anywhere but the quick store is ignored
+        other = E.work / "plan.md"
+        other.write_text("## Phase 1: a (worker)\nEXIT: true\nreal brief\n")
+        (E.work / "plan.brief").write_bytes(b"planted")
+        assert planmod.parse_file(other).phases[0].brief == "real brief"
+    # No in-band text switches modes: a hand-written plan titled "# quick:" parses as before
+    for title in ("# quick: something\n\n", "# not quick\n\n", ""):
+        hp = planmod.parse_text(title + '## Phase 1: a (worker)\nEXIT: true\nBRIEF-JSON: context\nBRIEF-JSON: "x"\nmore\n')
+        assert hp.phases[0].brief == 'BRIEF-JSON: context\nBRIEF-JSON: "x"\nmore', hp.phases[0].brief
     # hand-written plans keep today's grammar and errors
     try:
         planmod.parse_text("## Phase 1: a (worker)\nEXIT: true\n## What exists\n")
@@ -1397,6 +1416,22 @@ def refused_plan_is_one_line_not_a_traceback():
         r = E.cli("quick", "-r", "nope", input="x")
         assert r.returncode != 0 and "Traceback" not in r.stderr
         assert len([x for x in r.stderr.splitlines() if x.strip()]) == 1, r.stderr
+        # a dependency cycle names the heading line of each phase in it (and not a phase merely behind it)
+        cyc = E.work / "cycle.md"
+        cyc.write_text("# t\n\n## Phase 1: first (fast-worker)\nEXIT: true\nAFTER: 2\n\n"
+                       "## Phase 2: second (fast-worker)\nEXIT: true\nAFTER: 1\n\n"
+                       "## Phase 3: behind (fast-worker)\nEXIT: true\nAFTER: 2\n")
+        r = E.cli("run", str(cyc))
+        assert r.returncode != 0 and "Traceback" not in r.stderr
+        err = [x for x in r.stderr.splitlines() if x.strip()]
+        assert len(err) == 1 and "dependency cycle" in err[0], r.stderr
+        assert "phase 1 'first' (line 3)" in err[0] and "phase 2 'second' (line 7)" in err[0], err
+        assert "behind" not in err[0], err
+        # workflow-level plan-check refusal names the title line
+        wf = E.work / "wf.md"
+        wf.write_text("# quick-fix: x\n\n## Phase 1: a (fast-worker)\nno exit\n")
+        err = [x for x in E.cli("run", str(wf)).stderr.splitlines() if x.strip()]
+        assert len(err) == 1 and "line 1:" in err[0], err
 
 
 @test

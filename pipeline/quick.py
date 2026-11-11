@@ -25,10 +25,11 @@ def launch_quick(task: str, *, role: str, cwd: Path, exits: list = (), timeout: 
     lines += [f"EXIT: {e}" for e in exits]
     if review:
         lines.append("REVIEW: on")
-    # The brief is written as one escaped line so no brief line can be read as a phase
-    # heading or directive; the parser hands the worker the original text byte for byte.
-    lines += [planmod.encode_brief(task), ""]
+    # The brief never enters the plan text: it goes beside the plan, in the engine-owned
+    # quick store, as bytes. The plan loader reads it from there (out of band), so no
+    # brief line can be read as a heading or directive and the worker gets it verbatim.
     plan_path = qdir / "plan.md"
-    plan_path.write_text("\n".join(lines))
+    plan_path.write_text("\n".join(lines + [""]))
+    (qdir / planmod.QUICK_BRIEF_SIDECAR).write_bytes(task.encode("utf-8"))
     row = engine.launch(plan_path, run_id=run_id, conversation=conversation, kind="quick")
     return row
