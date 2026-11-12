@@ -404,7 +404,7 @@ def registry_seats_match_operator_choice():
     """DECISION leave-devpass (2026-11-07): the operator's seats, verbatim."""
     reg = roles_mod.load()
     want = {
-        "interactive": ("claude-fable-5-2", "high"), "implementer": ("claude-sonnet-5-5", "high"),
+        "interactive": ("claude-fable-5-2", "medium"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
         "researcher": ("gemini-3.8-flash", "medium"), "document-writer": ("gemini-3.8-flash", "high"),
         "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer": ("gpt-6.1-sol", "high"),

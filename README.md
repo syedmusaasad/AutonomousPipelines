@@ -60,7 +60,7 @@ failing plan.
 
 | Role | CLI | Model | Effort |
 |---|---|---|---|
-| interactive | claude | claude-fable-5-2 | high |
+| interactive | claude | claude-fable-5-2 | medium |
 | implementer | claude | claude-sonnet-5-5 | high |
 | fast-worker | codex | gpt-6-luna | low |
 | lane-worker | claude | claude-haiku-5-5 | low |

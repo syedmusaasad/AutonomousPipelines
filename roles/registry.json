@@ -32,7 +32,7 @@
     "interactive": {
       "purpose": "The one agent the operator talks to. Routes every ask into quick or plan; never does the work itself.",
       "model": "claude-fable-5-2",
-      "effort": "high",
+      "effort": "medium",
       "band": "standard",
       "tools": {
         "read": true,
@@ -116,6 +116,18 @@
           },
           "at": "2026-11-09T00:00:00+00:00",
           "why": "DECISION operator-seats (2026-11-09): operator moved the interactive seat to Claude Fable 5.2 directly, outside pipeline trial. Verified the model id runs on this account; no published benchmarks for Fable 5.2 yet."
+        },
+        {
+          "from": {
+            "model": "claude-fable-5-2",
+            "effort": "high"
+          },
+          "to": {
+            "model": "claude-fable-5-2",
+            "effort": "medium"
+          },
+          "at": "2026-11-12T00:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-12): operator set the interactive seat to medium effort. Published benchmark (Artificial Analysis, 2026-11-10): Fable 5.2 medium scores 56 at 8.3 min and $3.80 per task, above the previous Opus 5.5 high (52, 9.5 min, $3.46); Fable 5.2 high scores 62 at 17.7 min and $9.08. In the operator's own interactive sessions Fable 5.2 high had a median turn of 38 s (p90 180 s) against 24 s (p90 79 s) for Opus 5.5 high, with 42% of output spent thinking."
         }
       ]
     },
