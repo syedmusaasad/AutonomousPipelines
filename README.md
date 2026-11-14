@@ -13,7 +13,7 @@ git clone <this repo> && cd pipeline
 ./bootstrap.sh
 export PATH="$HOME/.system/bin:$PATH"
 claude          # sign in once (Claude subscription)
-codex login     # sign in once (ChatGPT subscription; fast-worker, researcher, document-writer, reviewer)
+codex login     # sign in once (ChatGPT subscription; fast-worker, researcher, document-writer, reviewer-b)
 pl              # the interactive seat
 ```
 
@@ -40,7 +40,7 @@ work itself.
 | `TIMEOUT: <seconds>` | per attempt; bounds are 30 to 7200 |
 | `ATTEMPTS: <n>` | worker attempts before the phase burns |
 | `LANES: <file>` + `CEILING: <n>` | fan out one dispatch per item, n concurrent |
-| `REVIEW: on` | one sealed Codex reviewer after EXIT passes (`cross` is the legacy spelling) |
+| `REVIEW: cross` | two sealed reviewers on different model families after EXIT passes; either can block (`on` is accepted) |
 | `SURFACE: <glob> <register>` | score prose artifacts against a register standard |
 | `GATE: <path>` | operator sentinel; the engine waits. A relative path is relative to the plan file's directory, not WORKDIR; `plan-check` refuses a path whose parent directory does not exist |
 | `ITERATE: on` + `CEILING: <n>` | fresh-session loop until EXIT passes |
@@ -65,7 +65,8 @@ failing plan.
 | researcher | codex | gpt-6.1-sol | high |
 | document-writer | codex | gpt-6.1-sol | high |
 | frontend-worker | claude | claude-sonnet-5-5 | high |
-| reviewer | codex | gpt-6.1-sol | high |
+| reviewer-a | claude | claude-opus-5-5 | high |
+| reviewer-b | codex | gpt-6.1-sol | high |
 
 A seat's model family picks its CLI (`clis` in roles/registry.json). There are no
 fallback models: a failed dispatch is retried on the same seat as a phase attempt, and a
@@ -74,9 +75,15 @@ the operator resumes it after the reset. Seats change only via `pipeline trial`.
 interactive seat is read-only: `pl` starts it with settings that refuse writes (dontAsk)
 instead of prompting, and the role prompt names the dispatch it should have used.
 
-The reviewer is sealed: Codex runs it in a read-only sandbox, and the engine saves its
-final message as `review.md`. BLOCKING gets one revision dispatch and one re-review;
-BLOCKING again is a deliberate stop.
+Both reviewers are sealed and both review every reviewed phase, in parallel, each in its
+own directory (`review/reviewer-a`, `review/reviewer-b`). reviewer-a runs on Claude Code
+under its permission rules (Edit, Write, NotebookEdit, `git commit`/`push`, `rm`, `mv`
+denied); reviewer-b runs on Codex in a read-only sandbox. The engine saves each one's
+final message as its `review.md`. Either BLOCKING verdict triggers one revision dispatch
+(the brief names every blocking review), then both re-review; a BLOCKING from either
+after that is a deliberate stop (`review_blocking`). A reviewer that returns no verdict
+fails the attempt. The two sit on different model families, so every piece of work is
+seen by at least one reviewer outside its author's family.
 
 Headless Claude Code is tuned for start-up speed (see docs/WORKER-COMPATIBILITY.md):
 non-essential traffic, claude.ai connectors and stray MCP servers are off, there is no

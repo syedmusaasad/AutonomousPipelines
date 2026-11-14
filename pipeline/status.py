@@ -205,7 +205,7 @@ def inspect(run_id: str, events: int = 15) -> str:
     verdicts = [r for r in rows if r["event"] == "review.verdict"]
     if verdicts:
         out.append("  reviews:")
-        out += [f"    {_hms(r.get('t'))} phase={r.get('phase')} {r.get('verdict')} by {r.get('model')}  {r.get('review')}"
+        out += [f"    {_hms(r.get('t'))} phase={r.get('phase')} {r.get('verdict')} by {r.get('reviewer')} ({r.get('model')})  {r.get('review')}"
                 for r in verdicts[-6:]]
     if rep["waiting_on_operator"]:
         out.append("  waiting on operator:")

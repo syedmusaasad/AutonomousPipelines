@@ -33,7 +33,7 @@ EXIT: {exit_predicate}
 
 ## Phase 2: review (implementer)
 AFTER: 1
-REVIEW: on
+REVIEW: cross
 TIMEOUT: 1800
 EXIT: {exit_predicate}
 

@@ -664,8 +664,40 @@
         }
       ]
     },
-    "reviewer": {
-      "purpose": "Sealed reviewer: a headless Codex session reads the work and returns a verdict; never edits.",
+    "reviewer-a": {
+      "purpose": "Sealed reviewer: a headless session reads the work and returns a verdict; never edits.",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "band": "critical",
+      "sealed": true,
+      "tools": {
+        "read": true,
+        "glob": true,
+        "grep": true,
+        "list": true,
+        "bash": true,
+        "edit": false,
+        "webfetch": false,
+        "task": false
+      },
+      "external_post": false,
+      "history": [
+        {
+          "from": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "to": {
+            "model": "claude-opus-5-5",
+            "effort": "high"
+          },
+          "at": "2026-11-14T00:00:00+00:00",
+          "why": "DECISION two-reviewers (2026-11-14): operator restored a second reviewer. reviewer-a (claude-opus-5-5 high) and reviewer-b (gpt-6.1-sol high) both review every reviewed phase; either BLOCKING verdict blocks. Every piece of work is therefore seen by at least one reviewer outside its author's model family."
+        }
+      ]
+    },
+    "reviewer-b": {
+      "purpose": "Sealed reviewer: a headless session reads the work and returns a verdict; never edits.",
       "model": "gpt-6.1-sol",
       "effort": "high",
       "band": "critical",
@@ -766,6 +798,18 @@
           },
           "at": "2026-11-07T00:00:00+00:00",
           "why": "DECISION leave-devpass (2026-11-07): operator cancelled DevPass and moved to a Claude subscription (Claude Code) plus Codex. Anthropic seats run on `claude -p`; the single sealed reviewer runs on `codex exec`. Fallback and quota_fallback arms are removed; reviewer-a/b/c collapse into one reviewer."
+        },
+        {
+          "from": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "at": "2026-11-14T00:00:00+00:00",
+          "why": "DECISION two-reviewers (2026-11-14): operator restored a second reviewer. reviewer-a (claude-opus-5-5 high) and reviewer-b (gpt-6.1-sol high) both review every reviewed phase; either BLOCKING verdict blocks. Every piece of work is therefore seen by at least one reviewer outside its author's model family."
         }
       ]
     }

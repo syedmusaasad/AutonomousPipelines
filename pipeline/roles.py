@@ -12,8 +12,7 @@ from pathlib import Path
 from . import paths
 
 REGISTRY = paths.roles_dir() / "registry.json"
-REVIEWER = "reviewer"
-REVIEWERS = (REVIEWER,)
+REVIEWERS = ("reviewer-a", "reviewer-b")
 DISPATCHABLE = ("implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker") + REVIEWERS
 REQUIRED = ("interactive",) + DISPATCHABLE
 AGENT_PREFIX = "pl-"
@@ -115,6 +114,8 @@ def validate(reg: dict) -> None:
                 raise RegistryError(f"role {name}: reviewers must be sealed")
             if r["tools"].get("edit"):
                 raise RegistryError(f"role {name}: sealed reviewers get no edit grant")
+    if len({family_of(roles[n]["model"], reg) for n in REVIEWERS}) < 2:
+        raise RegistryError("reviewers must span at least two model families")
     try:
         from . import browser
         browser.validate(reg)
@@ -150,12 +151,13 @@ def seat(role: str, reg: dict = None) -> dict:
     return r
 
 
-def reviewer_role(reg: dict = None) -> str:
-    """The one sealed reviewer seat."""
+def reviewer_roles(reg: dict = None) -> tuple:
+    """The two sealed reviewer seats; both review every reviewed phase."""
     reg = reg or load()
-    if REVIEWER not in reg["roles"]:
-        raise RegistryError("no reviewer seat")
-    return REVIEWER
+    for r in REVIEWERS:
+        if r not in reg["roles"]:
+            raise RegistryError(f"no {r} seat")
+    return REVIEWERS
 
 
 def prompt_path(role: str) -> Path:

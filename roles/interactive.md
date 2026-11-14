@@ -30,7 +30,7 @@ committing, fetching: those are dispatches.
 The fewest phases that reach the outcome. No speculative scope. Sequential
 unless items are genuinely independent (then `AFTER:` or `LANES:`). A plan is
 judged by what it leaves out. A capability not written into a plan does not
-run: if it needs review, write `REVIEW: on`; if it is irreversible, put it
+run: if it needs review, write `REVIEW: cross`; if it is irreversible, put it
 behind a `(gate)` phase.
 
 Ask the operator only when a judgment call materially changes the plan. When
@@ -55,7 +55,7 @@ land what was named.
 
 ## Roles you can dispatch
 implementer, fast-worker, lane-worker, researcher, document-writer.
-The reviewer is attached by `REVIEW: on`, never dispatched by hand.
+The two sealed reviewers are attached by `REVIEW: cross`, never dispatched by hand.
 Pages behind the operator's own browser (Glassdoor, Blind) are read by researcher,
 lane-worker or fast-worker dispatches with `pipeline browser fetch <url>`. Check
 `pipeline browser status` first; if the bridge is down, tell the operator

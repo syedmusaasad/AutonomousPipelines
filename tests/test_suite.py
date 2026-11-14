@@ -89,7 +89,7 @@ def plan_rejects_bad_grammar():
     bad = [
         "## Phase 1: a (implementer)\n## Phase 1: b (implementer)\n",  # duplicate
         "## Phase 1: a (implementer)\nAFTER: 9\n",  # unknown dep
-        "## Phase 1: a (implementer)\nREVIEW: single\n",  # only on (or legacy cross)
+        "## Phase 1: a (implementer)\nREVIEW: single\n",  # only cross (or on)
         "## Phase 1: a (implementer)\nSURFACE: onlyglob\n",
         "## Phase 1: a (implementer)\nTIMEOUT: soon\n",
         "## Phase 1: g (gate)\nEXIT: true\n",  # gates take no EXIT
@@ -265,8 +265,8 @@ FAKE: record
         assert len(workers) == 2
         assert workers[0]["brief"] == workers[1]["brief"]
         assert "Previous attempt failed" not in workers[1]["brief"]
-        reviewers = [x for x in E.fake_calls() if x["agent"] == "pl-reviewer"]
-        assert len(reviewers) == 1  # one review, after the final EXIT only
+        reviewers = [x for x in E.fake_calls() if x["agent"].startswith("pl-reviewer")]
+        assert sorted(x["agent"] for x in reviewers) == ["pl-reviewer-a", "pl-reviewer-b"]  # one review round, after the final EXIT only
 
 
 @test
@@ -335,8 +335,8 @@ FAKE: verdict PASS
         assert st["closed"] == "done", r.stdout + r.stderr
         calls = E.fake_calls()
         assert len([x for x in calls if x["agent"] == "pl-implementer"]) == 3
-        assert len([x for x in calls if x["agent"] == "pl-reviewer"]) == 1
-        assert len([x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]) == 1
+        assert len([x for x in calls if x["agent"].startswith("pl-reviewer")]) == 2
+        assert len([x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]) == 2
 
 
 @test
@@ -371,23 +371,31 @@ def registry_validates_clis_seals_and_retired_fallbacks():
         assert "fallback" not in r and "quota_fallback" not in r, name
         assert not r.get("external_post")
         assert roles_mod.cli_of(r["model"], reg) in ("claude", "codex"), name
-    assert roles_mod.REVIEWERS == ("reviewer",)
-    rv = reg["roles"]["reviewer"]
-    assert rv["sealed"] and not rv["tools"]["edit"]
-    assert roles_mod.seat("reviewer", reg)["cli"] == "codex"
-    assert roles_mod.reviewer_role(reg) == "reviewer"
+    assert roles_mod.REVIEWERS == ("reviewer-a", "reviewer-b") and "reviewer" not in reg["roles"]
+    for name in roles_mod.REVIEWERS:
+        rv = reg["roles"][name]
+        assert rv["sealed"] and not rv["tools"]["edit"], name
+    assert roles_mod.seat("reviewer-a", reg)["cli"] == "claude"
+    assert roles_mod.seat("reviewer-b", reg)["cli"] == "codex"
+    assert roles_mod.reviewer_roles(reg) == ("reviewer-a", "reviewer-b")
     import copy
     for mutate, why in (
         (lambda b: b["roles"]["implementer"].__setitem__("fallback", "gpt-6.1-sol"), "fallback accepted"),
         (lambda b: b["roles"]["implementer"].__setitem__("quota_fallback", "gpt-6.1-sol@low"), "quota_fallback accepted"),
-        (lambda b: b["roles"]["reviewer"]["tools"].__setitem__("edit", True), "reviewer with edit accepted"),
-        (lambda b: b["roles"]["reviewer"].__setitem__("sealed", False), "unsealed reviewer accepted"),
+        (lambda b: b["roles"]["reviewer-a"]["tools"].__setitem__("edit", True), "reviewer-a with edit accepted"),
+        (lambda b: b["roles"]["reviewer-b"]["tools"].__setitem__("edit", True), "reviewer-b with edit accepted"),
+        (lambda b: b["roles"]["reviewer-a"].__setitem__("sealed", False), "unsealed reviewer-a accepted"),
+        (lambda b: b["roles"]["reviewer-b"].__setitem__("sealed", False), "unsealed reviewer-b accepted"),
+        (lambda b: (b["roles"]["reviewer-a"].__setitem__("model", "gpt-6.1-sol"),
+                    b["roles"]["reviewer-a"].__setitem__("effort", "high")), "two reviewers on one family accepted"),
+        (lambda b: b["roles"]["reviewer-b"].__setitem__("model", "claude-opus-5-5"), "two claude reviewers accepted"),
         (lambda b: b["roles"]["fast-worker"].__setitem__("external_post", True), "external_post accepted"),
         (lambda b: b["roles"]["implementer"].__setitem__("model", "grok-4-7"), "model with no CLI accepted"),
         (lambda b: b["roles"]["fast-worker"].__setitem__("effort", "ultra"), "bad effort accepted"),
         (lambda b: b["roles"]["interactive"].__setitem__("model", "gpt-6.1-sol"), "codex interactive accepted"),
         (lambda b: b["roles"]["researcher"].__setitem__("model", "gemini-4-hydrogen"), "model with no CLI (gemini) accepted"),
-        (lambda b: b["roles"].pop("reviewer"), "missing reviewer accepted"),
+        (lambda b: b["roles"].pop("reviewer-a"), "missing reviewer-a accepted"),
+        (lambda b: b["roles"].pop("reviewer-b"), "missing reviewer-b accepted"),
     ):
         bad = copy.deepcopy(reg)
         mutate(bad)
@@ -406,7 +414,7 @@ def registry_seats_match_operator_choice():
         "interactive": ("claude-fable-5-2", "medium"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
         "researcher": ("gpt-6.1-sol", "high"), "document-writer": ("gpt-6.1-sol", "high"),
-        "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer": ("gpt-6.1-sol", "high"),
+        "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer-a": ("claude-opus-5-5", "high"), "reviewer-b": ("gpt-6.1-sol", "high"),
     }
     got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}
     assert got == want, got
@@ -415,7 +423,7 @@ def registry_seats_match_operator_choice():
 
 @test
 def render_agents_claude_seats_only_with_drift_guard():
-    """Claude Code agent files exist for every claude seat (not the codex reviewer), plus
+    """Claude Code agent files exist for every claude seat (reviewer-a included, not the codex reviewer-b), plus
     the interactive settings file; drift() names a hand-edited file."""
     reg = roles_mod.load()
     files = roles_mod.rendered_agents(reg)
@@ -465,8 +473,10 @@ def claude_permissions_deny_external_channels_and_seal_reviewer():
         perms = roles_mod.claude_permissions(role, reg)
         assert "Bash(gh pr comment*)" in perms["deny"], role
         assert "Bash(curl -X POST*)" in perms["deny"], role
-    rv = roles_mod.claude_permissions("reviewer", reg)
-    assert {"Edit", "Write", "Bash(git push *)"} <= set(rv["deny"]) and "Edit" not in rv["allow"]
+    rv = roles_mod.claude_permissions("reviewer-a", reg)
+    assert {"Edit", "Write", "NotebookEdit", "Bash(git push *)", "Bash(git commit *)"} <= set(rv["deny"])
+    assert "Edit" not in rv["allow"] and "Bash" in rv["allow"]
+    assert "pl-reviewer-a.md" in roles_mod.rendered_agents(reg) and "pl-reviewer-b.md" not in roles_mod.rendered_agents(reg)
     imp = roles_mod.claude_permissions("implementer", reg)
     assert {"Edit", "Write", "Bash"} <= set(imp["allow"]) and "Edit" not in imp["deny"]
     text = roles_mod.render_agent("implementer", reg)
@@ -474,8 +484,12 @@ def claude_permissions_deny_external_channels_and_seal_reviewer():
     inter = roles_mod.render_agent("interactive", reg)
     assert "Headless worker contract" not in inter and ("never does the work" in inter.lower() or "never do the work" in inter)
     # the codex reviewer gets contract + role prompt ahead of its brief
-    cp = roles_mod.codex_prompt("reviewer")
+    cp = roles_mod.codex_prompt("reviewer-b")
     assert "Headless worker contract" in cp and "read-only sandbox" in cp
+    # both reviewer prompts say the final message is the review record and do not assume one sandbox
+    for name in roles_mod.REVIEWERS:
+        text = roles_mod.role_prompt(name)
+        assert "final message is the review record" in text and "do not assume which one" in text, name
 
 @test
 def drift_guard_detects_hand_edits():
@@ -942,39 +956,123 @@ def gate_rejection_is_deliberate_stop():
         assert st["stopped"] == "gate_failed" and st["closed"] == "stopped"
 
 
+def _review_verdicts(rid):
+    return [x for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
+
+
+def _reviewer_calls(E):
+    return [c for c in E.fake_calls() if c["agent"].startswith("pl-reviewer")]
+
+
 @test
-def single_codex_review_blocking_revises_then_stops():
+def two_reviewers_both_pass_lands_one_dispatch_each_on_its_own_cli():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
+REVIEW: cross
+FAKE: touch out
+FAKE: verdict-by-agent a=PASS b=CONCERNS
+""")
+        assert st["closed"] == "done", r.stderr
+        v = {x["reviewer"]: x for x in _review_verdicts(rid)}
+        assert set(v) == {"reviewer-a", "reviewer-b"} and len(_review_verdicts(rid)) == 2
+        assert (v["reviewer-a"]["verdict"], v["reviewer-a"]["model"]) == ("PASS", "claude-opus-5-5")
+        assert (v["reviewer-b"]["verdict"], v["reviewer-b"]["model"]) == ("CONCERNS", "gpt-6.1-sol")
+        calls = _reviewer_calls(E)
+        assert len(calls) == 2
+        by = {c["agent"]: c for c in calls}
+        assert by["pl-reviewer-a"]["cli"] == "claude" and by["pl-reviewer-b"]["cli"] == "codex"
+        assert by["pl-reviewer-a"]["REVIEW_OUT"] != by["pl-reviewer-b"]["REVIEW_OUT"]
+        # reviewer-a (Claude Code) carries the sealed denies; reviewer-b (Codex) the read-only sandbox
+        a_argv, b_argv = by["pl-reviewer-a"]["argv"], by["pl-reviewer-b"]["argv"]
+        denied = a_argv[a_argv.index("--disallowed-tools") + 1].split(",")
+        for d in ("Edit", "Write", "NotebookEdit", "Bash(git push *)", "Bash(git commit *)", "Bash(rm *)"):
+            assert d in denied, d
+        assert "Edit" not in a_argv[a_argv.index("--allowed-tools") + 1].split(",")
+        assert "--sandbox" not in a_argv
+        assert b_argv[b_argv.index("--sandbox") + 1] == "read-only" and "--disallowed-tools" not in b_argv
+        # each record is the reviewer's own final message
+        for name, verdict in (("reviewer-a", "PASS"), ("reviewer-b", "CONCERNS")):
+            assert Path(v[name]["review"]).read_text().startswith(f"VERDICT: {verdict}")
+            assert Path(v[name]["review"]).parent.name == name
+
+
+@test
+def either_reviewer_blocking_revises_once_then_both_re_review():
+    for blocker, other in (("a", "b"), ("b", "a")):
+        with Estate() as E:
+            rid, p, r, st = run_plan(E, f"""## Phase 1: work (implementer)
+REVIEW: cross
+FAKE: touch out
+FAKE: verdict-by-agent {blocker}=BLOCKING,PASS {other}=PASS
+""")
+            assert st["closed"] == "done", (blocker, r.stderr)
+            v = _review_verdicts(rid)
+            assert len(v) == 4 and len(_reviewer_calls(E)) == 4, (blocker, v)
+            assert sorted(x["reviewer"] for x in v[:2]) == ["reviewer-a", "reviewer-b"]
+            assert sorted(x["reviewer"] for x in v[2:]) == ["reviewer-a", "reviewer-b"]
+            first = {x["reviewer"]: x["verdict"] for x in v[:2]}
+            assert first[f"reviewer-{blocker}"] == "BLOCKING" and first[f"reviewer-{other}"] == "PASS"
+            assert {x["verdict"] for x in v[2:]} == {"PASS"}
+            revisions = [c for c in E.fake_calls() if c["agent"] == "pl-implementer" and "was blocked in review" in c["brief"]]
+            assert len(revisions) == 1, "exactly one revision"
+            base = Path(E.estate) / "runs" / rid / "phase-1/review"
+            assert str(base / f"reviewer-{blocker}" / "review.md") in revisions[0]["brief"]
+            assert str(base / f"reviewer-{other}" / "review.md") not in revisions[0]["brief"]
+            for d in ("reviewer-a", "reviewer-b", "reviewer-a-rereview", "reviewer-b-rereview"):
+                assert (base / d / "review.md").exists(), d
+
+
+@test
+def blocking_after_the_revision_stops_with_review_blocking():
+    for spec, who in (("a=BLOCKING b=PASS", {"reviewer-a"}), ("a=PASS b=BLOCKING", {"reviewer-b"}),
+                      ("a=BLOCKING b=BLOCKING", {"reviewer-a", "reviewer-b"}),
+                      ("a=BLOCKING,PASS b=PASS,BLOCKING", {"reviewer-b"})):
+        with Estate() as E:
+            rid, p, r, st = run_plan(E, f"""## Phase 1: work (implementer)
+REVIEW: cross
+FAKE: touch out
+FAKE: verdict-by-agent {spec}
+""")
+            assert st["stopped"] == "review_blocking", (spec, st)
+            stop = [x for x in jmod.Journal(rid).rows() if x["event"] == "run.stop"][-1]
+            for name in ("reviewer-a", "reviewer-b"):
+                assert (name in str(stop)) == (name in who), (spec, stop)
+            assert len(_review_verdicts(rid)) == 4
+            assert len([c for c in E.fake_calls() if c["agent"] == "pl-implementer" and "was blocked in review" in c["brief"]]) == 1
+
+
+@test
+def review_on_still_means_the_two_reviewer_review():
     with Estate() as E:
         rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
 REVIEW: on
 FAKE: touch out
-FAKE: verdict CONCERNS
+FAKE: verdict PASS
 """)
         assert st["closed"] == "done", r.stderr
-        rows = jmod.Journal(rid).rows()
-        v = [x for x in rows if x["event"] == "review.verdict"]
-        assert len(v) == 1 and v[0]["verdict"] == "CONCERNS" and v[0]["reviewer"] == "reviewer"
-        assert v[0]["model"] == "gpt-6.1-sol"
-        reviewers = [c for c in E.fake_calls() if c["agent"] == "pl-reviewer"]
-        assert len(reviewers) == 1 and reviewers[0]["cli"] == "codex" and reviewers[0]["REVIEW_OUT"]
-        # the sealed reviewer only answered; the engine wrote its record
-        assert Path(v[0]["review"]).read_text().startswith("VERDICT: CONCERNS")
-        # BLOCKING -> one revision -> BLOCKING again -> deliberate stop
-        rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: on
+        assert sorted(x["reviewer"] for x in _review_verdicts(rid)) == ["reviewer-a", "reviewer-b"]
+        assert len(_reviewer_calls(E)) == 2
+
+
+@test
+def one_reviewer_unavailable_fails_the_attempt():
+    for model in ("claude-opus-5-5", "gpt-6.1-sol"):
+        with Estate() as E:
+            rid, p, r, st = run_plan(E, f"""## Phase 1: work (implementer)
+REVIEW: cross
+ATTEMPTS: 1
 FAKE: touch out
-FAKE: verdict BLOCKING
-""", sub="q")
-        assert st["stopped"] == "review_blocking"
-        # BLOCKING then PASS after the revision -> done
-        rid, p, r, st = run_plan(E, """## Phase 1: work (implementer)
-REVIEW: on
-FAKE: touch out
-FAKE: verdict-seq BLOCKING,PASS
-""", sub="s")
-        assert st["closed"] == "done", r.stderr
-        v = [x["verdict"] for x in jmod.Journal(rid).rows() if x["event"] == "review.verdict"]
-        assert v == ["BLOCKING", "PASS"]
+FAKE: verdict PASS
+FAKE: fail-on-model {model}
+""")
+            assert st["stopped"] == "burned", (model, st)
+            v = {x["reviewer"]: x["verdict"] for x in _review_verdicts(rid)}
+            down = "reviewer-a" if model == "claude-opus-5-5" else "reviewer-b"
+            up = "reviewer-b" if down == "reviewer-a" else "reviewer-a"
+            assert v == {down: "UNAVAILABLE", up: "PASS"}, v
+            fails = [x for x in jmod.Journal(rid).rows() if x["event"] == "phase.fail"]
+            assert fails and down in str(fails[-1])
+
 
 @test
 def review_runs_only_after_exit_passes():
@@ -986,7 +1084,7 @@ REVIEW: on
 FAKE: verdict PASS
 """)
         assert st["stopped"] == "burned"
-        assert not [c for c in E.fake_calls() if c["agent"] == "pl-reviewer"]
+        assert not [c for c in E.fake_calls() if c["agent"].startswith("pl-reviewer")]
 
 
 @test
@@ -1193,7 +1291,7 @@ def claude_dispatch_argv_is_lean_headless_and_permissioned():
 
 @test
 def codex_reviewer_argv_is_sealed_read_only_on_stdin():
-    argv = dsp.build_argv(binary="codex", cli="codex", agent="pl-reviewer", model="gpt-6.1-sol", effort="high",
+    argv = dsp.build_argv(binary="codex", cli="codex", agent="pl-reviewer-b", model="gpt-6.1-sol", effort="high",
                           cwd=Path("/w"), out_dir=Path("/o"), sealed=True)
     assert argv[:3] == ["codex", "exec", "--json"] and argv[-1] == "-"
     assert argv[argv.index("--model") + 1] == "gpt-6.1-sol"
@@ -1205,11 +1303,11 @@ def codex_reviewer_argv_is_sealed_read_only_on_stdin():
     assert "--dangerously-bypass-approvals-and-sandbox" in open_argv and "--sandbox" not in open_argv
     with Estate() as E:
         out = E.tmp / "d"
-        res = dsp.run_dispatch(brief="FAKE: verdict PASS\n", role="reviewer", cwd=E.work, out_dir=out, timeout=30)
+        res = dsp.run_dispatch(brief="FAKE: verdict PASS\n", role="reviewer-b", cwd=E.work, out_dir=out, timeout=30)
         assert res.outcome == "ok" and res.final_text.startswith("VERDICT: PASS"), res.as_row()
         assert res.tokens["total"] == 1234 and res.model == "gpt-6.1-sol"
         call = E.fake_calls()[-1]
-        assert call["cli"] == "codex" and call["agent"] == "pl-reviewer" and call["variant"] == "high"
+        assert call["cli"] == "codex" and call["agent"] == "pl-reviewer-b" and call["variant"] == "high"
         assert "Headless worker contract" in call["brief"] and call["brief"].rstrip().endswith("FAKE: verdict PASS")
 
 @test
@@ -1657,8 +1755,19 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     assert pl.by_number(3).after == [1] and pl.by_number(4).after == [2]
     scorer = pl.by_number(5)
     fam = roles_mod.family_of(reg["roles"][scorer.role]["model"], reg)
-    assert scorer.role == "reviewer" and fam != seat["family"] and scorer.after == [1, 2, 3, 4] and scorer.exits
+    assert scorer.role == "reviewer-b" and fam != seat["family"] and scorer.after == [1, 2, 3, 4] and scorer.exits
     assert pl.decisions and "nominated; trial decides" in pl.decisions[0]
+    # the scorer is the first reviewer on a family no arm uses: reviewer-b for Claude arms,
+    # reviewer-a for GPT arms; none qualifies when the arms cover both families
+    gpt_text = trial.trial_plan("fast-worker", ["gpt-6.1-sol"], tasks, "score clarity 0-10", Path("/w"), reg)
+    gpt_scorer = planmod.parse_text(gpt_text, Path("/w/plan.md")).by_number(5)
+    assert gpt_scorer.role == "reviewer-a"
+    try:
+        trial.trial_plan("implementer", ["gpt-6.1-sol"], tasks, "score clarity 0-10", Path("/w"), reg)
+    except roles_mod.RegistryError:
+        pass
+    else:
+        raise AssertionError("a trial with arms on both families found a scorer")
     # Blinding: scorer phase brief must not name models or reveal arm identities
     scorer_text = text.split(f"## Phase {scorer.number}:")[1]
     assert "incumbent" not in scorer_text, "scorer phase reveals 'incumbent'"
@@ -1753,7 +1862,9 @@ def bootstrap_is_sticky():
         assert (home / ".system" / "bin" / "quick").exists() and (home / ".system" / "runs.jsonl").exists()
         assert (home / ".claude" / "agents" / "pl-implementer.md").exists()
         assert (home / ".claude" / "agents" / "pl-interactive.settings.json").exists()
-        assert not (home / ".claude" / "agents" / "pl-reviewer.md").exists()  # codex seat: no agent file
+        assert not (home / ".claude" / "agents" / "pl-reviewer.md").exists()  # no single reviewer any more
+        assert (home / ".claude" / "agents" / "pl-reviewer-a.md").exists()
+        assert not (home / ".claude" / "agents" / "pl-reviewer-b.md").exists()  # codex seat: no agent file
         assert (home / ".system" / "bin" / "pl").exists()
         hooks = json.loads((home / ".claude" / "settings.json").read_text())["hooks"]["SessionStart"]
         assert [h["command"] for m in hooks for h in m["hooks"]] == [str(REPO / "plugin" / "session-env.sh")]
@@ -1895,7 +2006,7 @@ def registry_bands_present():
     """Every role has a band field; bands are the expected values per role type."""
     reg = roles_mod.load()
     roles = reg["roles"]
-    critical_roles = {"reviewer", "researcher"}
+    critical_roles = {"reviewer-a", "reviewer-b", "researcher"}
     standard_roles = {"implementer", "document-writer", "interactive", "frontend-worker"}
     tolerant_roles = {"fast-worker", "lane-worker"}
     for role_name, role_def in roles.items():
@@ -1911,7 +2022,7 @@ def registry_bands_present():
     # Specific spot-checks from the spec
     assert roles["implementer"]["band"] == "standard"
     assert roles["fast-worker"]["band"] == "tolerant"
-    assert roles["reviewer"]["band"] == "critical"
+    assert roles["reviewer-a"]["band"] == "critical" and roles["reviewer-b"]["band"] == "critical"
     assert roles["frontend-worker"]["band"] == "standard"
 
 
@@ -2286,7 +2397,7 @@ def dispatch_argv_picks_cli_by_model_family():
     reg = roles_mod.load()
     assert roles_mod.cli_of("claude-sonnet-5-5", reg) == "claude" and roles_mod.cli_of("gpt-6.1-sol", reg) == "codex"
     c = dsp.build_argv(binary="claude", cli="claude", agent="pl-implementer", model="claude-sonnet-5-5", effort="high")
-    x = dsp.build_argv(binary="codex", cli="codex", agent="pl-reviewer", model="gpt-6.1-sol", effort="high")
+    x = dsp.build_argv(binary="codex", cli="codex", agent="pl-reviewer-b", model="gpt-6.1-sol", effort="high")
     assert c[1] == "-p" and x[1] == "exec"
     assert dsp.model_arg("llmgateway-devpass/claude-sonnet-5-5#low") == "claude-sonnet-5-5"
     assert dsp.model_arg("claude-sonnet-5-5") == "claude-sonnet-5-5"
@@ -2402,7 +2513,7 @@ def browser_allowlist_role_grant_and_registry_validation():
         assert not browser.host_allowed(bad, allow), bad
     # grants: researcher/lane/fast workers only; the operator's own shell (no role) may use it
     assert browser.role_allowed(reg, "researcher") and browser.role_allowed(reg, "lane-worker")
-    assert not browser.role_allowed(reg, "implementer") and not browser.role_allowed(reg, "reviewer")
+    assert not browser.role_allowed(reg, "implementer") and not browser.role_allowed(reg, "reviewer-a") and not browser.role_allowed(reg, "reviewer-b")
     assert browser.role_allowed(reg, "")
     import copy
     for mutate in (lambda b: b["browser"].__setitem__("endpoint", "http://10.0.0.5:9222"),
@@ -3139,6 +3250,7 @@ def landing_lock_serializes_concurrent_finishers():
 
 @test
 def review_integrity_missing_verdict_reask_and_blocked_revision_cap():
+    # each reviewer re-asks on its own when its record has no verdict line
     with Estate() as E:
         plan = E.plan("""## Phase 1: work (implementer)
 REVIEW: on
@@ -3150,7 +3262,8 @@ FAKE: verdict-seq NONE,PASS
         rid, p, r, st = run_plan(E, plan.read_text())
         rows = jmod.Journal(rid).rows()
         v = [x for x in rows if x["event"] == "review.verdict"]
-        assert len(v) == 1 and v[0]["verdict"] == "PASS", v  # no verdict line -> one re-ask
+        assert len(v) == 2 and {x["verdict"] for x in v} == {"PASS"}, v  # no verdict line -> one re-ask each
+        assert len(_reviewer_calls(E)) == 4
         seals = [x for x in rows if x["event"] == "review.sealed"]
         assert seals and seals[0]["seals"], "records sealed with hashes"
         tests_ev = [x for x in rows if x["event"] == "review.tests"]
@@ -3169,7 +3282,7 @@ FAKE: verdict BLOCKING
         rows = jmod.Journal(rid).rows()
         revisions = [x for x in rows if x["event"] == "dispatch.start" and x.get("phase") == "1" and "revision" in str(x.get("attempt"))]
         verdicts = [x for x in rows if x["event"] == "review.verdict"]
-        assert len(verdicts) == 2, "one review, then one re-review after one revision"
+        assert len(verdicts) == 4, "two reviewers, then both again after one revision"
         assert st["stopped"] == "review_blocking"
 
 

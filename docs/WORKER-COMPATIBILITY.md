@@ -67,10 +67,14 @@ codex exec --json --model gpt-6.1-sol -c model_reasoning_effort="high"
   rejected before execution even with the sandbox bypassed, and `codex execpolicy
   check` marks `gh pr create` and `curl -X POST` forbidden while `git commit` passes.
   The rules file is global, so it also applies to Codex sessions you start yourself.
-- The reviewer is sealed in a read-only sandbox (verified with `codex sandbox`: reads
-  work, writes fail with "Read-only file system"). The engine saves its final
-  message as `$REVIEW_OUT/review.md`, after deleting any earlier record, so only that
-  dispatch's answer counts.
+- There are two sealed reviewers, and a reviewed phase dispatches both in parallel.
+  reviewer-b (Codex) is sealed in a read-only sandbox (verified with `codex sandbox`:
+  reads work, writes fail with "Read-only file system"). reviewer-a (Claude Code) runs
+  under `--permission-mode dontAsk` with Edit, Write, NotebookEdit and the sealed shell
+  commands (`git commit`, `git push`, `rm`, `mv`) denied; it has a rendered agent file
+  like every Claude seat. For each, the engine saves the final message as that
+  reviewer's `$REVIEW_OUT/review.md`, after deleting any earlier record, so only that
+  dispatch's answer counts. Either reviewer can block.
 - Tokens come from `turn.completed` events. Codex reports no cost. An `error` or
   `turn.failed` event that names a usage or rate limit counts as a usage limit.
 

@@ -5,7 +5,7 @@
      (incumbent + all candidates), blinded as A, B, C...; the mapping {A,B,...} ->
      {incumbent,candidate,...} is chosen randomly and saved to `trial/mapping.json`
      in the plan preamble. Task phases write to `trial/task<i>/<arm>/`.
-  2. Dispatches the sealed reviewer (on a family no arm uses) to score each arm against the
+  2. Dispatches a sealed reviewer (the first whose family no arm uses) to score each arm against the
      rubric, writing `scores.json` ({task: {A: n, B: n, ...}}). The scorer sees
      only A/B/C labels — no model names, no incumbent/candidate.
   3. Writes a verdict file via decide() + select(). The selection rule: keep arms

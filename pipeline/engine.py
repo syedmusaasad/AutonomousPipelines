@@ -5,7 +5,8 @@ Loop:
   2. Derive state from the journal (resume is idempotent: done phases stay done).
   3. Start every phase whose AFTER deps are done, up to the concurrency ceiling.
   4. Each phase runs in a thread: dispatch -> EXIT (engine-run) -> SURFACE ->
-     REVIEW (one sealed Codex reviewer). Any failing step feeds the next attempt with the failure text.
+     REVIEW (two sealed reviewers, Claude Code and Codex; either can block). Any failing
+     step feeds the next attempt with the failure text.
   5. Gate phases dispatch nothing; the engine waits for the operator's sentinel.
   6. Deliberate stops (burned attempts, failed gate, blocking review, config
      mismatch, subscription usage limit) write run.stop and exit non-zero. The sentry never relights those.
@@ -533,11 +534,11 @@ class Engine:
     def _run_review(self, plan, ph):
         if ph.review is None:
             return
-        reviewer = roles_mod.reviewer_role(self.reg)
+        reviewers = roles_mod.reviewer_roles(self.reg)
         rdir = self._phase_dir(ph) / "review"
         self._run_review_side_tests(plan, ph)
 
-        def brief_for(out, ask):
+        def brief_for(reviewer, out, ask):
             return dsp.build_brief(
                 task=f"Review the work of phase {ph.number} ({ph.name}) against its brief and EXIT predicates.\n\n"
                      f"### Phase brief\n{ph.brief}\n\nYour final message is the review record; the engine saves it "
@@ -546,7 +547,7 @@ class Engine:
                 role=reviewer, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
                 extras={"PHASE": f"{ph.number}: {ph.name} (review)", "RUN": self.run_id, "REVIEW_OUT": str(out)})
 
-        def one_review(out_root):
+        def one_review(reviewer, out_root):
             out = rdir / out_root
             out.mkdir(parents=True, exist_ok=True)
             record = out / "review.md"
@@ -554,13 +555,13 @@ class Engine:
             for sub, ask in (("dispatch", False), ("reask", True)):
                 if record.exists():
                     record.unlink()  # provenance: only this dispatch's answer may become the record
-                res = self._dispatch(plan, ph, attempt=0, brief=brief_for(out, ask), out_dir=out / sub,
+                res = self._dispatch(plan, ph, attempt=0, brief=brief_for(reviewer, out, ask), out_dir=out / sub,
                                      env={"REVIEW_OUT": str(out)}, role=reviewer, timeout=REVIEW_TIMEOUT_S)
                 model = res.model
                 if res.outcome != "ok":
                     continue
-                # The reviewer runs sealed (read-only sandbox): its final message is the
-                # record. A record a reviewer wrote itself in this dispatch is kept.
+                # The reviewer is sealed (permission denies or the read-only sandbox): its final
+                # message is the record. A record a reviewer wrote itself in this dispatch is kept.
                 if not record.exists() and res.final_text.strip():
                     record.write_text(res.final_text.strip() + "\n")
                 verdict = read_verdict(record) or "UNAVAILABLE"
@@ -568,25 +569,39 @@ class Engine:
                     break
             self.journal.write("review.verdict", phase=ph.key, reviewer=reviewer, model=model, verdict=verdict,
                                review=str(record))
-            return verdict, model
+            return reviewer, verdict, model, record
 
-        verdict, model = one_review(reviewer)
-        self._seal_review_records(ph)
-        if verdict == "BLOCKING":
+        def round_(suffix):
+            with ThreadPoolExecutor(max_workers=len(reviewers)) as ex:
+                futs = [ex.submit(one_review, r, r + suffix) for r in reviewers]
+                results = [f.result() for f in futs]
+            self._seal_review_records(ph)
+            return results
+
+        def check(results):
+            unavailable = [f"{r} ({m})" for r, v, m, _ in results if v == "UNAVAILABLE"]
+            if unavailable:
+                raise PhaseFailure("no verdict from reviewer " + ", ".join(unavailable))
+
+        results = round_("")
+        check(results)
+        blocking = [x for x in results if x[1] == "BLOCKING"]
+        if blocking:
+            paths_ = ", ".join(str(x[3]) for x in blocking)
             self._dispatch(plan, ph, attempt=0,
-                           brief=dsp.build_brief(task=f"Phase {ph.number} was blocked in review. Read the review at "
-                                                        f"{rdir / reviewer / 'review.md'}, re-run every EXIT "
+                           brief=dsp.build_brief(task=f"Phase {ph.number} was blocked in review. Read the BLOCKING "
+                                                        f"review(s) at {paths_}, re-run every EXIT "
                                                         f"predicate and fix what fails.\n\n### Phase brief\n{ph.brief}",
                                                  role=ph.role, cwd=plan.workdir, exits=ph.exits, preamble=plan.preamble,
                                                  extras={"PHASE": f"{ph.number}: {ph.name} (revision)", "RUN": self.run_id}),
                            out_dir=rdir / "revision")
             self._run_exits(plan, ph, env=None)
-            verdict, model = one_review(reviewer + "-rereview")
-            self._seal_review_records(ph)
-            if verdict == "BLOCKING":
-                raise DeliberateStop("review_blocking", f"phase {ph.number}: still blocked after one revision ({model})")
-        if verdict == "UNAVAILABLE":
-            raise PhaseFailure(f"the reviewer ({model}) produced no verdict")
+            results = round_("-rereview")
+            check(results)
+            blocking = [x for x in results if x[1] == "BLOCKING"]
+            if blocking:
+                who = ", ".join(f"{r} ({m})" for r, _, m, _ in blocking)
+                raise DeliberateStop("review_blocking", f"phase {ph.number}: still blocked after one revision by {who}")
 
 
 _VERIFICATION_HINTS = ("tests/run.py", "pytest", "go test", "make test", "npm test", "cargo test")

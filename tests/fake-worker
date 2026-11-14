@@ -25,6 +25,8 @@ FAKE directives (in the brief task text):
   FAKE: verdict <V>             final message `VERDICT: V ...` (a sealed codex reviewer
                                 cannot write; a claude worker also writes $REVIEW_OUT/review.md)
   FAKE: verdict-seq V1,V2,...   verdict by reviewer invocation (NONE = no verdict line)
+  FAKE: verdict-by-agent a=V1,V2 b=V   verdict per reviewer, keyed on the agent name suffix
+                                (pl-reviewer-a -> a); each value is a verdict-seq by that agent's invocation
   FAKE: touch-if-retry <path>   create file only on retry
   FAKE: record                  append argv+env facts to $FAKE_LOG
   FAKE: fix-surface <path>      overwrite path with register-passing text (rewrite path)
@@ -235,11 +237,18 @@ def main():
                 p = path(rest)
                 os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
                 open(p, "a").close()
-        elif cmd in ("verdict", "verdict-seq"):
+        elif cmd in ("verdict", "verdict-seq", "verdict-by-agent"):
             if cmd == "verdict":
                 v = rest
-            else:
+            elif cmd == "verdict-seq":
                 seq = rest.split(",")
+                v = seq[min(invocation, len(seq)) - 1].strip()
+            else:
+                by = dict(kv.split("=", 1) for kv in rest.split())
+                mine = by.get(agent.rsplit("-", 1)[-1])
+                if mine is None:
+                    continue  # no verdict for this agent
+                seq = mine.split(",")
                 v = seq[min(invocation, len(seq)) - 1].strip()
             record = "no verdict line here" if v == "NONE" else \
                 f"VERDICT: {v}\n\n## Findings\n- none\n\n## Rationale\nfake by {agent}"

@@ -17,7 +17,7 @@ Event vocabulary (the characterization suite pins this):
   dispatch.start  dispatch id, phase, role, model, pid, transcript, lane/item
   dispatch.end    dispatch id, outcome, wall_s, tokens{in,out,total}, cost
   exit.check      phase, predicate, ok, output (truncated)
-  review.verdict  phase, reviewer role, model, verdict (PASS|CONCERNS|BLOCKING)
+  review.verdict  phase, reviewer role (reviewer-a|reviewer-b), model, verdict (PASS|CONCERNS|BLOCKING)
   surface.score   phase, file, surface, metrics, pass
   iterate.end     phase, iteration, exit_ok, progress (true|false|null=first), stall_count,
                   wall_s, tokens, cost, cumulative_tokens, cumulative_cost (ITERATE phases;

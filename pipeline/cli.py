@@ -43,7 +43,7 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("run"); p.add_argument("plan"); p.add_argument("--conv")
     p = sub.add_parser("quick"); p.add_argument("-r", "--role", required=True); p.add_argument("-x", "--exit", action="append", default=[])
-    p.add_argument("-C", "--cwd", default=os.getcwd()); p.add_argument("-t", "--timeout", type=int, default=1800); p.add_argument("--review", action="store_true")
+    p.add_argument("-C", "--cwd", default=os.getcwd()); p.add_argument("-t", "--timeout", type=int, default=1800); p.add_argument("--review", action="store_true", help="add REVIEW: cross - two sealed reviewers (Claude Code + Codex) after EXIT; either can block")
     p.add_argument("--conv")
     p = sub.add_parser("finish"); p.add_argument("--subject", required=True); p.add_argument("--paths", nargs="+", required=True)
     p.add_argument("--verify"); p.add_argument("--push"); p.add_argument("--suite"); p.add_argument("-C", "--cwd", default=os.getcwd())
@@ -437,7 +437,7 @@ def cmd_validate(a):
         if ph.exits: flags.append(f"exit={len(ph.exits)}")
         if ph.after_explicit: flags.append(f"after={ph.after}")
         if ph.lanes: flags.append(f"lanes={ph.lanes} ceiling={ph.ceiling}")
-        if ph.review: flags.append("review=on")
+        if ph.review: flags.append("review=cross")
         if ph.surfaces: flags.append(f"surface={ph.surfaces}")
         if ph.is_gate: flags.append(f"gate={ph.gate}")
         if ph.iterate: flags.append(f"iterate ceiling={ph.ceiling}" + (f" progress={ph.iterate_progress!r}" if ph.iterate_progress else ""))

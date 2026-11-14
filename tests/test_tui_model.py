@@ -167,7 +167,7 @@ class TestTuiModel(unittest.TestCase):
     def test_phase_listing_finds_transcript_brief_result_and_review_dir(self):
         with Estate() as E:
             rid, p, r, st = _run_plan(
-                E, "## Phase 1: a (implementer)\nREVIEW: on\nFAKE: touch out\nFAKE: verdict PASS\n")
+                E, "## Phase 1: a (implementer)\nREVIEW: cross\nFAKE: touch out\nFAKE: verdict PASS\n")
             self.assertEqual(st["closed"], "done", r.stderr)
             listing = tm.phase_listing(rid, "1")
             labels = [it["label"] for it in listing["items"]]
@@ -176,7 +176,8 @@ class TestTuiModel(unittest.TestCase):
             self.assertIn("transcript.jsonl", attempt_item)
             self.assertIn("brief.md", attempt_item)
             self.assertIn("result.json", attempt_item)
-            self.assertTrue(any(l.startswith("review/") for l in labels))
+            self.assertIn("review/reviewer-a", labels)
+            self.assertIn("review/reviewer-b", labels)
 
     def test_phase_listing_empty_phase_dir_is_empty_not_error(self):
         with Estate() as E:

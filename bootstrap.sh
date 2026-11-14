@@ -69,7 +69,7 @@ if script not in cmds:
     path.write_text(json.dumps(cfg, indent=2) + "\n")
 PY
 command -v claude >/dev/null || echo "bootstrap: install Claude Code: curl -fsSL https://claude.ai/install.sh | bash" >&2
-command -v codex >/dev/null || echo "bootstrap: install Codex (the reviewer seat): https://developers.openai.com/codex" >&2
+command -v codex >/dev/null || echo "bootstrap: install Codex (the reviewer-b seat): https://developers.openai.com/codex" >&2
 # sentry (systemd --user when available; otherwise a detached loop). --no-sentry is for
 # the characterization suite, which installs into a throwaway HOME.
 if [ "$SENTRY" = 0 ]; then
