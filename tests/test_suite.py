@@ -1995,6 +1995,65 @@ def trial_decide_rejects_incomplete_scores_instead_of_scoring_zero():
 
 
 @test
+def trial_decide_validates_score_keys_exactly_before_averaging():
+    st = {"dispatches": {}}
+    good = {"task1": {"A": 8, "B": 7}}
+
+    def put(tdir, a, b=None):
+        (tdir / "scores-reviewer-a.json").write_text(json.dumps(a))
+        (tdir / "scores-reviewer-b.json").write_text(json.dumps(good if b is None else b))
+
+    def rejected(tdir, name, expect):
+        try:
+            v = trial.decide(tdir.parent, st)
+        except trial.TrialError as e:
+            assert expect in str(e), f"{name}: error does not name {expect!r}: {e}"
+            return
+        raise AssertionError(f"decide chose {v['chosen']!r} from malformed scores: {name}")
+
+    with Estate() as E:
+        tdir = E.work / "trial"
+        tdir.mkdir()
+        (tdir / "mapping.json").write_text(json.dumps({"A": "m1@high", "B": "m2@high"}))
+        (E.work / "plan.md").write_text("## Phase 1: task1-arm-A (x)\n## Phase 2: task1-arm-B (x)\n")
+        # the reviewer's reproduction: an extra task both scorers scored would have flipped the winner
+        extra_task = {"task1": {"A": 8, "B": 7}, "task99": {"A": 0, "B": 100}}
+        put(tdir, extra_task, extra_task)
+        rejected(tdir, "extra task from both scorers", "task99")
+        # one scorer extra, the other not
+        put(tdir, extra_task)
+        rejected(tdir, "extra task from one scorer", "reviewer-a")
+        put(tdir, good, extra_task)
+        rejected(tdir, "extra task from the other scorer", "reviewer-b")
+        # extra arm label
+        extra_arm = {"task1": {"A": 8, "B": 7, "C": 10}}
+        put(tdir, extra_arm, extra_arm)
+        rejected(tdir, "extra arm label", "'C'")
+        # missing arm, non-numeric, boolean, out of range, NaN
+        for name, row in {"missing arm": {"A": 8}, "string": {"A": "8", "B": 7}, "boolean": {"A": True, "B": 7},
+                          "negative": {"A": -1, "B": 7}, "nan": {"A": float("nan"), "B": 7}}.items():
+            put(tdir, {"task1": row})
+            rejected(tdir, name, "reviewer-a")
+        # scores that are not an object, or not JSON at all
+        put(tdir, [1, 2])
+        rejected(tdir, "list", "reviewer-a")
+        (tdir / "scores-reviewer-a.json").write_text("{not json")
+        rejected(tdir, "bad json", "scores-reviewer-a.json")
+        # single-scorer path is exact too
+        (tdir / "scores-reviewer-a.json").unlink()
+        (tdir / "scores-reviewer-b.json").unlink()
+        (tdir / "scores.json").write_text(json.dumps(extra_task))
+        rejected(tdir, "single scorer extra task", "task99")
+        (tdir / "scores.json").write_text(json.dumps(extra_arm))
+        rejected(tdir, "single scorer extra arm", "'C'")
+        # fully valid pair still decides as before
+        (tdir / "scores.json").unlink()
+        put(tdir, {"task1": {"A": 8, "B": 7}}, {"task1": {"A": 6, "B": 7}})
+        v = trial.decide(E.work, st)
+        assert v["arms"]["m1@high"]["quality"] == 7.0 and v["arms"]["m2@high"]["quality"] == 7.0
+
+
+@test
 def trial_decide_matches_dispatches_by_phase_when_arms_share_a_model():
     with Estate() as E:
         tdir = E.work / "trial"

@@ -373,8 +373,8 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
         arm_map = _infer_mapping(trial_dir)
 
     per_reviewer = _load_scores(trial_dir / "trial")
-    _check_coverage(per_reviewer, arm_map, _plan_tasks(trial_dir / "plan.md"))
-    scores = _average_scores(per_reviewer)
+    tasks = _check_coverage(per_reviewer, arm_map, _plan_tasks(trial_dir / "plan.md"))
+    scores = _average_scores(per_reviewer, tasks, sorted(arm_map))
 
     # Build per-arm quality, wall, cost, tokens from dispatches
     # arm_map: label -> "model_q@effort" (new) or model_q (legacy)
@@ -521,8 +521,15 @@ def _load_scores(trial_out: Path) -> dict:
         missing = [p.name for r, p in pair.items() if r not in present]
         if missing:
             raise TrialError(f"mixed-family trial needs both reviewers' scores; missing {', '.join(missing)}")
-        return {r: json.loads(p.read_text()) for r, p in present.items()}
-    return {"scorer": json.loads((trial_out / scores_file()).read_text())}
+        return {r: _read_json(p) for r, p in present.items()}
+    return {"scorer": _read_json(trial_out / scores_file())}
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(path.read_text())
+    except ValueError as e:
+        raise TrialError(f"{path.name}: not valid JSON ({e})")
 
 
 def _plan_tasks(plan_path: Path) -> list:
@@ -534,40 +541,50 @@ def _plan_tasks(plan_path: Path) -> list:
     return [f"task{i}" for i in sorted(found)]
 
 
-def _check_coverage(per_reviewer: dict, arm_map: dict, expected_tasks: list) -> None:
-    """Every scorer must have scored every expected task and every arm with a number in 0..10, so
-    a missing or empty score can never reach selection as a zero. The expected tasks come from the
-    trial plan; without one, the tasks any scorer named."""
-    tasks = list(expected_tasks) or sorted({t for sc in per_reviewer.values() for t in sc})
+def _check_coverage(per_reviewer: dict, arm_map: dict, expected_tasks: list) -> list:
+    """Exact validation of every scorer's file, in one place, before any averaging: the set of task
+    keys must equal the expected task set, and for every task the set of arm keys must equal the
+    mapping's arm labels. Missing and unexpected keys are both rejected, as is any score that is not
+    a number in 0..10 (booleans, strings, NaN and infinity included). The expected tasks come from
+    the trial plan; without one, the first scorer's tasks, which every other scorer must then match
+    exactly. Returns the expected task list, the only tasks averaging may visit."""
+    if not isinstance(arm_map, dict) or not arm_map:
+        raise TrialError("no arm mapping: nothing to score")
+    if len(set(arm_map.values())) != len(arm_map):
+        raise TrialError(f"arm mapping names the same arm twice: {arm_map!r}")
+    labels = set(arm_map)
+    tasks = list(expected_tasks) or sorted(next(iter(per_reviewer.values())) if isinstance(
+        next(iter(per_reviewer.values())), dict) else [])
     if not tasks:
         raise TrialError("no scores: the scorer returned no tasks")
+    want = set(tasks)
     for reviewer, sc in per_reviewer.items():
+        if not isinstance(sc, dict):
+            raise TrialError(f"{reviewer}: scores are not a JSON object")
+        if set(sc) != want:
+            raise TrialError(f"{reviewer}: task keys differ from the expected tasks: "
+                             f"unexpected {sorted(set(sc) - want)}, missing {sorted(want - set(sc))}")
         for task in tasks:
-            row = sc.get(task)
+            row = sc[task]
             if not isinstance(row, dict):
                 raise TrialError(f"{reviewer}: task {task!r} not scored")
-            for label in arm_map:
-                v = row.get(label)
+            if set(row) != labels:
+                raise TrialError(f"{reviewer}: task {task!r} arm keys differ from the mapping: "
+                                 f"unexpected {sorted(set(row) - labels)}, missing {sorted(labels - set(row))}")
+            for label in sorted(labels):
+                v = row[label]
                 if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 10:
                     raise TrialError(f"{reviewer}: task {task!r} arm {label}: missing or invalid score {v!r}")
+    return tasks
 
 
-def _average_scores(per_reviewer: dict) -> dict:
-    """Average the reviewers' scores per task and arm. One scorer passes through unchanged. With
-    two, every (task, arm) must be scored by both."""
-    if len(per_reviewer) == 1:
-        return next(iter(per_reviewer.values()))
+def _average_scores(per_reviewer: dict, tasks: list, labels: list) -> dict:
+    """Average the reviewers' scores per task and arm, visiting only the expected tasks and arms
+    (already validated by _check_coverage), never whatever keys a file carried. One scorer passes
+    through as is."""
     sets = list(per_reviewer.values())
-    out = {}
-    for task in sorted({t for sc in sets for t in sc}):
-        labels = {l for sc in sets for l in sc.get(task, {})}
-        out[task] = {}
-        for label in sorted(labels):
-            vals = [sc.get(task, {}).get(label) for sc in sets]
-            if any(v is None for v in vals):
-                raise TrialError(f"task {task!r} arm {label}: not scored by every reviewer")
-            out[task][label] = sum(vals) / len(vals)
-    return out
+    return {task: {label: sum(sc[task][label] for sc in sets) / len(sets) for label in labels}
+            for task in tasks}
 
 
 def _arm_phases(plan_path: Path) -> dict:
