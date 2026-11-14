@@ -1,5 +1,5 @@
 {
- "min_tests": 290,
+ "min_tests": 292,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -166,6 +166,8 @@
   "trial_decide_matches_dispatches_by_phase_when_arms_share_a_model",
   "trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decision",
   "trial_mixed_family_plan_has_two_blind_scorer_phases",
+  "trial_plan_demotes_rubric_and_task_headings_so_the_plan_parses",
+  "trial_plans_from_the_real_016_materials_parse_for_both_roles",
   "trial_single_family_plan_is_unchanged_one_scorer_scores_json",
   "tui_conversation_test_absent_db_file",
   "tui_conversation_test_absent_session_in_existing_db",

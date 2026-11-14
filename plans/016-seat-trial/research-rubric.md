@@ -9,7 +9,7 @@ Score each arm's FINDINGS.md for each task from 0 to 10 (whole or half points). 
 | Completeness of the evidence | 2 |
 | Clarity and brevity | 2 |
 
-## How to score
+**How to score**
 
 - **Verify, do not trust.** For at least two claims per arm, open the cited source (the web page, or the repository file at the cited line) and check that it says what the arm says it does. A claim whose citation does not support it counts as wrong.
 - **Mark unsourced claims down.** A claim with no URL or `path:line` is unsourced. Each unsourced claim lowers factual accuracy; an answer made mostly of unsourced claims scores at most 4 on that criterion.

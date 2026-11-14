@@ -45,6 +45,7 @@ work itself.
 | `GATE: <path>` | operator sentinel; the engine waits. A relative path is relative to the plan file's directory, not WORKDIR; `plan-check` refuses a path whose parent directory does not exist |
 | `ITERATE: on` + `CEILING: <n>` | fresh-session loop until EXIT passes |
 | `PROGRESS: <predicate>` | custom progress signal for ITERATE |
+| `CAPTURE: <relative-path>` | the engine saves the worker's final JSON message to this WORKDIR path (for sealed seats that cannot write files) |
 | `MODEL:` / `EFFORT:` | pin model or effort for trials |
 | `LANDING: on` | phase holds the landing lock |
 | `WORKDIR:`, `DECISION` | worker cwd; recorded operator decisions |

@@ -78,6 +78,12 @@ def parse_tasks(text: str) -> list:
     return tasks
 
 
+def _demote_headings(text: str) -> str:
+    """Make text safe to embed in a plan: a line starting with `## ` would be read by the plan
+    parser as a phase heading, so it becomes a bold line instead."""
+    return "\n".join(f"**{ln[3:].strip()}**" if ln.startswith("## ") else ln for ln in text.splitlines())
+
+
 def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, reg: dict, repeats: dict = None,
                arm_map_out: dict = None) -> str:
     """A trial is itself a plan: arms (incumbent + all candidates), blinded as A, B, C...;
@@ -145,8 +151,10 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
         f"DECISION trial-{role}: arms nominated; trial decides.", "",
     ]
 
+    rubric = _demote_headings(rubric)
     n = 0
     for i, (name, task) in enumerate(tasks, 1):
+        task = _demote_headings(task)
         for label in arm_labels:
             # repeats per arm
             rep_count = 1 if repeats is None else repeats.get(label, 1)

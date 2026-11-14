@@ -9,7 +9,7 @@ Score each arm's OUTPUT.md for each task from 0 to 10 (whole or half points). Th
 | Plain clear sentences | 2 |
 | Length discipline and no filler | 2 |
 
-## How to score
+**How to score**
 
 - **Check against the source.** Open the source material the task names (the named files, or `git log` and `git show` for the commit task) and check at least three statements per arm against it. Any invented fact, command, flag, number or rule lowers the first criterion sharply. For the checklist task, also check that no rule from `roles/CONTRACT.md` is missing, softened or added.
 - **Faithful to the source material with no invented facts (weight 4):** every statement is supported by the source; nothing material is omitted for the task's purpose.
