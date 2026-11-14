@@ -16,6 +16,8 @@ does not run.
     ITERATE: on                    Ralph-loop: fresh session per iteration, no prompt/failure carryover;
                                     requires CEILING and at least one EXIT; forbids LANES
     PROGRESS: <shell predicate>    optional; exit 0 = iteration advanced (default: built-in signal)
+    CAPTURE: <relative-path>       the engine saves the worker's final JSON message to this WORKDIR path
+                                    (for sealed seats that cannot write files)
 
 Everything else under a phase heading is the brief: task facts handed to the worker.
 Free text before the first heading is the plan preamble (shared context). The
@@ -30,7 +32,7 @@ from pathlib import Path
 HEADING = re.compile(r"^##\s*Phase\s+(\d+)\s*:\s*(.+?)\s*\((\w[\w-]*)\)\s*$")
 DIRECTIVE = re.compile(r"^([A-Z][A-Z-]*):\s*(.*?)\s*$")
 KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL", "EFFORT",
-         "ITERATE", "PROGRESS", "COST-CEILING", "LANDING"}
+         "ITERATE", "PROGRESS", "COST-CEILING", "LANDING", "CAPTURE"}
 
 DEFAULT_TIMEOUT = 1800
 DEFAULT_ATTEMPTS = 2
@@ -67,6 +69,7 @@ class Phase:
     effort: str = None
     iterate: bool = False
     iterate_progress: str = None
+    capture: str = None  # engine saves the worker's final JSON message to this workdir-relative path
     line: int = 0
 
     @property
@@ -205,6 +208,10 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
         if val not in ("low", "medium", "high"):
             raise PlanError(f"line {lineno}: EFFORT must be low|medium|high, got {val!r}")
         ph.effort = val
+    elif key == "CAPTURE":
+        if not val or Path(val).is_absolute() or ".." in Path(val).parts:
+            raise PlanError(f"line {lineno}: CAPTURE wants a path relative to WORKDIR, got {val!r}")
+        ph.capture = val
     elif key == "ITERATE":
         if val != "on":
             raise PlanError(f"line {lineno}: ITERATE supports only 'on', got {val!r}")

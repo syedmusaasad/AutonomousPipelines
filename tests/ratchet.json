@@ -1,5 +1,5 @@
 {
- "min_tests": 288,
+ "min_tests": 290,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -16,6 +16,7 @@
   "browser_cli_refuses_unlisted_sites_and_reports_bridge_down",
   "browser_fetch_reads_page_over_devtools_and_closes_its_tab",
   "browser_pacing_spaces_visits_and_caps_per_day",
+  "capture_directive_parses_and_extracts_the_json_message",
   "claude_dispatch_argv_is_lean_headless_and_permissioned",
   "claude_permissions_deny_external_channels_and_seal_reviewer",
   "cloudtier_checksum_mismatch_keeps_local",
@@ -55,6 +56,7 @@
   "drift_guard_detects_hand_edits",
   "effort_parses_and_rejects_bad_values",
   "either_reviewer_blocking_revises_once_then_both_re_review",
+  "engine_capture_saves_a_sealed_scorers_json_message_and_exit_proves_it",
   "engine_lock_prevents_double_engines",
   "engine_passes_effort_to_worker",
   "engine_pins_model_without_fallback_for_trial_arms",

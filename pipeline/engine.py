@@ -42,6 +42,19 @@ STOP_REASONS = ("burned", "gate_failed", "review_blocking", "config_mismatch", "
 ITERATE_STALL_LIMIT = 2  # consecutive no-progress iterations before ITERATE-STALLED
 
 
+def extract_json_object(text: str):
+    """The first JSON object in `text` (bare, or inside a code fence); None when there is none."""
+    dec = json.JSONDecoder()
+    for m in re.finditer(r"\{", text or ""):
+        try:
+            obj, _ = dec.raw_decode(text[m.start():])
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
+
+
 class DeliberateStop(Exception):
     def __init__(self, reason: str, detail: str = ""):
         assert reason in STOP_REASONS
@@ -386,7 +399,21 @@ class Engine:
         res = self._dispatch(plan, ph, attempt=attempt, brief=brief, out_dir=pdir)
         if res.outcome != "ok":
             raise PhaseFailure(f"worker outcome {res.outcome}: {res.error or ''}\n--- worker tail ---\n{res.final_text[-1500:]}")
+        self._capture(plan, ph, res)
         self._evidence_gate(ph, res)
+
+    def _capture(self, plan, ph, res):
+        """CAPTURE: a sealed seat cannot write files, so the engine saves its final JSON message."""
+        if not ph.capture:
+            return
+        obj = extract_json_object(res.final_text)
+        if obj is None:
+            raise PhaseFailure(f"CAPTURE {ph.capture}: the final message holds no JSON object; "
+                               "reply with only the JSON object")
+        dest = Path(plan.workdir) / ph.capture
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(obj, indent=1) + "\n")
+        self.journal.write("capture.saved", phase=ph.key, path=str(dest))
 
     def _evidence_gate(self, ph, res):
         claimed = claimed_commands(ph)

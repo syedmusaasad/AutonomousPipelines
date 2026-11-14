@@ -1743,7 +1743,9 @@ def bench_is_generated_from_journal_with_regeneration_commands():
 def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decision():
     reg = roles_mod.load()
     tasks = trial.parse_tasks("## t1\ndo one\n## t2\ndo two\n")
-    text = trial.trial_plan("implementer", ["claude-opus-5-5"], tasks, "score clarity 0-10", Path("/w"), reg)
+    arm_map = {}
+    text = trial.trial_plan("implementer", ["claude-opus-5-5"], tasks, "score clarity 0-10", Path("/w"), reg,
+                            arm_map_out=arm_map)
     pl = planmod.parse_text(text, Path("/w/plan.md"))
     seat = roles_mod.seat("implementer", reg)
     cand_q = "claude-opus-5-5"
@@ -1768,8 +1770,8 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     assert "candidate" not in scorer_text, "scorer phase reveals 'candidate'"
     assert seat["model_q"].split("/")[-1] not in scorer_text, "scorer phase reveals incumbent model name"
     assert "claude-opus-5-5" not in scorer_text, "scorer phase reveals candidate model name"
-    # Arm mapping is in a DECISION line with label -> "model_q@effort"
-    arm_map = trial.extract_arm_map(text)
+    # The mapping label -> "model_q@effort" is returned to the caller, never written into the plan
+    assert "arm-mapping" not in text
     assert set(arm_map.keys()) == {"A", "B"}
     # arm_map values are "model_q@effort" strings; check models are present
     arm_map_models = {v.rsplit("@", 1)[0] if "@" in v else v for v in arm_map.values()}
@@ -1810,29 +1812,55 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
         assert json.loads(regp.read_text())["roles"]["implementer"]["model"] == "claude-opus-5-5"
 
 
-def _mixed_trial_plan(reg, tasks):
-    return trial.trial_plan("implementer", ["gpt-6.1-sol"], tasks, "score clarity 0-10", Path("/w"), reg)
+def _mixed_trial_plan(reg, tasks, arm_map=None):
+    return trial.trial_plan("implementer", ["gpt-6.1-sol"], tasks, "score clarity 0-10", Path("/w"), reg,
+                            arm_map_out=arm_map)
 
 
 @test
 def trial_mixed_family_plan_has_two_blind_scorer_phases():
     reg = roles_mod.load()
     tasks = trial.parse_tasks("## t1\ndo one\n## t2\ndo two\n")
-    text = _mixed_trial_plan(reg, tasks)
+    arm_map = {}
+    text = _mixed_trial_plan(reg, tasks, arm_map)
     pl = planmod.parse_text(text, Path("/w/plan.md"))
     sa, sb = pl.by_number(5), pl.by_number(6)
     assert (sa.role, sb.role) == ("reviewer-a", "reviewer-b")
     assert sa.after == [1, 2, 3, 4] and sb.after == [1, 2, 3, 4]  # both wait for every arm phase
     assert any("scores-reviewer-a.json" in e for e in sa.exits) and any("scores-reviewer-b.json" in e for e in sb.exits)
-    arm_map = trial.extract_arm_map(text)
+    # the preamble reaches every phase brief: it must not carry the mapping, a model name or a role
+    pre = pl.preamble
+    assert "incumbent" not in pre and "candidate" not in pre and "mapping" not in pre
+    for v in arm_map.values():
+        assert v.rsplit("@", 1)[0].split("/")[-1] not in pre and v not in text
     for n in (5, 6):
+        assert (sa if n == 5 else sb).capture == f"trial/scores-reviewer-{'ab'[n - 5]}.json"
         brief = text.split(f"## Phase {n}:")[1]
         brief = brief.split("## Phase 6:")[0] if n == 5 else brief
         assert "incumbent" not in brief and "candidate" not in brief
         for v in arm_map.values():
             assert v.rsplit("@", 1)[0].split("/")[-1] not in brief, "scorer brief names a model"
         assert '"A": <0-10>' in brief
-    assert "DECISION arm-mapping" not in text.split("## Phase 5:")[1]
+    # the dispatched brief (preamble included) of a scorer shows no model name either
+    for ph in (sa, sb):
+        full = dsp.build_brief(task=ph.brief, role=ph.role, cwd=pl.workdir, exits=ph.exits, preamble=pl.preamble)
+        for v in arm_map.values():
+            assert v.rsplit("@", 1)[0].split("/")[-1] not in full and "arm-mapping" not in full
+
+
+@test
+def capture_directive_parses_and_extracts_the_json_message():
+    pl = planmod.parse_text("## Phase 1: s (reviewer-a)\nCAPTURE: trial/x.json\nbody\n")
+    assert pl.by_number(1).capture == "trial/x.json"
+    for bad in ("/etc/x", "../x", ""):
+        try:
+            planmod.parse_text(f"## Phase 1: s (reviewer-a)\nCAPTURE: {bad}\nbody\n")
+        except planmod.PlanError:
+            pass
+        else:
+            raise AssertionError(f"CAPTURE {bad!r} accepted")
+    assert engine.extract_json_object('Scores:\n```json\n{"t": {"A": 7}}\n```') == {"t": {"A": 7}}
+    assert engine.extract_json_object("no json here {oops") is None
 
 
 @test
@@ -1910,6 +1938,22 @@ FAKE: fail-on-model claude-opus-5-5
 """)
         calls = E.fake_calls()
         assert len(calls) == 1 and calls[0]["model"] == "claude-opus-5-5" and st["stopped"] == "burned"
+
+
+@test
+def engine_capture_saves_a_sealed_scorers_json_message_and_exit_proves_it():
+    with Estate() as E:
+        rid, p, r, st = run_plan(E, f"""WORKDIR: {E.work}
+
+## Phase 1: score (reviewer-b)
+CAPTURE: trial/scores-reviewer-b.json
+EXIT: python3 -c "import json;json.load(open('trial/scores-reviewer-b.json'))"
+ATTEMPTS: 1
+FAKE: say Here you go:\\n```json\\n{{"t1": {{"A": 7, "B": 5}}}}\\n```
+""")
+        assert st["closed"] == "done", st
+        saved = json.loads((E.work / "trial" / "scores-reviewer-b.json").read_text())
+        assert saved == {"t1": {"A": 7, "B": 5}}
 
 
 # ---------------------------------------------------------------- resilience / bootstrap

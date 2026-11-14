@@ -27,6 +27,7 @@ FAKE directives (in the brief task text):
   FAKE: verdict-seq V1,V2,...   verdict by reviewer invocation (NONE = no verdict line)
   FAKE: verdict-by-agent a=V1,V2 b=V   verdict per reviewer, keyed on the agent name suffix
                                 (pl-reviewer-a -> a); each value is a verdict-seq by that agent's invocation
+  FAKE: say <text>              final message is exactly this text (\\n escapes)
   FAKE: touch-if-retry <path>   create file only on retry
   FAKE: record                  append argv+env facts to $FAKE_LOG
   FAKE: fix-surface <path>      overwrite path with register-passing text (rewrite path)
@@ -257,6 +258,8 @@ def main():
             if review_out and MODE == "claude":
                 os.makedirs(review_out, exist_ok=True)
                 open(os.path.join(review_out, "review.md"), "w").write(record + "\n")
+        elif cmd == "say":
+            text_out = rest.replace("\\n", "\n")
         elif cmd == "fix-surface":
             if "SURFACE scoring failed" in brief:
                 p = path(rest)

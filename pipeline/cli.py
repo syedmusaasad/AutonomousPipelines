@@ -30,6 +30,7 @@ import json
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 
 from . import bench, cloudtier, engine, finisher, gc as gcmod, paths, plan as planmod, quick, registry, roblox_skills, roles as roles_mod, sentry, status
@@ -252,14 +253,12 @@ def cmd_trial(a):
         print("no tasks (use '## name' headings)", file=sys.stderr)
         return 2
     candidates = a.model  # list of arm strings (model or model@effort)
-    # Use bare model name (without @effort) for the directory slug
-    slug = "_".join(trial.parse_arm(m)[0].replace("/", "_") for m in candidates)
-    tdir = Path(a.cwd).resolve() / f"trial-{a.role}-{slug}"
+    tdir = Path(a.cwd).resolve() / f"trial-{a.role}-{time.strftime('%Y%m%d%H%M%S')}"  # no model names: scorers see this path
     tdir.mkdir(parents=True, exist_ok=True)
-    text = trial.trial_plan(a.role, candidates, tasks, Path(a.rubric).read_text(), tdir, reg)
+    arm_map = {}
+    text = trial.trial_plan(a.role, candidates, tasks, Path(a.rubric).read_text(), tdir, reg, arm_map_out=arm_map)
     (tdir / "plan.md").write_text(text)
-    # Write mapping.json so decide() can translate arm labels back to arm strings
-    arm_map = trial.extract_arm_map(text)
+    # mapping.json lets decide() translate arm labels back to arm strings; the plan text has none
     trial_out = tdir / "trial"
     trial_out.mkdir(exist_ok=True)
     (trial_out / "mapping.json").write_text(json.dumps(arm_map))

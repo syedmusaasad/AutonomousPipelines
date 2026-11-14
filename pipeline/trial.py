@@ -4,11 +4,13 @@
   1. Parses tasks.md (one task per `## ` heading) and runs each task for each arm
      (incumbent + all candidates), blinded as A, B, C...; the mapping {A,B,...} ->
      {incumbent,candidate,...} is chosen randomly and saved to `trial/mapping.json`
-     in the plan preamble. Task phases write to `trial/task<i>/<arm>/`.
+     only: the plan text, which every phase brief shares, names no model. Task phases
+     write to `trial/task<i>/<arm>/`.
   2. Dispatches a sealed reviewer (the first whose family no arm uses) to score each arm against the
      rubric, writing `scores.json` ({task: {A: n, B: n, ...}}). When no reviewer is outside
      the arms' families (a mixed Claude/GPT trial), BOTH reviewers score every arm, each in its
-     own phase, writing `scores-reviewer-a.json` and `scores-reviewer-b.json`; decide() averages
+     own phase, saving `scores-reviewer-a.json` and `scores-reviewer-b.json` (sealed seats cannot
+     write: the phase's CAPTURE: has the engine save their JSON reply); decide() averages
      them per task and arm and records each reviewer's mean. The scorers see only A/B/C
      labels — no model names, no incumbent/candidate.
   3. Writes a verdict file via decide() + select(). The selection rule: keep arms
@@ -76,13 +78,17 @@ def parse_tasks(text: str) -> list:
     return tasks
 
 
-def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, reg: dict, repeats: dict = None) -> str:
+def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, reg: dict, repeats: dict = None,
+               arm_map_out: dict = None) -> str:
     """A trial is itself a plan: arms (incumbent + all candidates), blinded as A, B, C...;
     each task x arm x repeat is one phase with MODEL: and EFFORT: pinned; mapping.json saved in the
     trial dir; a single scorer phase on a family not used by any arm.
 
     candidates: a single arm string (model or model@effort) or a list of arm strings.
     repeats: {arm_label: n} or None (defaults to 1 per arm).
+    arm_map_out: when given, filled with the label -> "model_q@effort" mapping. The plan text carries
+    no mapping, model names or incumbent/candidate roles: every phase brief shares the plan preamble,
+    and the scorers must see only the labels. The caller saves the mapping to trial/mapping.json.
     """
     if isinstance(candidates, str):
         candidates = [candidates]
@@ -130,13 +136,13 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
     )
     scorers = [(outside, scores_file())] if outside else [(r, scores_file(r)) for r in roles_mod.REVIEWERS]
 
-    mapping_json = json.dumps(arm_map)
-    cand_list = ", ".join(candidates)
+    if arm_map_out is not None:
+        arm_map_out.update(arm_map)
+    # The preamble reaches every phase brief, scorers included: nothing in it may identify an arm.
     lines = [
-        f"# trial: {role} incumbent={seat['model']} candidates={cand_list}",
+        f"# trial: {role}",
         f"WORKDIR: {workdir}", "",
-        f"DECISION trial-{role}: candidates [{cand_list}] nominated; trial decides.",
-        f"DECISION arm-mapping: {mapping_json}", "",
+        f"DECISION trial-{role}: arms nominated; trial decides.", "",
     ]
 
     n = 0
@@ -173,12 +179,14 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
         lines += [
             f"## Phase {n}: score ({scorer})",
             f"AFTER: {deps}",
+            f"CAPTURE: trial/{fname}",
             f"EXIT: test -s trial/{fname} && python3 -c \"import json;json.load(open('trial/{fname}'))\"",
             "",
-            "Score each task's arms against the rubric below. Write `trial/" + fname + "` as",
+            "Score each task's arms against the rubric below. You cannot write files: your final message",
+            "must be only this JSON object, and the engine saves it as `trial/" + fname + "`:",
             '{"<task>": {"A": <0-10>, "B": <0-10>, ...}}.',
-            "The arms are known only by their labels A, B, C...; do not open trial/mapping.json or plan.md,",
-            "and do not guess which arm is which. Do not edit anything else.", "",
+            "The arms are known only by their labels A, B, C...; open only the trial/task<i>/<label>/ folders,",
+            "never trial/mapping.json or plan.md, and do not guess which arm is which.", "",
             "### Rubric", rubric, "",
         ]
     return "\n".join(lines)
