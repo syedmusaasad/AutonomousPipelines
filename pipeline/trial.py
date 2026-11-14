@@ -6,8 +6,11 @@
      {incumbent,candidate,...} is chosen randomly and saved to `trial/mapping.json`
      in the plan preamble. Task phases write to `trial/task<i>/<arm>/`.
   2. Dispatches a sealed reviewer (the first whose family no arm uses) to score each arm against the
-     rubric, writing `scores.json` ({task: {A: n, B: n, ...}}). The scorer sees
-     only A/B/C labels — no model names, no incumbent/candidate.
+     rubric, writing `scores.json` ({task: {A: n, B: n, ...}}). When no reviewer is outside
+     the arms' families (a mixed Claude/GPT trial), BOTH reviewers score every arm, each in its
+     own phase, writing `scores-reviewer-a.json` and `scores-reviewer-b.json`; decide() averages
+     them per task and arm and records each reviewer's mean. The scorers see only A/B/C
+     labels — no model names, no incumbent/candidate.
   3. Writes a verdict file via decide() + select(). The selection rule: keep arms
      whose mean rubric score is within the role's quality band of the best arm,
      then rank by wall clock, then cost. apply() changes the registry only when
@@ -31,6 +34,15 @@ TOLERANCE = 0.10  # legacy: 10% regression on wall or tokens is the most a quali
 BANDS = {"critical": 0.5, "standard": 1.5, "tolerant": 2.5}
 
 _ARM_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+class TrialError(ValueError):
+    """A trial's inputs are unusable (e.g. a missing second reviewer's scores)."""
+
+
+def scores_file(reviewer: str = None) -> str:
+    """File name a scorer writes: `scores.json` (single scorer) or `scores-<reviewer>.json`."""
+    return "scores.json" if reviewer is None else f"scores-{reviewer}.json"
 
 
 def parse_arm(s: str, role: str = None, reg: dict = None) -> tuple:
@@ -108,16 +120,15 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
             orig_idx = next(i for i, (mq, ef) in enumerate(arm_list) if mq == model_q and ef == effort)
             identity_map[label] = f"candidate-{orig_idx}"
 
-    # Find scorer: reviewer on a family not used by any arm
+    # Scorers: the first reviewer on a family no arm uses; when there is none (a mixed-family
+    # trial), both reviewers score every arm, each in its own phase.
     arm_families = {roles_mod.family_of(mq, reg) for mq, _ in shuffled_arms}
-    scorer = next(
+    outside = next(
         (r for r in roles_mod.REVIEWERS
          if roles_mod.family_of(reg["roles"][r]["model"], reg) not in arm_families),
         None,
     )
-    if scorer is None:
-        raise roles_mod.RegistryError(
-            "no reviewer on a family outside the arms; a trial cannot score arms from the reviewer's own family")
+    scorers = [(outside, scores_file())] if outside else [(r, scores_file(r)) for r in roles_mod.REVIEWERS]
 
     mapping_json = json.dumps(arm_map)
     cand_list = ", ".join(candidates)
@@ -155,17 +166,21 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
                 phase_lines += ["", f"Write your deliverable under `trial/task{i}/{label}/` only.", "", task, ""]
                 lines += phase_lines
 
-    n += 1
-    deps = ", ".join(str(k) for k in range(1, n))
-    lines += [
-        f"## Phase {n}: score ({scorer})",
-        f"AFTER: {deps}",
-        "EXIT: test -s trial/scores.json && python3 -c \"import json;json.load(open('trial/scores.json'))\"",
-        "",
-        "Score each task's arms against the rubric below. Write `trial/scores.json` as",
-        '{"<task>": {"A": <0-10>, "B": <0-10>, ...}}.', "Do not edit anything else.", "",
-        "### Rubric", rubric, "",
-    ]
+    arm_phases = n
+    deps = ", ".join(str(k) for k in range(1, arm_phases + 1))
+    for scorer, fname in scorers:
+        n += 1
+        lines += [
+            f"## Phase {n}: score ({scorer})",
+            f"AFTER: {deps}",
+            f"EXIT: test -s trial/{fname} && python3 -c \"import json;json.load(open('trial/{fname}'))\"",
+            "",
+            "Score each task's arms against the rubric below. Write `trial/" + fname + "` as",
+            '{"<task>": {"A": <0-10>, "B": <0-10>, ...}}.',
+            "The arms are known only by their labels A, B, C...; do not open trial/mapping.json or plan.md,",
+            "and do not guess which arm is which. Do not edit anything else.", "",
+            "### Rubric", rubric, "",
+        ]
     return "\n".join(lines)
 
 
@@ -331,8 +346,8 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
     else:
         arm_map = _infer_mapping(trial_dir)
 
-    scores_path = trial_dir / "trial" / "scores.json"
-    scores = json.loads(scores_path.read_text())
+    per_reviewer = _load_scores(trial_dir / "trial")
+    scores = _average_scores(per_reviewer)
 
     # Build per-arm quality, wall, cost, tokens from dispatches
     # arm_map: label -> "model_q@effort" (new) or model_q (legacy)
@@ -356,9 +371,17 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
         return arm_val.rsplit("@", 1)[0] if "@" in arm_val else arm_val
 
     model_to_label = {arm_model(v): k for k, v in arm_map.items()}
+    # Arms may share a model at different efforts, and scorer phases may run an arm's model:
+    # when the trial's plan.md names the arm phases, match dispatches by phase, not by model.
+    phase_to_label = _arm_phases(trial_dir / "plan.md")
     for d in journal_state.get("dispatches", {}).values():
         model = d.get("model")
-        label = model_to_label.get(model)
+        if phase_to_label:
+            label = phase_to_label.get(str(d.get("phase")))
+            if label not in arm_map:
+                label = None
+        else:
+            label = model_to_label.get(model)
         if label and d.get("outcome") is not None:
             arm_wall[label].append(d.get("wall_s") or 0.0)
             arm_cost[label].append(d.get("cost") or 0.0)
@@ -375,7 +398,11 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
             "wall_s": mean(arm_wall[label]),
             "cost": mean(arm_cost[label]),
             "tokens": mean(arm_tokens[label]),
+            "tokens_total": int(sum(arm_tokens[label])),
         }
+        if len(per_reviewer) > 1:
+            arms_by_arm[arm_val]["reviewer_quality"] = {
+                r: mean([ts[label] for ts in sc.values() if label in ts]) for r, sc in per_reviewer.items()}
 
     # Determine band
     if role is not None and reg is not None:
@@ -447,12 +474,55 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
         "tokens": tok_legacy if tok_legacy is not None else {a: v["tokens"] for a, v in arms_by_arm.items()},
         "wall_s": wall_legacy if wall_legacy is not None else {a: v["wall_s"] for a, v in arms_by_arm.items()},
         "arms": arms_by_arm,
+        "reviewer_quality": ({r: {arm_map[l]: mean([ts[l] for ts in sc.values() if l in ts]) for l in arm_map}
+                              for r, sc in per_reviewer.items()} if len(per_reviewer) > 1 else None),
         "selection": sel,
         "reasons": reasons,
         "decided_at": now_iso(),
         "tolerance": TOLERANCE,
         "band": band,
     }
+
+
+def _load_scores(trial_out: Path) -> dict:
+    """{reviewer: {task: {label: score}}}. Two-reviewer files (scores-reviewer-a/-b.json) are
+    required together: a missing one is an error, never a silent single score. With neither,
+    the single-scorer scores.json is read under the key "scorer"."""
+    pair = {r: trial_out / scores_file(r) for r in roles_mod.REVIEWERS}
+    present = {r: p for r, p in pair.items() if p.exists()}
+    if present:
+        missing = [p.name for r, p in pair.items() if r not in present]
+        if missing:
+            raise TrialError(f"mixed-family trial needs both reviewers' scores; missing {', '.join(missing)}")
+        return {r: json.loads(p.read_text()) for r, p in present.items()}
+    return {"scorer": json.loads((trial_out / scores_file()).read_text())}
+
+
+def _average_scores(per_reviewer: dict) -> dict:
+    """Average the reviewers' scores per task and arm. One scorer passes through unchanged. With
+    two, every (task, arm) must be scored by both."""
+    if len(per_reviewer) == 1:
+        return next(iter(per_reviewer.values()))
+    sets = list(per_reviewer.values())
+    out = {}
+    for task in sorted({t for sc in sets for t in sc}):
+        labels = {l for sc in sets for l in sc.get(task, {})}
+        out[task] = {}
+        for label in sorted(labels):
+            vals = [sc.get(task, {}).get(label) for sc in sets]
+            if any(v is None for v in vals):
+                raise TrialError(f"task {task!r} arm {label}: not scored by every reviewer")
+            out[task][label] = sum(vals) / len(vals)
+    return out
+
+
+def _arm_phases(plan_path: Path) -> dict:
+    """{phase number (str): arm label} for the arm phases named `taskN-arm-X` in a trial plan.md."""
+    import re
+    if not plan_path.exists():
+        return {}
+    return {m.group(1): m.group(2) for m in
+            re.finditer(r"^## Phase (\d+): task\d+-arm-([A-Z])\b", plan_path.read_text(), re.M)}
 
 
 def extract_arm_map(plan_text: str) -> dict:

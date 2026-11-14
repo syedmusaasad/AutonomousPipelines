@@ -1758,16 +1758,10 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
     assert scorer.role == "reviewer-b" and fam != seat["family"] and scorer.after == [1, 2, 3, 4] and scorer.exits
     assert pl.decisions and "nominated; trial decides" in pl.decisions[0]
     # the scorer is the first reviewer on a family no arm uses: reviewer-b for Claude arms,
-    # reviewer-a for GPT arms; none qualifies when the arms cover both families
+    # reviewer-a for GPT arms; the arms covering both families get two scorers (see the mixed test)
     gpt_text = trial.trial_plan("fast-worker", ["gpt-6.1-sol"], tasks, "score clarity 0-10", Path("/w"), reg)
     gpt_scorer = planmod.parse_text(gpt_text, Path("/w/plan.md")).by_number(5)
     assert gpt_scorer.role == "reviewer-a"
-    try:
-        trial.trial_plan("implementer", ["gpt-6.1-sol"], tasks, "score clarity 0-10", Path("/w"), reg)
-    except roles_mod.RegistryError:
-        pass
-    else:
-        raise AssertionError("a trial with arms on both families found a scorer")
     # Blinding: scorer phase brief must not name models or reveal arm identities
     scorer_text = text.split(f"## Phase {scorer.number}:")[1]
     assert "incumbent" not in scorer_text, "scorer phase reveals 'incumbent'"
@@ -1814,6 +1808,96 @@ def trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decisi
         v["decision"], v["reasons"], v["chosen"] = "candidate", [], "claude-opus-5-5"
         trial.apply("implementer", "claude-opus-5-5", v, registry_path=regp)
         assert json.loads(regp.read_text())["roles"]["implementer"]["model"] == "claude-opus-5-5"
+
+
+def _mixed_trial_plan(reg, tasks):
+    return trial.trial_plan("implementer", ["gpt-6.1-sol"], tasks, "score clarity 0-10", Path("/w"), reg)
+
+
+@test
+def trial_mixed_family_plan_has_two_blind_scorer_phases():
+    reg = roles_mod.load()
+    tasks = trial.parse_tasks("## t1\ndo one\n## t2\ndo two\n")
+    text = _mixed_trial_plan(reg, tasks)
+    pl = planmod.parse_text(text, Path("/w/plan.md"))
+    sa, sb = pl.by_number(5), pl.by_number(6)
+    assert (sa.role, sb.role) == ("reviewer-a", "reviewer-b")
+    assert sa.after == [1, 2, 3, 4] and sb.after == [1, 2, 3, 4]  # both wait for every arm phase
+    assert any("scores-reviewer-a.json" in e for e in sa.exits) and any("scores-reviewer-b.json" in e for e in sb.exits)
+    arm_map = trial.extract_arm_map(text)
+    for n in (5, 6):
+        brief = text.split(f"## Phase {n}:")[1]
+        brief = brief.split("## Phase 6:")[0] if n == 5 else brief
+        assert "incumbent" not in brief and "candidate" not in brief
+        for v in arm_map.values():
+            assert v.rsplit("@", 1)[0].split("/")[-1] not in brief, "scorer brief names a model"
+        assert '"A": <0-10>' in brief
+    assert "DECISION arm-mapping" not in text.split("## Phase 5:")[1]
+
+
+@test
+def trial_single_family_plan_is_unchanged_one_scorer_scores_json():
+    reg = roles_mod.load()
+    tasks = trial.parse_tasks("## t1\ndo one\n")
+    text = trial.trial_plan("implementer", ["claude-opus-5-5"], tasks, "r", Path("/w"), reg)
+    pl = planmod.parse_text(text, Path("/w/plan.md"))
+    assert [p.number for p in pl.phases] == [1, 2, 3]
+    assert pl.by_number(3).role == "reviewer-b" and pl.by_number(3).after == [1, 2]
+    assert "trial/scores.json" in text and "scores-reviewer" not in text
+
+
+@test
+def trial_decide_averages_two_reviewers_and_requires_both_files():
+    with Estate() as E:
+        (E.work / "trial").mkdir()
+        tdir = E.work / "trial"
+        (tdir / "mapping.json").write_text(json.dumps({"A": "m1@high", "B": "m2@high"}))
+        (tdir / "scores-reviewer-a.json").write_text(json.dumps({"t1": {"A": 8, "B": 4}, "t2": {"A": 6, "B": 4}}))
+        # only one reviewer's file: an error, never a silent single score
+        st = {"dispatches": {"a": {"model": "m1", "outcome": "ok", "tokens": {"total": 10}, "wall_s": 5, "cost": 0},
+                             "b": {"model": "m2", "outcome": "ok", "tokens": {"total": 20}, "wall_s": 6, "cost": 0}}}
+        try:
+            trial.decide(E.work, st)
+        except trial.TrialError:
+            pass
+        else:
+            raise AssertionError("decide used a single reviewer's scores when two were required")
+        (tdir / "scores-reviewer-b.json").write_text(json.dumps({"t1": {"A": 6, "B": 8}, "t2": {"A": 4, "B": 8}}))
+        v = trial.decide(E.work, st)
+        assert v["arms"]["m1@high"]["quality"] == 6.0 and v["arms"]["m2@high"]["quality"] == 6.0
+        assert v["arms"]["m1@high"]["reviewer_quality"] == {"reviewer-a": 7.0, "reviewer-b": 5.0}
+        assert v["reviewer_quality"]["reviewer-b"]["m2@high"] == 8.0
+        assert v["arms"]["m2@high"]["tokens_total"] == 20
+        # a (task, arm) one reviewer did not score is an error too
+        (tdir / "scores-reviewer-b.json").write_text(json.dumps({"t1": {"A": 6, "B": 8}}))
+        try:
+            trial.decide(E.work, st)
+        except trial.TrialError:
+            pass
+        else:
+            raise AssertionError("decide averaged a partially scored task")
+        # single-family trial: scores.json alone, no reviewer breakdown
+        (tdir / "scores-reviewer-a.json").unlink()
+        (tdir / "scores-reviewer-b.json").unlink()
+        (tdir / "scores.json").write_text(json.dumps({"t1": {"A": 8, "B": 4}}))
+        v = trial.decide(E.work, st)
+        assert v["arms"]["m1@high"]["quality"] == 8.0 and v["reviewer_quality"] is None
+
+
+@test
+def trial_decide_matches_dispatches_by_phase_when_arms_share_a_model():
+    with Estate() as E:
+        tdir = E.work / "trial"
+        tdir.mkdir()
+        (tdir / "mapping.json").write_text(json.dumps({"A": "m1@high", "B": "m1@medium"}))
+        (tdir / "scores.json").write_text(json.dumps({"t1": {"A": 5, "B": 5}}))
+        (E.work / "plan.md").write_text("## Phase 1: task1-arm-A (x)\n## Phase 2: task1-arm-B (x)\n## Phase 3: score (reviewer-b)\n")
+        st = {"dispatches": {
+            "a": {"phase": "1", "model": "m1", "outcome": "ok", "tokens": {"total": 10}, "wall_s": 5, "cost": 0},
+            "b": {"phase": "2", "model": "m1", "outcome": "ok", "tokens": {"total": 30}, "wall_s": 9, "cost": 0},
+            "s": {"phase": "3", "model": "m1", "outcome": "ok", "tokens": {"total": 999}, "wall_s": 1, "cost": 0}}}
+        v = trial.decide(E.work, st)
+        assert v["arms"]["m1@high"]["tokens_total"] == 10 and v["arms"]["m1@medium"]["tokens_total"] == 30
 
 
 @test

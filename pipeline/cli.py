@@ -16,7 +16,7 @@
   bench                         emit BENCHMARKS.md text
   trial <role> <model>...  --tasks F --rubric F    stage a head-to-head (several candidates)
   trial-apply <trial-run> <role>                   apply the verdict's chosen model (numbers decide)
-  trial-report <run>                               print arms table (model, quality, wall, cost, chosen)
+  trial-report <run>                               print arms table (model, effort, family, quality, per-reviewer, wall, tokens, cost, in-band, chosen)
   sentry [--once]               the sentry daemon (or one tick)
   suite                         run the characterization suite and log it
   validate <plan.md>            parse and validate a plan
@@ -278,7 +278,11 @@ def cmd_trial_apply(a):
         return 2
     tdir = Path(st["cwd"])
     seat = roles_mod.seat(a.role, reg)
-    verdict = trial.decide(tdir, st, role=a.role, reg=reg)
+    try:
+        verdict = trial.decide(tdir, st, role=a.role, reg=reg)
+    except trial.TrialError as e:
+        print(f"trial-apply: {e}", file=sys.stderr)
+        return 1
     (tdir / "trial" / "verdict.json").write_text(json.dumps(verdict, indent=1))
     print(json.dumps(verdict, indent=1))
     chosen = verdict.get("chosen")
@@ -323,9 +327,12 @@ def cmd_trial_report(a):
         print(f"no verdict.json found at {verdict_path}", file=sys.stderr)
         return 1
 
-    # Print table header
-    print(f"{'arm':<52} {'model':<40} {'effort':<8} {'family':<12} {'premium':>7} {'quality':>8} {'wall_s':>8} {'cost':>8} {'in_band':>8} {'chosen':>7}")
-    print("-" * 175)
+    # One row per arm; the arm string is the model and effort, so it is not repeated as a column.
+    # Codex reports no cost, so total tokens are always shown next to it.
+    reviewers = sorted({r for v in arms.values() for r in (v.get("reviewer_quality") or {})})
+    rq_head = "".join(f" {r.replace('reviewer-', 'q_rev-'):>8}" for r in reviewers)
+    print(f"{'model':<34} {'effort':<7} {'family':<10} {'quality':>8}{rq_head} {'wall_s':>8} {'tokens':>10} {'cost':>8} {'in_band':>8} {'chosen':>7}")
+    print("-" * (100 + 9 * len(reviewers)))
     for arm_str, v in sorted(arms.items(), key=lambda kv: -kv[1].get("quality", 0)):
         # arm_str is "model_q@effort" or just "model_q"
         if "@" in arm_str:
@@ -333,10 +340,12 @@ def cmd_trial_report(a):
         else:
             arm_model_q, arm_effort = arm_str, ""
         family = roles_mod.family_of(arm_model_q, reg)
-        premium = "yes" if roles_mod.is_premium(arm_model_q, reg) else "no"
         in_band = "yes" if arm_str in band_kept else "no"
         is_chosen = "***" if arm_str == chosen else ""
-        print(f"{arm_str:<52} {arm_model_q:<40} {arm_effort:<8} {family:<12} {premium:>7} {v.get('quality', 0):>8.3f} {v.get('wall_s', 0):>8.1f} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
+        rq = v.get("reviewer_quality") or {}
+        rq_cols = "".join(f" {rq[r]:>8.3f}" if r in rq else f" {'-':>8}" for r in reviewers)
+        tokens = v.get("tokens_total", int(v.get("tokens", 0)))
+        print(f"{arm_model_q:<34} {arm_effort:<7} {family:<10} {v.get('quality', 0):>8.3f}{rq_cols} {v.get('wall_s', 0):>8.1f} {tokens:>10} {v.get('cost', 0):>8.4f} {in_band:>8} {is_chosen:>7}")
     print()
     print(f"Chosen: {chosen}")
     return 0
