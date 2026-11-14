@@ -1939,12 +1939,68 @@ def trial_decide_averages_two_reviewers_and_requires_both_files():
 
 
 @test
+def trial_briefs_carry_task_titles_and_scorers_get_task_specs_and_may_open_sources():
+    reg = roles_mod.load()
+    tasks = trial.parse_tasks("## Compare WAL and DELETE\nwhich mode?\n## t2\ndo two\n")
+    text = _mixed_trial_plan(reg, tasks)
+    pl = planmod.parse_text(text, Path("/w/plan.md"))
+    assert "Compare WAL and DELETE" in pl.by_number(1).brief
+    for n in (5, 6):
+        b = pl.by_number(n).brief
+        assert "Compare WAL and DELETE" in b and "which mode?" in b and "do two" in b
+        assert "task1" in b and "cites" in b and "repository files" in b
+        assert "open only" not in b
+
+
+@test
+def trial_decide_rejects_incomplete_scores_instead_of_scoring_zero():
+    def put(tdir, **files):
+        for name, data in files.items():
+            (tdir / f"scores-reviewer-{name}.json").write_text(json.dumps(data))
+    st = {"dispatches": {}}
+    full = {"task1": {"A": 5, "B": 6}, "task2": {"A": 5, "B": 6}}
+    with Estate() as E:
+        tdir = E.work / "trial"
+        tdir.mkdir()
+        (tdir / "mapping.json").write_text(json.dumps({"A": "m1@high", "B": "m2@high"}))
+        (E.work / "plan.md").write_text("## Phase 1: task1-arm-A (x)\n## Phase 2: task1-arm-B (x)\n"
+                                        "## Phase 3: task2-arm-A (x)\n## Phase 4: task2-arm-B (x)\n")
+        cases = {
+            "empty objects": ({}, {}),
+            "same arm omitted by both": ({"task1": {"A": 5}, "task2": {"A": 5}},) * 2,
+            "same task omitted by both": ({"task1": {"A": 5, "B": 6}},) * 2,
+            "one reviewer empty": (full, {}),
+            "out of range": (full, {"task1": {"A": 5, "B": 11}, "task2": {"A": 5, "B": 6}}),
+        }
+        for name, (a, b) in cases.items():
+            put(tdir, a=a, b=b)
+            try:
+                trial.decide(E.work, st)
+            except trial.TrialError:
+                continue
+            raise AssertionError(f"decide accepted incomplete scores: {name}")
+        # single scorer: an empty scores.json is an error too
+        (tdir / "scores-reviewer-a.json").unlink()
+        (tdir / "scores-reviewer-b.json").unlink()
+        (tdir / "scores.json").write_text("{}")
+        try:
+            trial.decide(E.work, st)
+        except trial.TrialError:
+            pass
+        else:
+            raise AssertionError("decide accepted empty scores.json")
+        put(tdir, a=full, b=full)
+        (tdir / "scores.json").unlink()
+        assert trial.decide(E.work, st)["arms"]["m2@high"]["quality"] == 6.0
+
+
+@test
 def trial_decide_matches_dispatches_by_phase_when_arms_share_a_model():
     with Estate() as E:
         tdir = E.work / "trial"
         tdir.mkdir()
         (tdir / "mapping.json").write_text(json.dumps({"A": "m1@high", "B": "m1@medium"}))
-        (tdir / "scores.json").write_text(json.dumps({"t1": {"A": 5, "B": 5}}))
+        (tdir / "scores.json").write_text(json.dumps({"task1": {"A": 5, "B": 5}}))
         (E.work / "plan.md").write_text("## Phase 1: task1-arm-A (x)\n## Phase 2: task1-arm-B (x)\n## Phase 3: score (reviewer-b)\n")
         st = {"dispatches": {
             "a": {"phase": "1", "model": "m1", "outcome": "ok", "tokens": {"total": 10}, "wall_s": 5, "cost": 0},

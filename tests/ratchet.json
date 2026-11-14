@@ -1,5 +1,5 @@
 {
- "min_tests": 292,
+ "min_tests": 294,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -162,8 +162,10 @@
   "timeout_kills_worker_and_counts_as_attempt",
   "trial_apply_never_seats_a_quota_fallback",
   "trial_apply_writes_effort",
+  "trial_briefs_carry_task_titles_and_scorers_get_task_specs_and_may_open_sources",
   "trial_decide_averages_two_reviewers_and_requires_both_files",
   "trial_decide_matches_dispatches_by_phase_when_arms_share_a_model",
+  "trial_decide_rejects_incomplete_scores_instead_of_scoring_zero",
   "trial_is_a_plan_with_pinned_models_third_family_scorer_and_three_axis_decision",
   "trial_mixed_family_plan_has_two_blind_scorer_phases",
   "trial_plan_demotes_rubric_and_task_headings_so_the_plan_parses",

@@ -177,10 +177,16 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
                 ]
                 if after_clause:
                     phase_lines.append(after_clause)
-                phase_lines += ["", f"Write your deliverable under `trial/task{i}/{label}/` only.", "", task, ""]
+                phase_lines += ["", f"Write your deliverable under `trial/task{i}/{label}/` only.", "",
+                                f"**Task {i}: {name}**", "", task, ""]
                 lines += phase_lines
 
     arm_phases = n
+    # The scorers get the same task text the arms got (labels only, no arm identity), so they can
+    # judge whether each answer addresses what was asked.
+    task_specs = []
+    for i, (name, task) in enumerate(tasks, 1):
+        task_specs += [f"**task{i}: {name}**", "", _demote_headings(task), ""]
     deps = ", ".join(str(k) for k in range(1, arm_phases + 1))
     for scorer, fname in scorers:
         n += 1
@@ -192,10 +198,14 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
             "",
             "Score each task's arms against the rubric below. You cannot write files: your final message",
             "must be only this JSON object, and the engine saves it as `trial/" + fname + "`:",
-            '{"<task>": {"A": <0-10>, "B": <0-10>, ...}}.',
-            "The arms are known only by their labels A, B, C...; open only the trial/task<i>/<label>/ folders,",
-            "never trial/mapping.json or plan.md, and do not guess which arm is which.", "",
+            '{"task1": {"A": <0-10>, "B": <0-10>, ...}, "task2": {...}}: one key per task below, named',
+            "task1, task2, ..., and one score for every arm label on every task.",
+            "The arms are known only by their labels A, B, C...; read each arm's deliverable in its",
+            "trial/task<i>/<label>/ folder. You may also open the web sources and repository files an answer",
+            "cites, or that a task names, to check claims. Never open trial/mapping.json, plan.md or the",
+            "journal, and do not guess which arm is which.", "",
             "### Rubric", rubric, "",
+            "### Tasks", *task_specs,
         ]
     return "\n".join(lines)
 
@@ -363,6 +373,7 @@ def decide(trial_dir: Path, journal_state: dict, *, incumbent_q: str = None, can
         arm_map = _infer_mapping(trial_dir)
 
     per_reviewer = _load_scores(trial_dir / "trial")
+    _check_coverage(per_reviewer, arm_map, _plan_tasks(trial_dir / "plan.md"))
     scores = _average_scores(per_reviewer)
 
     # Build per-arm quality, wall, cost, tokens from dispatches
@@ -512,6 +523,33 @@ def _load_scores(trial_out: Path) -> dict:
             raise TrialError(f"mixed-family trial needs both reviewers' scores; missing {', '.join(missing)}")
         return {r: json.loads(p.read_text()) for r, p in present.items()}
     return {"scorer": json.loads((trial_out / scores_file()).read_text())}
+
+
+def _plan_tasks(plan_path: Path) -> list:
+    """The task keys (`task1`, `task2`...) the trial plan's arm phases cover; [] without a plan."""
+    import re
+    if not plan_path.exists():
+        return []
+    found = {int(m.group(1)) for m in re.finditer(r"^## Phase \d+: task(\d+)-arm-[A-Z]\b", plan_path.read_text(), re.M)}
+    return [f"task{i}" for i in sorted(found)]
+
+
+def _check_coverage(per_reviewer: dict, arm_map: dict, expected_tasks: list) -> None:
+    """Every scorer must have scored every expected task and every arm with a number in 0..10, so
+    a missing or empty score can never reach selection as a zero. The expected tasks come from the
+    trial plan; without one, the tasks any scorer named."""
+    tasks = list(expected_tasks) or sorted({t for sc in per_reviewer.values() for t in sc})
+    if not tasks:
+        raise TrialError("no scores: the scorer returned no tasks")
+    for reviewer, sc in per_reviewer.items():
+        for task in tasks:
+            row = sc.get(task)
+            if not isinstance(row, dict):
+                raise TrialError(f"{reviewer}: task {task!r} not scored")
+            for label in arm_map:
+                v = row.get(label)
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 10:
+                    raise TrialError(f"{reviewer}: task {task!r} arm {label}: missing or invalid score {v!r}")
 
 
 def _average_scores(per_reviewer: dict) -> dict:
