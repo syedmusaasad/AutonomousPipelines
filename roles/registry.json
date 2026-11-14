@@ -352,8 +352,8 @@
     },
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
-      "model": "gemini-3.8-flash",
-      "effort": "medium",
+      "model": "gemini-4-hydrogen",
+      "effort": "high",
       "band": "critical",
       "tools": {
         "read": true,
@@ -454,12 +454,24 @@
           },
           "at": "2026-11-07T18:00:00+00:00",
           "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "effort": "medium"
+          },
+          "to": {
+            "model": "gemini-4-hydrogen",
+            "effort": "high"
+          },
+          "at": "2026-11-14T00:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-14): operator moved this seat to Gemini 4 Hydrogen at high effort, without a trial. Artificial Analysis comparison page: Hydrogen high scores 51 at 8.4 min and $1.87 per index task; Gemini 3.8 Flash scores 30 (medium) / 31 (high) at 12.3 / 14.4 min and $6.26 / $7.77. No summarization or prose score for Hydrogen was available; Flash had been seated for its LiveBench prose lead. Verified on this host: agy 1.5.5 lists gemini-4-hydrogen and a live call with --model gemini-4-hydrogen --effort medium returned SUCCESS."
         }
       ]
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
-      "model": "gemini-3.8-flash",
+      "model": "gemini-4-hydrogen",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -560,6 +572,18 @@
           },
           "at": "2026-11-07T18:00:00+00:00",
           "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
+        },
+        {
+          "from": {
+            "model": "gemini-3.8-flash",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gemini-4-hydrogen",
+            "effort": "high"
+          },
+          "at": "2026-11-14T00:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-14): operator moved this seat to Gemini 4 Hydrogen at high effort, without a trial. Artificial Analysis comparison page: Hydrogen high scores 51 at 8.4 min and $1.87 per index task; Gemini 3.8 Flash scores 30 (medium) / 31 (high) at 12.3 / 14.4 min and $6.26 / $7.77. No summarization or prose score for Hydrogen was available; Flash had been seated for its LiveBench prose lead. Verified on this host: agy 1.5.5 lists gemini-4-hydrogen and a live call with --model gemini-4-hydrogen --effort medium returned SUCCESS."
         }
       ]
     },

@@ -78,7 +78,7 @@ codex exec --json --model gpt-6.1-sol -c model_reasoning_effort="high"
 ## Antigravity seats (`agy -p`)
 
 ```
-agy --output-format stream-json --model gemini-3.8-flash --effort <effort>
+agy --output-format stream-json --model gemini-4-hydrogen --effort <effort>
   --dangerously-skip-permissions --disable-slash-commands
   --settings '{"permissions":{"deny":["command(gh pr comment)", ...]}}' -p=<prompt>
 ```
@@ -89,8 +89,8 @@ agy --output-format stream-json --model gemini-3.8-flash --effort <effort>
 - Headless agy cannot prompt and refuses any tool without an allow rule, so workers
   run with `--dangerously-skip-permissions`; explicit deny rules still apply under it.
   Verified: `command(touch)` refused `touch` ("Matches user-configured deny rule").
-- `--model gemini-3.8-flash --effort medium` is accepted; `agy models` lists the same
-  model with the effort in its ID (`gemini-3.8-flash-medium`).
+- `--model gemini-4-hydrogen --effort medium` is accepted; `agy models` lists the same
+  model with the effort in its ID (`gemini-4-hydrogen-high`).
 - Tokens come from the final `result` event (`output_tokens` include
   `thinking_tokens`). agy reports no cost. A result whose status is not `SUCCESS`
   and names a quota or `RESOURCE_EXHAUSTED` counts as a usage limit. That shape is

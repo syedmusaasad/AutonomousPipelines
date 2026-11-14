@@ -64,8 +64,8 @@ failing plan.
 | implementer | claude | claude-sonnet-5-5 | high |
 | fast-worker | codex | gpt-6-luna | low |
 | lane-worker | claude | claude-haiku-5-5 | low |
-| researcher | agy | gemini-3.8-flash | medium |
-| document-writer | agy | gemini-3.8-flash | high |
+| researcher | agy | gemini-4-hydrogen | high |
+| document-writer | agy | gemini-4-hydrogen | high |
 | frontend-worker | claude | claude-sonnet-5-5 | high |
 | reviewer | codex | gpt-6.1-sol | high |
 

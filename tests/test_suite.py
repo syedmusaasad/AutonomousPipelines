@@ -406,7 +406,7 @@ def registry_seats_match_operator_choice():
     want = {
         "interactive": ("claude-fable-5-2", "medium"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
-        "researcher": ("gemini-3.8-flash", "medium"), "document-writer": ("gemini-3.8-flash", "high"),
+        "researcher": ("gemini-4-hydrogen", "high"), "document-writer": ("gemini-4-hydrogen", "high"),
         "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer": ("gpt-6.1-sol", "high"),
     }
     got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}
@@ -2363,10 +2363,10 @@ def agy_seat_argv_prompt_and_deny_rules():
     assert roles_mod.seat("researcher", reg)["cli"] == "agy"
     settings = roles_mod.agy_settings("researcher", reg)
     assert "command(gh pr comment)" in settings["permissions"]["deny"]
-    argv = dsp.build_argv(binary="agy", cli="agy", agent="pl-researcher", model="gemini-3.8-flash", effort="medium",
+    argv = dsp.build_argv(binary="agy", cli="agy", agent="pl-researcher", model="gemini-4-hydrogen", effort="high",
                           prompt="do it", settings=settings)
     assert argv[argv.index("--output-format") + 1] == "stream-json"
-    assert argv[argv.index("--model") + 1] == "gemini-3.8-flash" and argv[argv.index("--effort") + 1] == "medium"
+    assert argv[argv.index("--model") + 1] == "gemini-4-hydrogen" and argv[argv.index("--effort") + 1] == "high"
     assert "--dangerously-skip-permissions" in argv and argv[-1] == "-p=do it"
     assert json.loads(argv[argv.index("--settings") + 1]) == settings
     # a prompt too large for one argv string is passed as a pointer to the saved file
@@ -2375,12 +2375,12 @@ def agy_seat_argv_prompt_and_deny_rules():
         out = E.tmp / "agy"
         res = dsp.run_dispatch(brief="FAKE: ran grep -r x .\nFAKE: touch notes.md\n", role="researcher",
                                cwd=E.work, out_dir=out, timeout=30)
-        assert res.outcome == "ok" and res.model == "gemini-3.8-flash", res.as_row()
+        assert res.outcome == "ok" and res.model == "gemini-4-hydrogen", res.as_row()
         assert res.tokens == {"input": 1000, "output": 200, "reasoning": 34, "total": 1234}
         assert res.session_id == "ses_fake" and (E.work / "notes.md").exists()
         assert engine.ran_commands(out / "transcript.jsonl") == ["grep -r x ."]
         call = E.fake_calls()[-1]
-        assert call["cli"] == "agy" and call["agent"] == "pl-researcher" and call["variant"] == "medium"
+        assert call["cli"] == "agy" and call["agent"] == "pl-researcher" and call["variant"] == "high"
         assert "Headless worker contract" in call["brief"]
         res = dsp.run_dispatch(brief="FAKE: quota\n", role="document-writer", cwd=E.work, out_dir=E.tmp / "agyq", timeout=30)
         assert res.outcome == "quota" and "resets in 4 hours" in res.error, res.as_row()
