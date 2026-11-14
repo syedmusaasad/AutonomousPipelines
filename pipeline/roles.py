@@ -1,6 +1,6 @@
 """Role registry: role -> model seat, effort, tool grants, prompt. Each model family maps
 to the CLI that runs it (registry `clis`): anthropic seats run on Claude Code, openai
-seats on Codex, google seats on Antigravity (agy). Renders Claude Code agent files and
+seats on Codex. Renders Claude Code agent files and
 the Codex execpolicy rules (generated; hand-edits fail the drift guard). There are no
 fallback models."""
 
@@ -17,9 +17,8 @@ REVIEWERS = (REVIEWER,)
 DISPATCHABLE = ("implementer", "fast-worker", "lane-worker", "researcher", "document-writer", "frontend-worker") + REVIEWERS
 REQUIRED = ("interactive",) + DISPATCHABLE
 AGENT_PREFIX = "pl-"
-CLIS = ("claude", "codex", "agy")
-EFFORTS = {"claude": ("low", "medium", "high", "xhigh", "max"), "codex": ("minimal", "low", "medium", "high", "xhigh"),
-           "agy": ("low", "medium", "high", "xhigh", "max")}
+CLIS = ("claude", "codex")
+EFFORTS = {"claude": ("low", "medium", "high", "xhigh", "max"), "codex": ("minimal", "low", "medium", "high", "xhigh")}
 RETIRED_FIELDS = ("fallback", "quota_fallback")
 
 # Engine eyes and controls for the interactive seat (operator decision 2026-11-10): it
@@ -111,8 +110,6 @@ def validate(reg: dict) -> None:
             raise RegistryError(f"role {name}: effort {r['effort']!r} is not a {cli} effort {EFFORTS[cli]}")
         if r.get("external_post", False):
             raise RegistryError(f"role {name}: external_post must be false")
-        if r.get("sealed") and cli == "agy":
-            raise RegistryError(f"role {name}: agy has no verified read-only mode; sealed seats run on claude or codex")
         if name in REVIEWERS:
             if not r.get("sealed"):
                 raise RegistryError(f"role {name}: reviewers must be sealed")
@@ -238,7 +235,7 @@ def render_agent(role: str, reg: dict) -> str:
 
 
 def inline_prompt(role: str) -> str:
-    """Codex and agy seats get no agent files: the contract and role prompt lead every brief."""
+    """Codex seats get no agent files: the contract and role prompt lead every brief."""
     return worker_contract().rstrip() + "\n\n" + role_prompt(role).rstrip() + "\n"
 
 
@@ -247,13 +244,6 @@ codex_prompt = inline_prompt
 
 def _prefix_tokens(pattern: str) -> list:
     return pattern.rstrip("*").split()
-
-
-def agy_settings(role: str, reg: dict) -> dict:
-    """agy session settings: workers run with --dangerously-skip-permissions (agy's headless
-    mode cannot prompt), so external-channel posting is refused by explicit deny rules,
-    which agy still applies under that flag."""
-    return {"permissions": {"deny": [f"command({' '.join(_prefix_tokens(p))})" for p in EXTERNAL_CHANNEL_PATTERNS]}}
 
 
 def codex_rules() -> str:

@@ -8,12 +8,9 @@ Each seat's model family picks its CLI (roles.cli_of):
   codex   `codex exec --json --model <model> -c model_reasoning_effort=<effort>
            --sandbox read-only | --dangerously-bypass-approvals-and-sandbox
            --cd <cwd> -o <last-message> -`
-  agy     `agy --output-format stream-json --model <model> --effort <effort>
-           --dangerously-skip-permissions --settings <deny rules> -p=<prompt>`
 
-Claude and Codex read the brief on stdin; agy takes it attached to -p (it never reads
-stdin). Codex and agy get the contract and role prompt ahead of the brief, since they
-have no agent files. Sealed Codex seats run in the read-only sandbox; unsealed ones run
+Both read the brief on stdin. Codex gets the contract and role prompt ahead of the brief,
+since it has no agent files. Sealed Codex seats run in the read-only sandbox; unsealed ones run
 outside it (workspace-write makes .git read-only) under the generated execpolicy rules. The JSON event stream is written to a transcript file whose
 mtime is the liveness signal. Tokens and cost come from the Claude `result` event or
 the Codex `turn.completed` events.
@@ -39,8 +36,7 @@ from . import roles as roles_mod
 from .util import now_iso, now_ts
 from .usage import UsageAccumulator
 
-DEFAULT_BINS = {"claude": "claude", "codex": "codex", "agy": "agy"}
-AGY_INLINE_MAX = 100_000  # bytes; Linux caps one argv string at 128 KiB
+DEFAULT_BINS = {"claude": "claude", "codex": "codex"}
 
 # Environment for headless Claude Code workers: skip start-up network round trips that
 # a disposable worker never uses, and keep the operator's claude.ai connectors (mail,
@@ -58,8 +54,7 @@ def model_arg(model: str, effort: str = None) -> str:
 
 
 def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cwd: Path = None,
-               out_dir: Path = None, permissions: dict = None, sealed: bool = False,
-               prompt: str = None, settings: dict = None) -> list:
+               out_dir: Path = None, permissions: dict = None, sealed: bool = False) -> list:
     if cli == "claude":
         argv = [binary, "-p", "--output-format", "stream-json", "--verbose",
                 "--agent", agent, "--model", model_arg(model)]
@@ -89,31 +84,13 @@ def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cw
             argv += ["-o", str(Path(out_dir) / "last-message.md")]
         argv.append("-")
         return argv
-    if cli == "agy":
-        argv = [binary, "--output-format", "stream-json", "--model", model_arg(model)]
-        if effort:
-            argv += ["--effort", effort]
-        argv += ["--dangerously-skip-permissions", "--disable-slash-commands"]
-        if settings:
-            argv += ["--settings", json.dumps(settings)]
-        argv.append("-p=" + (prompt or ""))
-        return argv
     raise ValueError(f"unknown worker cli {cli!r}")
 
 
 def worker_stdin(cli: str, role: str, brief: str) -> str:
-    if cli in ("codex", "agy"):
+    if cli == "codex":
         return roles_mod.inline_prompt(role).rstrip() + "\n\n---\n\n" + brief
     return brief
-
-
-def agy_prompt(text: str, path: Path) -> str:
-    """The -p prompt for agy: inline when it fits in one argv string, else a pointer to
-    the saved prompt file (agy's file tools read it)."""
-    if len(text.encode()) <= AGY_INLINE_MAX:
-        return text
-    return (f"Your full instructions are in {path}. Read the whole file first, then carry "
-            f"them out exactly as written.")
 
 
 _LIMIT_WORDS = re.compile(r"usage limit|rate limit|hit your limit|limit reached|quota|resource_exhausted", re.I)
@@ -141,11 +118,6 @@ def is_quota_error(text: str) -> bool:
         if t in ("error", "turn.failed"):
             msg = ev.get("message") or (ev.get("error") or {}).get("message") or ""
             if _LIMIT_WORDS.search(str(msg)):
-                return True
-        # agy: an error event, or a result that did not succeed, naming a quota
-        agy_ev = ev.get("event")
-        if agy_ev == "error" or (agy_ev == "result" and (ev.get("result") or {}).get("status") != "SUCCESS"):
-            if _LIMIT_WORDS.search(json.dumps(ev.get("error") or ev.get("result") or ev)):
                 return True
     return False
 
@@ -299,9 +271,7 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     stdin_path.write_bytes(stdin_text.encode("utf-8"))
     argv = build_argv(binary=worker_bin(cli), cli=cli, agent=s["agent"], model=model, effort=effective_effort,
                       cwd=Path(cwd).resolve(), out_dir=out_dir.resolve(), permissions=perms,
-                      sealed=bool(s.get("sealed")),
-                      prompt=agy_prompt(stdin_text, stdin_path.resolve()) if cli == "agy" else None,
-                      settings=roles_mod.agy_settings(role, reg) if cli == "agy" else None)
+                      sealed=bool(s.get("sealed")))
     full_env = dict(os.environ)
     if cli == "claude":
         full_env.update(CLAUDE_HEADLESS_ENV)
@@ -311,7 +281,7 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     start = now_ts()
     result = DispatchResult(model=model, transcript=str(transcript))
     try:
-        with open(transcript, "wb") as tf, open(os.devnull if cli == "agy" else stdin_path, "rb") as sf:
+        with open(transcript, "wb") as tf, open(stdin_path, "rb") as sf:
             proc = subprocess.Popen(argv, stdin=sf, stdout=tf, stderr=subprocess.STDOUT,
                                     cwd=str(cwd), env=full_env, start_new_session=True)
             result.pid = proc.pid
@@ -391,7 +361,6 @@ def parse_transcript(path: Path) -> dict:
     commands = []
     is_error = False
     result_text = None
-    agy_text = {}  # step_index -> text deltas
     for line in raw.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -404,24 +373,7 @@ def parse_transcript(path: Path) -> dict:
             continue
         acc.feed_line(line)
         t = ev.get("type")
-        session_id = (session_id or ev.get("session_id") or ev.get("thread_id") or ev.get("sessionID")
-                      or ev.get("conversation_id"))
-        agy_ev = ev.get("event")
-        if agy_ev == "step_update":  # agy
-            su = ev.get("step_update") or {}
-            if su.get("step_type") == "agent_response" and su.get("text_delta"):
-                agy_text.setdefault(su.get("step_index"), []).append(su["text_delta"])
-            elif su.get("step_type") == "tool" and su.get("state") == "DONE" and su.get("tool_name") == "run_command":
-                cmd = ((su.get("tool_info") or {}).get("parameters") or {}).get("CommandLine")
-                if cmd:
-                    commands.append(cmd)
-            continue
-        if agy_ev == "result":  # agy
-            res = ev.get("result") or {}
-            is_error = res.get("status") != "SUCCESS" or bool(res.get("finished_reason"))
-            if isinstance(res.get("response"), str) and res["response"].strip():
-                result_text = res["response"]
-            continue
+        session_id = (session_id or ev.get("session_id") or ev.get("thread_id") or ev.get("sessionID"))
         if t == "assistant":  # Claude
             for c in (ev.get("message") or {}).get("content") or []:
                 if c.get("type") == "text" and c.get("text"):
@@ -467,8 +419,6 @@ def parse_transcript(path: Path) -> dict:
         "missing_fields": snap["missing_fields"],
         "telemetry_complete": snap["telemetry_complete"],
     }
-    if agy_text:
-        texts.append("".join(agy_text[max(agy_text, key=lambda k: (k is not None, k or 0))]))
     final_text = result_text if result_text else (texts[-1] if texts else "")
     return {
         "tokens": tokens, "cost": snap["cost"], "session_id": session_id, "final_text": final_text,

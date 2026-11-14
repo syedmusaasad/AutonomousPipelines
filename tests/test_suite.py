@@ -370,7 +370,7 @@ def registry_validates_clis_seals_and_retired_fallbacks():
     for name, r in reg["roles"].items():
         assert "fallback" not in r and "quota_fallback" not in r, name
         assert not r.get("external_post")
-        assert roles_mod.cli_of(r["model"], reg) in ("claude", "codex", "agy"), name
+        assert roles_mod.cli_of(r["model"], reg) in ("claude", "codex"), name
     assert roles_mod.REVIEWERS == ("reviewer",)
     rv = reg["roles"]["reviewer"]
     assert rv["sealed"] and not rv["tools"]["edit"]
@@ -386,8 +386,7 @@ def registry_validates_clis_seals_and_retired_fallbacks():
         (lambda b: b["roles"]["implementer"].__setitem__("model", "grok-4-7"), "model with no CLI accepted"),
         (lambda b: b["roles"]["fast-worker"].__setitem__("effort", "ultra"), "bad effort accepted"),
         (lambda b: b["roles"]["interactive"].__setitem__("model", "gpt-6.1-sol"), "codex interactive accepted"),
-        (lambda b: b["roles"]["reviewer"].__setitem__("model", "gemini-3.8-flash"), "sealed agy seat accepted"),
-        (lambda b: b["roles"]["researcher"].__setitem__("effort", "minimal"), "codex-only effort on agy accepted"),
+        (lambda b: b["roles"]["researcher"].__setitem__("model", "gemini-4-hydrogen"), "model with no CLI (gemini) accepted"),
         (lambda b: b["roles"].pop("reviewer"), "missing reviewer accepted"),
     ):
         bad = copy.deepcopy(reg)
@@ -406,12 +405,12 @@ def registry_seats_match_operator_choice():
     want = {
         "interactive": ("claude-fable-5-2", "medium"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
-        "researcher": ("gemini-4-hydrogen", "high"), "document-writer": ("gemini-4-hydrogen", "high"),
+        "researcher": ("gpt-6.1-sol", "high"), "document-writer": ("gpt-6.1-sol", "high"),
         "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer": ("gpt-6.1-sol", "high"),
     }
     got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}
     assert got == want, got
-    assert reg["clis"] == {"anthropic": "claude", "openai": "codex", "google": "agy"}
+    assert reg["clis"] == {"anthropic": "claude", "openai": "codex"}
     assert "models" not in reg and "provider" not in reg
 
 @test
@@ -2358,32 +2357,22 @@ def codex_transcript_yields_commands_text_and_failure():
 
 
 @test
-def agy_seat_argv_prompt_and_deny_rules():
+def codex_researcher_seat_inlines_contract_and_reports_quota():
     reg = roles_mod.load()
-    assert roles_mod.seat("researcher", reg)["cli"] == "agy"
-    settings = roles_mod.agy_settings("researcher", reg)
-    assert "command(gh pr comment)" in settings["permissions"]["deny"]
-    argv = dsp.build_argv(binary="agy", cli="agy", agent="pl-researcher", model="gemini-4-hydrogen", effort="high",
-                          prompt="do it", settings=settings)
-    assert argv[argv.index("--output-format") + 1] == "stream-json"
-    assert argv[argv.index("--model") + 1] == "gemini-4-hydrogen" and argv[argv.index("--effort") + 1] == "high"
-    assert "--dangerously-skip-permissions" in argv and argv[-1] == "-p=do it"
-    assert json.loads(argv[argv.index("--settings") + 1]) == settings
-    # a prompt too large for one argv string is passed as a pointer to the saved file
-    assert dsp.agy_prompt("x" * (dsp.AGY_INLINE_MAX + 1), Path("/o/stdin.md")).startswith("Your full instructions are in /o/stdin.md")
+    assert roles_mod.seat("researcher", reg)["cli"] == "codex"
     with Estate() as E:
-        out = E.tmp / "agy"
+        out = E.tmp / "researcher"
         res = dsp.run_dispatch(brief="FAKE: ran grep -r x .\nFAKE: touch notes.md\n", role="researcher",
                                cwd=E.work, out_dir=out, timeout=30)
-        assert res.outcome == "ok" and res.model == "gemini-4-hydrogen", res.as_row()
+        assert res.outcome == "ok" and res.model == "gpt-6.1-sol", res.as_row()
         assert res.tokens == {"input": 1000, "output": 200, "reasoning": 34, "total": 1234}
         assert res.session_id == "ses_fake" and (E.work / "notes.md").exists()
         assert engine.ran_commands(out / "transcript.jsonl") == ["grep -r x ."]
         call = E.fake_calls()[-1]
-        assert call["cli"] == "agy" and call["agent"] == "pl-researcher" and call["variant"] == "high"
+        assert call["cli"] == "codex" and call["agent"] == "pl-researcher" and call["variant"] == "high"
         assert "Headless worker contract" in call["brief"]
-        res = dsp.run_dispatch(brief="FAKE: quota\n", role="document-writer", cwd=E.work, out_dir=E.tmp / "agyq", timeout=30)
-        assert res.outcome == "quota" and "resets in 4 hours" in res.error, res.as_row()
+        res = dsp.run_dispatch(brief="FAKE: quota\n", role="document-writer", cwd=E.work, out_dir=E.tmp / "docq", timeout=30)
+        assert res.outcome == "quota", res.as_row()
 
 
 @test
@@ -3493,24 +3482,21 @@ def plan_check_accepts_relative_and_absolute_gate_paths():
 
 
 @test
-def agy_usage_never_negative_and_cache_is_not_subtracted():
+def codex_usage_excludes_cached_input_and_is_never_negative():
     from pipeline.usage import UsageAccumulator
-    # the final result event of run_20261108T002619_8a315f phase 4 (agy, gemini-3.8-flash)
-    ev = json.dumps({"event": "result", "result": {"conversation_id": "c1", "status": "SUCCESS", "usage": {
-        "input_tokens": 238335, "output_tokens": 28336, "thinking_tokens": 18938,
-        "cache_read_tokens": 2416172, "total_tokens": 266671}}})
+    ev = json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 200, "reasoning_output_tokens": 34}})
     acc = UsageAccumulator()
     acc.feed_line(ev)
     s = acc.snapshot()
-    assert (s["input"], s["output"], s["reasoning"]) == (238335, 9398, 18938), s
-    assert s["cache_read"] == 2416172 and s["provider_total"] == 266671, s
-    assert s["input"] + s["output"] + s["reasoning"] == s["provider_total"]
+    assert (s["input"], s["output"], s["reasoning"]) == (600, 200, 34), s
+    assert s["cache_read"] == 400 and s["provider_total"] == 1234, s
     with Estate() as E:
-        t = E.tmp / "agy.jsonl"
+        t = E.tmp / "codex.jsonl"
         t.write_text(ev + "\n")
         p = dsp.parse_transcript(t)
-        assert p["tokens"] == {"input": 238335, "output": 9398, "reasoning": 18938, "total": 266671}, p["tokens"]
-        assert p["usage"]["provider_total"] == 266671 and p["usage"]["cache_read_tokens"] == 2416172
+        assert p["tokens"] == {"input": 600, "output": 200, "reasoning": 34, "total": 834}, p["tokens"]
+        assert p["usage"]["provider_total"] == 1234 and p["usage"]["cache_read_tokens"] == 400
         assert all(v >= 0 for v in p["tokens"].values())
 
 
@@ -3524,12 +3510,6 @@ def irreconcilable_usage_is_clamped_and_marked_incomplete():
     s = acc.snapshot()
     assert s["input"] == 0 and s["output"] == 10 and s["reasoning"] == 50, s
     assert s["telemetry_complete"] is False
-    # agy thinking > output: output clamps to 0, flagged
-    acc = UsageAccumulator()
-    acc.feed_line(json.dumps({"event": "result", "result": {"conversation_id": "c2", "usage": {
-        "input_tokens": 10, "output_tokens": 5, "thinking_tokens": 9, "cache_read_tokens": 0, "total_tokens": 15}}}))
-    s = acc.snapshot()
-    assert s["output"] == 0 and s["input"] == 10 and s["telemetry_complete"] is False, s
     # legacy step_finish with a negative figure
     acc = UsageAccumulator()
     acc.feed_line(json.dumps({"type": "step_finish", "part": {"id": "p1", "cost": 0.1, "tokens": {

@@ -1,5 +1,5 @@
 {
-  "_comment": "Role -> model seat. Each model family maps to the CLI that runs it (`clis`): anthropic seats run as headless Claude Code (`claude -p`), openai seats as headless Codex (`codex exec`), google seats as headless Antigravity (`agy -p`). There are no fallback models. Model changes happen only through `pipeline trial`; vendor benchmarks nominate, never decide. `pipeline render-agents` regenerates the Claude Code agent files from this registry and the suite diffs them (drift guard).",
+  "_comment": "Role -> model seat. Each model family maps to the CLI that runs it (`clis`): anthropic seats run as headless Claude Code (`claude -p`), openai seats as headless Codex (`codex exec`). There are no fallback models. Model changes happen only through `pipeline trial`; vendor benchmarks nominate, never decide. `pipeline render-agents` regenerates the Claude Code agent files from this registry and the suite diffs them (drift guard).",
   "families": {
     "anthropic": [
       "claude-"
@@ -9,15 +9,11 @@
       "o1",
       "o3",
       "o4"
-    ],
-    "google": [
-      "gemini-"
     ]
   },
   "clis": {
     "anthropic": "claude",
-    "openai": "codex",
-    "google": "agy"
+    "openai": "codex"
   },
   "browser": {
     "endpoint": "http://127.0.0.1:19222",
@@ -277,7 +273,7 @@
             "effort": "low"
           },
           "at": "2026-11-07T18:00:00+00:00",
-          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
+          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI."
         }
       ]
     },
@@ -352,7 +348,7 @@
     },
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
-      "model": "gemini-4-hydrogen",
+      "model": "gpt-6.1-sol",
       "effort": "high",
       "band": "critical",
       "tools": {
@@ -453,7 +449,7 @@
             "effort": "medium"
           },
           "at": "2026-11-07T18:00:00+00:00",
-          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
+          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI."
         },
         {
           "from": {
@@ -465,13 +461,25 @@
             "effort": "high"
           },
           "at": "2026-11-14T00:00:00+00:00",
-          "why": "DECISION operator-seats (2026-11-14): operator moved this seat to Gemini 4 Hydrogen at high effort, without a trial. Artificial Analysis comparison page: Hydrogen high scores 51 at 8.4 min and $1.87 per index task; Gemini 3.8 Flash scores 30 (medium) / 31 (high) at 12.3 / 14.4 min and $6.26 / $7.77. No summarization or prose score for Hydrogen was available; Flash had been seated for its LiveBench prose lead. Verified on this host: agy 1.5.5 lists gemini-4-hydrogen and a live call with --model gemini-4-hydrogen --effort medium returned SUCCESS."
+          "why": "DECISION operator-seats (2026-11-14): operator moved this seat to Gemini 4 Hydrogen at high effort, without a trial. Artificial Analysis comparison page: Hydrogen high scores 51 at 8.4 min and $1.87 per index task; Gemini 3.8 Flash scores 30 (medium) / 31 (high) at 12.3 / 14.4 min and $6.26 / $7.77. No summarization or prose score for Hydrogen was available; Flash had been seated for its LiveBench prose lead. Verified on this host: the Antigravity CLI 1.5.5 lists gemini-4-hydrogen and a live call with --model gemini-4-hydrogen --effort medium returned SUCCESS."
+        },
+        {
+          "from": {
+            "model": "gemini-4-hydrogen",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "at": "2026-11-14T12:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-14): operator removed the Antigravity CLI (plan lapses 2026-11-16) and asked for the best Claude or GPT model by published benchmarks, no local runs. gpt-6.1-sol leads the remaining candidates on the measured prose and research scores in docs/model-selection/UPDATE-LATEST.md: LiveBench v1 summarize 81.25 (claude-sonnet-5-5 58.17, claude-haiku-5-5 53.63), prose average 74.88, LiveBench 2.0 research 83.5 (claude-haiku-5-5 81.9, gpt-6.1-terra 73.9). Claude Fable 5.2 has no prose or research score yet. Known costs: these seats now share the reviewer's model family, and they add load to the Codex plan."
         }
       ]
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
-      "model": "gemini-4-hydrogen",
+      "model": "gpt-6.1-sol",
       "effort": "high",
       "band": "standard",
       "tools": {
@@ -571,7 +579,7 @@
             "effort": "high"
           },
           "at": "2026-11-07T18:00:00+00:00",
-          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI (agy)."
+          "why": "DECISION operator-seats (2026-11-07): operator set this seat directly, outside pipeline trial. fast-worker moves to Codex (gpt-6-luna@low); researcher and document-writer move to Gemini 3.8 Flash on the Antigravity CLI."
         },
         {
           "from": {
@@ -583,7 +591,19 @@
             "effort": "high"
           },
           "at": "2026-11-14T00:00:00+00:00",
-          "why": "DECISION operator-seats (2026-11-14): operator moved this seat to Gemini 4 Hydrogen at high effort, without a trial. Artificial Analysis comparison page: Hydrogen high scores 51 at 8.4 min and $1.87 per index task; Gemini 3.8 Flash scores 30 (medium) / 31 (high) at 12.3 / 14.4 min and $6.26 / $7.77. No summarization or prose score for Hydrogen was available; Flash had been seated for its LiveBench prose lead. Verified on this host: agy 1.5.5 lists gemini-4-hydrogen and a live call with --model gemini-4-hydrogen --effort medium returned SUCCESS."
+          "why": "DECISION operator-seats (2026-11-14): operator moved this seat to Gemini 4 Hydrogen at high effort, without a trial. Artificial Analysis comparison page: Hydrogen high scores 51 at 8.4 min and $1.87 per index task; Gemini 3.8 Flash scores 30 (medium) / 31 (high) at 12.3 / 14.4 min and $6.26 / $7.77. No summarization or prose score for Hydrogen was available; Flash had been seated for its LiveBench prose lead. Verified on this host: the Antigravity CLI 1.5.5 lists gemini-4-hydrogen and a live call with --model gemini-4-hydrogen --effort medium returned SUCCESS."
+        },
+        {
+          "from": {
+            "model": "gemini-4-hydrogen",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "at": "2026-11-14T12:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-14): operator removed the Antigravity CLI (plan lapses 2026-11-16) and asked for the best Claude or GPT model by published benchmarks, no local runs. gpt-6.1-sol leads the remaining candidates on the measured prose and research scores in docs/model-selection/UPDATE-LATEST.md: LiveBench v1 summarize 81.25 (claude-sonnet-5-5 58.17, claude-haiku-5-5 53.63), prose average 74.88, LiveBench 2.0 research 83.5 (claude-haiku-5-5 81.9, gpt-6.1-terra 73.9). Claude Fable 5.2 has no prose or research score yet. Known costs: these seats now share the reviewer's model family, and they add load to the Codex plan."
         }
       ]
     },

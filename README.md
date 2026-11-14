@@ -3,9 +3,8 @@
 A plan-driven engine that dispatches headless coding workers. The operator talks to one
 interactive agent; everything else is machinery. Work outside the journal did not happen.
 
-Workers run on three CLIs: Claude Code (`claude -p`, a Claude subscription) for the
-Anthropic seats, Codex (`codex exec`, a ChatGPT subscription) for the OpenAI seats, and
-Antigravity (`agy -p`) for the Gemini seats.
+Workers run on two CLIs: Claude Code (`claude -p`, a Claude subscription) for the
+Anthropic seats and Codex (`codex exec`, a ChatGPT subscription) for the OpenAI seats.
 
 ## Install
 
@@ -14,8 +13,7 @@ git clone <this repo> && cd pipeline
 ./bootstrap.sh
 export PATH="$HOME/.system/bin:$PATH"
 claude          # sign in once (Claude subscription)
-codex login     # sign in once (ChatGPT subscription; fast-worker and reviewer)
-agy             # sign in once (Antigravity; researcher and document-writer)
+codex login     # sign in once (ChatGPT subscription; fast-worker, researcher, document-writer, reviewer)
 pl              # the interactive seat
 ```
 
@@ -64,8 +62,8 @@ failing plan.
 | implementer | claude | claude-sonnet-5-5 | high |
 | fast-worker | codex | gpt-6-luna | low |
 | lane-worker | claude | claude-haiku-5-5 | low |
-| researcher | agy | gemini-4-hydrogen | high |
-| document-writer | agy | gemini-4-hydrogen | high |
+| researcher | codex | gpt-6.1-sol | high |
+| document-writer | codex | gpt-6.1-sol | high |
 | frontend-worker | claude | claude-sonnet-5-5 | high |
 | reviewer | codex | gpt-6.1-sol | high |
 

@@ -1,10 +1,9 @@
 # Worker CLI compatibility
 
-Date: 2026-11-07. Installed: Claude Code 2.1.319, codex-cli 0.167.0, agy 1.5.3.
+Date: 2026-11-07. Installed: Claude Code 2.1.319, codex-cli 0.167.0.
 
 DevPass Code is retired. A seat's model family picks its CLI (`clis` in
-roles/registry.json): anthropic seats run on Claude Code, openai seats on Codex, google
-seats on Antigravity (`agy`).
+roles/registry.json): anthropic seats run on Claude Code, openai seats on Codex.
 
 ## Claude Code seats (`claude -p`)
 
@@ -74,29 +73,6 @@ codex exec --json --model gpt-6.1-sol -c model_reasoning_effort="high"
   dispatch's answer counts.
 - Tokens come from `turn.completed` events. Codex reports no cost. An `error` or
   `turn.failed` event that names a usage or rate limit counts as a usage limit.
-
-## Antigravity seats (`agy -p`)
-
-```
-agy --output-format stream-json --model gemini-4-hydrogen --effort <effort>
-  --dangerously-skip-permissions --disable-slash-commands
-  --settings '{"permissions":{"deny":["command(gh pr comment)", ...]}}' -p=<prompt>
-```
-
-- The prompt (contract + role prompt + brief) is attached to `-p=`. agy does not read a
-  prompt from stdin, and a bare `-p` swallows the next flag as its prompt. A prompt over
-  100 KB is replaced with a pointer to the saved `stdin.md`.
-- Headless agy cannot prompt and refuses any tool without an allow rule, so workers
-  run with `--dangerously-skip-permissions`; explicit deny rules still apply under it.
-  Verified: `command(touch)` refused `touch` ("Matches user-configured deny rule").
-- `--model gemini-4-hydrogen --effort medium` is accepted; `agy models` lists the same
-  model with the effort in its ID (`gemini-4-hydrogen-high`).
-- Tokens come from the final `result` event (`output_tokens` include
-  `thinking_tokens`). agy reports no cost. A result whose status is not `SUCCESS`
-  and names a quota or `RESOURCE_EXHAUSTED` counts as a usage limit. That shape is
-  inferred, not yet observed.
-- agy has no verified read-only mode, so sealed seats cannot run on it (the registry
-  refuses one).
 
 ## Interactive seat
 
