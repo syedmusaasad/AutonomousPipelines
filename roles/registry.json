@@ -349,7 +349,7 @@
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
       "model": "gpt-6.1-sol",
-      "effort": "high",
+      "effort": "medium",
       "band": "critical",
       "tools": {
         "read": true,
@@ -474,13 +474,25 @@
           },
           "at": "2026-11-14T12:00:00+00:00",
           "why": "DECISION operator-seats (2026-11-14): operator removed the Antigravity CLI (plan lapses 2026-11-16) and asked for the best Claude or GPT model by published benchmarks, no local runs. gpt-6.1-sol leads the remaining candidates on the measured prose and research scores in docs/model-selection/UPDATE-LATEST.md: LiveBench v1 summarize 81.25 (claude-sonnet-5-5 58.17, claude-haiku-5-5 53.63), prose average 74.88, LiveBench 2.0 research 83.5 (claude-haiku-5-5 81.9, gpt-6.1-terra 73.9). Claude Fable 5.2 has no prose or research score yet. Known costs: these seats now share the reviewer's model family, and they add load to the Codex plan."
+        },
+        {
+          "from": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gpt-6.1-sol",
+            "effort": "medium"
+          },
+          "at": "2026-11-14T18:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-14): operator asked for the best balance of quality and speed for this seat. Artificial Analysis: gpt-6.1-sol medium scores 46 at 4.6 min per index task with first output after about 5 s; high scores 50 at 7.9 min with first output after about 42 s. Sol medium scores above gpt-6.1-terra high (42 at 4.4 min) and claude-sonnet-5-5 high (42 at 6.7 min). Its LiveBench summarization and research lead was measured at max effort."
         }
       ]
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
       "model": "gpt-6.1-sol",
-      "effort": "high",
+      "effort": "medium",
       "band": "standard",
       "tools": {
         "read": true,
@@ -604,6 +616,18 @@
           },
           "at": "2026-11-14T12:00:00+00:00",
           "why": "DECISION operator-seats (2026-11-14): operator removed the Antigravity CLI (plan lapses 2026-11-16) and asked for the best Claude or GPT model by published benchmarks, no local runs. gpt-6.1-sol leads the remaining candidates on the measured prose and research scores in docs/model-selection/UPDATE-LATEST.md: LiveBench v1 summarize 81.25 (claude-sonnet-5-5 58.17, claude-haiku-5-5 53.63), prose average 74.88, LiveBench 2.0 research 83.5 (claude-haiku-5-5 81.9, gpt-6.1-terra 73.9). Claude Fable 5.2 has no prose or research score yet. Known costs: these seats now share the reviewer's model family, and they add load to the Codex plan."
+        },
+        {
+          "from": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gpt-6.1-sol",
+            "effort": "medium"
+          },
+          "at": "2026-11-14T18:00:00+00:00",
+          "why": "DECISION operator-seats (2026-11-14): operator asked for the best balance of quality and speed for this seat. Artificial Analysis: gpt-6.1-sol medium scores 46 at 4.6 min per index task with first output after about 5 s; high scores 50 at 7.9 min with first output after about 42 s. Sol medium scores above gpt-6.1-terra high (42 at 4.4 min) and claude-sonnet-5-5 high (42 at 6.7 min). Its LiveBench summarization and research lead was measured at max effort."
         }
       ]
     },

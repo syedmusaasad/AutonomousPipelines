@@ -62,8 +62,8 @@ failing plan.
 | implementer | claude | claude-sonnet-5-5 | high |
 | fast-worker | codex | gpt-6-luna | low |
 | lane-worker | claude | claude-haiku-5-5 | low |
-| researcher | codex | gpt-6.1-sol | high |
-| document-writer | codex | gpt-6.1-sol | high |
+| researcher | codex | gpt-6.1-sol | medium |
+| document-writer | codex | gpt-6.1-sol | medium |
 | frontend-worker | claude | claude-sonnet-5-5 | high |
 | reviewer-a | claude | claude-opus-5-5 | high |
 | reviewer-b | codex | gpt-6.1-sol | high |

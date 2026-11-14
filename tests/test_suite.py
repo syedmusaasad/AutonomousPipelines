@@ -413,7 +413,7 @@ def registry_seats_match_operator_choice():
     want = {
         "interactive": ("claude-fable-5-2", "medium"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
-        "researcher": ("gpt-6.1-sol", "high"), "document-writer": ("gpt-6.1-sol", "high"),
+        "researcher": ("gpt-6.1-sol", "medium"), "document-writer": ("gpt-6.1-sol", "medium"),
         "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer-a": ("claude-opus-5-5", "high"), "reviewer-b": ("gpt-6.1-sol", "high"),
     }
     got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}
@@ -2480,7 +2480,7 @@ def codex_researcher_seat_inlines_contract_and_reports_quota():
         assert res.session_id == "ses_fake" and (E.work / "notes.md").exists()
         assert engine.ran_commands(out / "transcript.jsonl") == ["grep -r x ."]
         call = E.fake_calls()[-1]
-        assert call["cli"] == "codex" and call["agent"] == "pl-researcher" and call["variant"] == "high"
+        assert call["cli"] == "codex" and call["agent"] == "pl-researcher" and call["variant"] == "medium"
         assert "Headless worker contract" in call["brief"]
         res = dsp.run_dispatch(brief="FAKE: quota\n", role="document-writer", cwd=E.work, out_dir=E.tmp / "docq", timeout=30)
         assert res.outcome == "quota", res.as_row()
