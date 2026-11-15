@@ -1,5 +1,5 @@
 {
- "min_tests": 298,
+ "min_tests": 299,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -163,6 +163,7 @@
   "trial_apply_never_seats_a_quota_fallback",
   "trial_apply_writes_effort",
   "trial_arm_briefs_forbid_committing_even_though_role_prompts_say_commit",
+  "trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd",
   "trial_briefs_carry_task_titles_and_scorers_get_task_specs_and_may_open_sources",
   "trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat",
   "trial_decide_averages_two_reviewers_and_requires_both_files",

@@ -176,7 +176,7 @@ def main():
             f.write(json.dumps({"agent": agent, "model": model, "variant": variant or None, "cwd": cwd,
                                 "argv": argv,
                                 "ITEM": env.get("ITEM"), "LANE": env.get("LANE"), "LANE_OUT": env.get("LANE_OUT"),
-                                "REVIEW_OUT": env.get("REVIEW_OUT"), "retry": is_retry, "brief_len": len(brief),
+                                "REVIEW_OUT": env.get("REVIEW_OUT"), "GIT_CEILING": env.get("GIT_CEILING_DIRECTORIES"), "retry": is_retry, "brief_len": len(brief),
                                 "brief": brief, "cli": MODE, "invocation": invocation}) + "\n")
 
     emit_start(model)

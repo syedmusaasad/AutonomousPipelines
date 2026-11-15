@@ -89,9 +89,11 @@ def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cw
 
 
 def ensure_project_agent(role: str, cwd: Path, reg: dict) -> Path:
-    """A Claude worker for a seat that is not on Claude (a trial arm) has no user-level
-    `pl-<role>` agent file: those are rendered only for Claude seats, and the drift check
-    forbids adding one. Render it project-level into the worker's cwd instead
+    """A Claude trial arm runs on a project-level `pl-<role>` agent file with the trial
+    contract (no commits). A seat that is not on Claude has no user-level agent file at all:
+    those are rendered only for Claude seats, and the drift check forbids adding one; and the
+    user-level file carries the production contract, which tells workers to commit. Render it
+    project-level into the worker's cwd instead, where it takes precedence
     (`<cwd>/.claude/agents/pl-<role>.md`, which the claude CLI reads); `--model` and `--effort`
     in the argv supply what the seat's registry entry does not. ~/.claude/agents and the
     registry stay untouched. The content is arm-independent and written atomically, so
@@ -99,7 +101,7 @@ def ensure_project_agent(role: str, cwd: Path, reg: dict) -> Path:
     dest = Path(cwd) / ".claude" / "agents"
     dest.mkdir(parents=True, exist_ok=True)
     path = dest / f"{roles_mod.AGENT_PREFIX}{role}.md"
-    text = roles_mod.render_agent(role, reg, pin_model=False)
+    text = roles_mod.render_agent(role, reg, pin_model=False, trial=True)
     if not path.exists() or path.read_text() != text:
         tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
         tmp.write_text(text)
@@ -107,9 +109,9 @@ def ensure_project_agent(role: str, cwd: Path, reg: dict) -> Path:
     return path
 
 
-def worker_stdin(cli: str, role: str, brief: str) -> str:
+def worker_stdin(cli: str, role: str, brief: str, trial: bool = False) -> str:
     if cli == "codex":
-        return roles_mod.inline_prompt(role).rstrip() + "\n\n---\n\n" + brief
+        return roles_mod.inline_prompt(role, trial=trial).rstrip() + "\n\n---\n\n" + brief
     return brief
 
 
@@ -269,9 +271,12 @@ class DispatchResult:
 
 
 def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: int, env: dict = None,
-                 model: str = None, effort: str = None, on_start=None, reg: dict = None) -> DispatchResult:
+                 model: str = None, effort: str = None, on_start=None, reg: dict = None,
+                 trial: bool = False) -> DispatchResult:
     """Blocking: runs one worker to completion (or timeout). `on_start(pid, transcript)`
-    is called right after spawn so the caller can journal dispatch.start."""
+    is called right after spawn so the caller can journal dispatch.start. trial=True marks a
+    trial arm: it gets the trial contract (never commit), git write commands are refused for a
+    Claude arm, and git cannot discover a repository above the arm's cwd."""
     reg = reg or roles_mod.load()
     s = roles_mod.seat(role, reg)
     model = model or s["model_q"]
@@ -285,11 +290,11 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     }, indent=1))
 
     cli = roles_mod.cli_of(model, reg)
-    perms = roles_mod.claude_permissions(role, reg) if cli == "claude" else None
-    if cli == "claude" and roles_mod.cli_of(s["model"], reg) != "claude":
-        ensure_project_agent(role, cwd, reg)  # trial arm on a Claude model, seat on Codex
+    perms = roles_mod.claude_permissions(role, reg, trial=trial) if cli == "claude" else None
+    if cli == "claude" and trial:
+        ensure_project_agent(role, cwd, reg)  # trial arm: trial contract; the seat may be on Codex
     stdin_path = out_dir / "stdin.md"
-    stdin_text = worker_stdin(cli, role, brief)
+    stdin_text = worker_stdin(cli, role, brief, trial=trial)
     stdin_path.write_bytes(stdin_text.encode("utf-8"))
     argv = build_argv(binary=worker_bin(cli), cli=cli, agent=s["agent"], model=model, effort=effective_effort,
                       cwd=Path(cwd).resolve(), out_dir=out_dir.resolve(), permissions=perms,
@@ -298,6 +303,8 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     if cli == "claude":
         full_env.update(CLAUDE_HEADLESS_ENV)
     full_env.update(env or {})
+    if trial:  # git finds no repository from the arm's cwd upward: its output cannot be committed
+        full_env["GIT_CEILING_DIRECTORIES"] = str(Path(cwd).resolve().parent)
     full_env["PIPELINE_ROLE"] = role
     full_env["PIPELINE_HEADLESS"] = "1"
     start = now_ts()

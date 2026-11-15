@@ -1940,7 +1940,7 @@ def trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat():
             assert "pl-researcher.md" not in before
             # Claude arm for a seat on Codex: needs an agent file nobody rendered globally
             res = dsp.run_dispatch(brief="FAKE: touch trial/a.txt\n", role="researcher", cwd=E.work,
-                                   out_dir=E.tmp / "d1", timeout=30, model="claude-sonnet-5-5", effort="high", reg=reg)
+                                   out_dir=E.tmp / "d1", timeout=30, model="claude-sonnet-5-5", effort="high", reg=reg, trial=True)
             assert res.outcome == "ok", res.as_row()
             call = E.fake_calls()[-1]
             assert call["cli"] == "claude" and call["agent"] == "pl-researcher" and call["variant"] == "high"
@@ -1950,24 +1950,74 @@ def trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat():
             # a second arm on another model reuses the same arm-independent file
             text1 = agent_file.read_text()
             res = dsp.run_dispatch(brief="FAKE: say hi\n", role="researcher", cwd=E.work, out_dir=E.tmp / "d2",
-                                   timeout=30, model="claude-haiku-5-5", effort="low", reg=reg)
+                                   timeout=30, model="claude-haiku-5-5", effort="low", reg=reg, trial=True)
             assert res.outcome == "ok" and agent_file.read_text() == text1
             # Codex arm for a seat on Claude: no agent file involved at all
             res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=E.work, out_dir=E.tmp / "d3",
-                                   timeout=30, model="gpt-6.1-sol", effort="medium", reg=reg)
+                                   timeout=30, model="gpt-6.1-sol", effort="medium", reg=reg, trial=True)
             assert res.outcome == "ok", res.as_row()
             call = E.fake_calls()[-1]
             assert call["cli"] == "codex" and call["agent"] == "pl-implementer" and call["variant"] == "medium"
             assert not (E.work / ".claude" / "agents" / "pl-implementer.md").exists()
-            # a Claude seat's Claude arm never needs the project-level file
+            # a Claude seat's Claude arm gets the trial agent file too (the user-level one says "commit")
             res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=E.work, out_dir=E.tmp / "d4",
-                                   timeout=30, model="claude-opus-5-5", effort="high", reg=reg)
-            assert res.outcome == "ok" and not (E.work / ".claude" / "agents" / "pl-implementer.md").exists()
+                                   timeout=30, model="claude-opus-5-5", effort="high", reg=reg, trial=True)
+            assert res.outcome == "ok" and (E.work / ".claude" / "agents" / "pl-implementer.md").exists()
             # the user-level agents directory and the registry are untouched; no drift
             assert {f.name: f.read_text() for f in E.agents.iterdir()} == before
             assert roles_mod.drift(E.agents) == [] and roles_mod.REGISTRY.read_text() == reg_text
     finally:
         del os.environ["FAKE_REQUIRE_AGENT"]
+
+
+@test
+def trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd():
+    reg = roles_mod.load()
+    marker = "NEVER commit"
+    assert marker not in roles_mod.worker_contract() and marker in roles_mod.trial_contract()
+    assert roles_mod.worker_contract().strip() in roles_mod.trial_contract()
+    assert "NEVER commit" in roles_mod.inline_prompt("implementer", trial=True)
+    assert "NEVER commit" not in roles_mod.inline_prompt("implementer")
+    # the override leads: it precedes both the contract and the role prompt that say to commit
+    ag = roles_mod.render_agent("implementer", reg, pin_model=False, trial=True)
+    assert ag.index(marker) < ag.index("Headless worker contract") < ag.index("# Implementer")
+    assert "model:" not in ag and marker not in roles_mod.render_agent("implementer", reg)
+    plain = roles_mod.claude_permissions("implementer", reg)["deny"]
+    trial_deny = roles_mod.claude_permissions("implementer", reg, trial=True)["deny"]
+    assert not any("git commit" in d for d in plain)
+    for need in ("Bash(git commit *)", "Bash(git add *)", "Bash(git push *)", "Bash(git -C *)"):
+        assert need in trial_deny, need
+    with Estate() as E:
+        repo = E.tmp / "repo"
+        arm = repo / "plans" / "trial-x"
+        arm.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        for role, model in (("implementer", "claude-opus-5-5"), ("researcher", "claude-sonnet-5-5"),
+                            ("implementer", "gpt-6.1-sol"), ("researcher", "gpt-6-luna")):
+            out = E.tmp / f"o-{role}-{model}"
+            res = dsp.run_dispatch(brief="FAKE: say hi\n", role=role, cwd=arm, out_dir=out, timeout=30, model=model,
+                                   effort="low", reg=reg, trial=True)
+            assert res.outcome == "ok", res.as_row()
+            call = E.fake_calls()[-1]
+            assert call["GIT_CEILING"] == str(arm.resolve().parent)
+            if call["cli"] == "claude":
+                argv = call["argv"]
+                denied = argv[argv.index("--disallowed-tools") + 1]
+                assert "Bash(git commit *)" in denied and "Bash(git add *)" in denied
+                assert marker in (arm / ".claude" / "agents" / f"pl-{role}.md").read_text()
+            else:
+                assert marker in (out / "stdin.md").read_text()
+        # with that ceiling git sees no repository from the arm's cwd, so nothing it does can be committed
+        env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(arm.resolve().parent))
+        r = subprocess.run(["git", "status"], cwd=arm, env=env, capture_output=True, text=True)
+        assert r.returncode != 0 and "not a git repository" in r.stderr
+        # production dispatch is unchanged: no trial contract, no ceiling, no git denies
+        res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=arm, out_dir=E.tmp / "o-prod",
+                               timeout=30, reg=reg)
+        call = E.fake_calls()[-1]
+        assert res.outcome == "ok" and not call["GIT_CEILING"]
+        assert "git commit" not in call["argv"][call["argv"].index("--disallowed-tools") + 1] \
+            if "--disallowed-tools" in call["argv"] else True
 
 
 @test
