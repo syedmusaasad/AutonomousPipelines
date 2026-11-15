@@ -1946,27 +1946,27 @@ def trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat():
                                    out_dir=E.tmp / "d1", timeout=30, model="claude-sonnet-5-5", effort="high", reg=reg, trial=True)
             assert res.outcome == "ok", res.as_row()
             call = E.fake_calls()[-1]
-            assert call["cli"] == "claude" and call["agent"] == "pl-researcher" and call["variant"] == "high"
-            agent_file = E.work / ".claude" / "agents" / "pl-researcher.md"
-            assert agent_file.exists() and "Headless worker contract" in agent_file.read_text()
-            assert "gpt-" not in agent_file.read_text()  # carries no model: the argv pins it
-            # a second arm on another model reuses the same arm-independent file
-            text1 = agent_file.read_text()
+            assert call["cli"] == "claude" and call["agent"] == "pl-trial-researcher" and call["variant"] == "high"
+            assert call["agent_src"] == "--agents" and call["agent_never_commit"]
+            defs = json.loads((E.tmp / "d1" / "agents.json").read_text())
+            assert list(defs) == ["pl-trial-researcher"] and "Headless worker contract" in defs["pl-trial-researcher"]["prompt"]
+            assert "gpt-" not in json.dumps(defs)  # carries no model: the argv pins it
+            # a second arm on another model gets the same arm-independent definition
             res = dsp.run_dispatch(brief="FAKE: say hi\n", role="researcher", cwd=E.work, out_dir=E.tmp / "d2",
                                    timeout=30, model="claude-haiku-5-5", effort="low", reg=reg, trial=True)
-            assert res.outcome == "ok" and agent_file.read_text() == text1
+            assert res.outcome == "ok" and (E.tmp / "d2" / "agents.json").read_text() == (E.tmp / "d1" / "agents.json").read_text()
             # Codex arm for a seat on Claude: no agent file involved at all
             res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=E.work, out_dir=E.tmp / "d3",
                                    timeout=30, model="gpt-6.1-sol", effort="medium", reg=reg, trial=True)
             assert res.outcome == "ok", res.as_row()
             call = E.fake_calls()[-1]
             assert call["cli"] == "codex" and call["agent"] == "pl-implementer" and call["variant"] == "medium"
-            assert not (E.work / ".claude" / "agents" / "pl-implementer.md").exists()
-            # a Claude seat's Claude arm gets the trial agent file too (the user-level one says "commit")
+            # a Claude seat's Claude arm gets the trial agent too (the user-level one says "commit")
             res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=E.work, out_dir=E.tmp / "d4",
                                    timeout=30, model="claude-opus-5-5", effort="high", reg=reg, trial=True)
-            assert res.outcome == "ok" and (E.work / ".claude" / "agents" / "pl-implementer.md").exists()
-            # the user-level agents directory and the registry are untouched; no drift
+            assert res.outcome == "ok" and E.fake_calls()[-1]["agent_src"] == "--agents"
+            # nothing is written into the working directory, the user-level agents directory or the registry; no drift
+            assert not (E.work / ".claude").exists()
             assert {f.name: f.read_text() for f in E.agents.iterdir()} == before
             assert roles_mod.drift(E.agents) == [] and roles_mod.REGISTRY.read_text() == reg_text
     finally:
@@ -2017,7 +2017,9 @@ def trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd
                 argv = call["argv"]
                 denied = argv[argv.index("--disallowed-tools") + 1]
                 assert "Bash(git commit *)" in denied and "Bash(git add *)" in denied
-                assert marker in (arm / ".claude" / "agents" / f"pl-{role}.md").read_text()
+                assert call["agent_src"] == "--agents" and call["agent_never_commit"]
+                assert marker in json.loads((out / "agents.json").read_text())[f"pl-trial-{role}"]["prompt"]
+                assert not (arm / ".claude").exists()
             else:
                 assert marker in (out / "stdin.md").read_text()
         # with that ceiling git sees no repository from the arm's cwd, so nothing it does can be committed
@@ -2148,6 +2150,7 @@ def engine_runs_a_model_pinned_phase_as_a_trial_arm_with_the_git_protections():
 
 ## Phase 1: arm-claude (implementer)
 MODEL: claude-opus-5-5
+TRIAL: arm
 EFFORT: low
 ATTEMPTS: 1
 EXIT: test -s trial/c.md
@@ -2156,6 +2159,7 @@ FAKE: try-commit {repo}
 
 ## Phase 2: arm-codex (implementer)
 MODEL: gpt-6.1-sol
+TRIAL: arm
 EFFORT: low
 ATTEMPTS: 1
 AFTER: 1
@@ -2179,7 +2183,7 @@ FAKE: write trial/n.md <<n>>
             assert "NEVER commit" in c["brief"] or c["cli"] == "claude"
         cl, cx = calls["claude-opus-5-5"], calls["gpt-6.1-sol"]
         assert "Bash(git commit *)" in cl["argv"][cl["argv"].index("--disallowed-tools") + 1]
-        assert (arm / ".claude" / "agents" / "pl-implementer.md").read_text().count("NEVER commit") == 1
+        assert cl["agent_src"] == "--agents" and cl["agent_never_commit"] and not (arm / ".claude").exists()
         assert cx["argv"][cx["argv"].index("--sandbox") + 1] == "workspace-write"
         # an unpinned phase is a production dispatch: no ceiling, no shim, no sandbox, no trial contract
         prod = [c for c in E.fake_calls() if c["model"] not in calls or c is not calls[c["model"]]]
@@ -2188,6 +2192,111 @@ FAKE: write trial/n.md <<n>>
         for ph in ("1", "2"):  # the attempts' own transcripts show the refusals
             tx = next((E.estate / "runs" / rid).glob(f"phase-{ph}/**/transcript.jsonl"))
             assert tx.read_text().count("rc=126") >= 4
+
+
+@test
+def trial_agent_is_dispatch_scoped_so_a_later_normal_dispatch_gets_the_production_contract():
+    """A trial arm's no-commit agent must not outlive its dispatch: after a trial arm (ok, failed, or
+    killed) a normal dispatch of the same role in the same directory runs the production agent."""
+    reg = roles_mod.load()
+    assert dsp.bwrap_usable(), "bubblewrap is required for Claude trial arms"
+    os.environ["FAKE_REQUIRE_AGENT"] = "1"
+    try:
+        with Estate() as E:
+            roles_mod.write_agents(E.agents)
+            prod_text = (E.agents / "pl-implementer.md").read_text()
+            assert "NEVER commit" not in prod_text
+            arm = E.work / "trial-dir"
+            arm.mkdir()
+            for n, (brief, timeout, want) in enumerate((("FAKE: say hi\n", 30, "ok"), ("FAKE: exit 1\n", 30, "failed"),
+                                                        ("FAKE: hang\n", 2, "timeout"))):
+                res = dsp.run_dispatch(brief=brief, role="implementer", cwd=arm, out_dir=E.tmp / f"t{n}", timeout=timeout,
+                                       model="claude-opus-5-5", effort="low", reg=reg, trial=True)
+                assert res.outcome == want, (want, res.as_row())
+                trial_call = E.fake_calls()[-1]
+                assert trial_call["agent"] == "pl-trial-implementer" and trial_call["agent_src"] == "--agents"
+                assert trial_call["agent_never_commit"]
+                assert not (arm / ".claude").exists()                       # nothing left in the directory
+                assert (E.agents / "pl-implementer.md").read_text() == prod_text
+                # the very next normal dispatch of the same role, same directory: the production contract
+                res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=arm, out_dir=E.tmp / f"p{n}",
+                                       timeout=30, reg=reg)
+                assert res.outcome == "ok", res.as_row()
+                call = E.fake_calls()[-1]
+                assert call["agent"] == "pl-implementer" and call["agent_src"] == "user"
+                assert not call["agent_never_commit"] and "--agents" not in call["argv"]
+    finally:
+        del os.environ["FAKE_REQUIRE_AGENT"]
+
+
+@test
+def trial_claude_sandbox_keeps_user_level_agents_settings_and_git_config_read_only():
+    assert dsp.bwrap_usable(), "bubblewrap is required for Claude trial arms"
+    with Estate() as E:
+        home = E.tmp / "home"
+        for d in (".claude/agents", ".claude/projects", ".claude/plugins", ".config/git", ".cache"):
+            (home / d).mkdir(parents=True)
+        for f in (".claude/settings.json", ".claude/settings.local.json", ".claude/CLAUDE.md", ".claude.json",
+                  ".gitconfig", ".config/git/config", ".claude/agents/pl-implementer.md"):
+            (home / f).write_text("orig\n")
+        cwd, tmp = E.tmp / "cwd", E.tmp / "tmpd"
+        cwd.mkdir()
+        tmp.mkdir()
+        probe = ("import os,sys\nh=sys.argv[1]\nfor n in sys.argv[2:]:\n p=os.path.join(h,n)\n"
+                 " try:\n  if os.path.isdir(p): p=os.path.join(p,'x')\n  open(p,'a').write('x'); print(n,'WROTE')\n"
+                 " except OSError as e: print(n,'refused')\n")
+        names = (".claude/agents", ".claude/agents/pl-implementer.md", ".claude/settings.json", ".claude/settings.local.json",
+                 ".claude/CLAUDE.md", ".claude/plugins", ".claude/projects", ".claude.json", ".gitconfig",
+                 ".config/git", ".config/git/config", ".config", ".cache", ".claude/newfile")
+        argv = dsp.bwrap_argv([sys.executable, "-c", probe, str(home), *names], cwd=cwd, tmp_dir=tmp, home=str(home))
+        r = subprocess.run(argv, capture_output=True, text=True)
+        got = dict(l.rsplit(" ", 1) for l in r.stdout.splitlines())
+        assert r.returncode == 0, r.stderr
+        wrote = sorted(n for n, v in got.items() if v == "WROTE")
+        assert wrote == [".claude.json", ".claude/newfile", ".claude/projects"], got   # the CLI's own state only
+        assert (home / ".claude/agents/pl-implementer.md").read_text() == "orig\n"
+        assert (home / ".gitconfig").read_text() == "orig\n" and (home / ".config/git/config").read_text() == "orig\n"
+        assert not (home / ".claude/agents/x").exists()
+
+
+@test
+def trial_protections_follow_the_trial_marker_not_a_model_pin_and_refuse_a_repository_root():
+    reg = roles_mod.load()
+    # the generator marks exactly its arm phases; scorers (no pin) carry no marker
+    pl = planmod.parse_text(trial.trial_plan("implementer", ["claude-opus-5-5", "gpt-6.1-sol"],
+                                             trial.parse_tasks("## t1\ndo one\n"), "r", Path("/w"), reg),
+                            Path("/w/plan.md"))
+    arms = [ph for ph in pl.phases if "-arm-" in ph.name]
+    assert arms and all(ph.trial and ph.model for ph in arms)
+    assert not any(ph.trial for ph in pl.phases if "-arm-" not in ph.name)
+    try:
+        planmod.parse_text("## Phase 1: a (implementer)\nTRIAL: arm\nEXIT: true\n", Path("/w/plan.md"))
+        raise AssertionError("TRIAL without MODEL must be refused")
+    except planmod.PlanError as e:
+        assert "MODEL" in str(e)
+    with Estate() as E:
+        repo, arm, g = _repo_with_arm_dir(E)
+        # a pinned phase that is not a trial arm, in a repository ROOT (as plan 015 does): runs as before
+        rid, p, r, st = run_plan(E, f"""WORKDIR: {repo}
+
+## Phase 1: pinned (implementer)
+MODEL: claude-opus-5-5
+ATTEMPTS: 1
+EXIT: test -s pinned.md
+FAKE: write pinned.md <<ok>>
+""")
+        assert st["closed"] == "done", st
+        c = E.fake_calls()[-1]
+        assert c["model"] == "claude-opus-5-5" and not c["GIT_CEILING"] and "guard-bin" not in c["PATH"]
+        assert "--agents" not in c["argv"] and c["agent"] == "pl-implementer"
+        assert not (repo / ".claude").exists()
+        # a trial arm whose directory is a repository root is refused, for either CLI, with a clear error
+        for n, model in enumerate(("claude-opus-5-5", "gpt-6.1-sol")):
+            calls = len(E.fake_calls())
+            res = dsp.run_dispatch(brief="FAKE: touch leaked\n", role="implementer", cwd=repo, out_dir=E.tmp / f"o{n}",
+                                   timeout=30, model=model, effort="low", reg=reg, trial=True)
+            assert res.outcome == "failed" and "repository root" in res.error, res.as_row()
+            assert len(E.fake_calls()) == calls and not (repo / "leaked").exists()
 
 
 @test

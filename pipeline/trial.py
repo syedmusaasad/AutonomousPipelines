@@ -182,6 +182,7 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
                 phase_lines = [
                     f"## Phase {n}: task{i}-arm-{label}{rep_suffix} ({role})",
                     f"MODEL: {model_q}",
+                    "TRIAL: arm",
                     f"EFFORT: {effort}",
                 ]
                 if after_clause:

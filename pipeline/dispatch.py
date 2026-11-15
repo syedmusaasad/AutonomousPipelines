@@ -58,10 +58,12 @@ def model_arg(model: str, effort: str = None) -> str:
 
 def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cwd: Path = None,
                out_dir: Path = None, permissions: dict = None, sealed: bool = False,
-               trial: bool = False) -> list:
+               trial: bool = False, agents_file: Path = None) -> list:
     if cli == "claude":
-        argv = [binary, "-p", "--output-format", "stream-json", "--verbose",
-                "--agent", agent, "--model", model_arg(model)]
+        argv = [binary, "-p", "--output-format", "stream-json", "--verbose"]
+        if agents_file is not None:  # trial arm: its agent is defined for this one invocation
+            argv += ["--agents", str(agents_file)]
+        argv += ["--agent", agent, "--model", model_arg(model)]
         if effort:
             argv += ["--effort", effort]
         argv += ["--permission-mode", "dontAsk"]
@@ -172,10 +174,17 @@ def bwrap_usable() -> bool:
     return _BWRAP_OK[exe]
 
 
+# Under $HOME a Claude arm may write only its own state: ~/.claude (sessions, projects, caches) and
+# ~/.claude.json. Not ~/.config, ~/.cache or anything else.
+CLAUDE_WRITABLE_HOME = (".claude", ".claude.json")
+CLAUDE_READ_ONLY_IN_STATE = ("agents", "skills", "commands", "hooks", "plugins", "output-styles", "settings.json",
+                             "settings.local.json", "CLAUDE.md", "keybindings.json")
+
+
 def bwrap_argv(argv: list, *, cwd: Path, tmp_dir: Path, home: str = None) -> list:
     """Wrap a Claude trial arm's argv in a bubblewrap mount namespace: the whole filesystem is
     read-only except the arm's cwd, its private TMPDIR, and the Claude CLI's own state under the
-    home directory. The Bash and git denies are string patterns an interpreter walks around (Python
+    home directory (never its agents, settings or hooks). The Bash and git denies are string patterns an interpreter walks around (Python
     running an absolute-path git, say); this is the barrier that holds whatever the worker executes:
     the enclosing repository's .git is read-only, so nothing can commit, stage or move a ref, and
     no file outside the writable roots can be written. Reads, network and the process table are
@@ -188,35 +197,37 @@ def bwrap_argv(argv: list, *, cwd: Path, tmp_dir: Path, home: str = None) -> lis
     under_tmp = lambda p: str(p) == "/tmp" or str(p).startswith("/tmp/")
     if not (under_tmp(cwd) or under_tmp(tmp_dir) or under_tmp(exe)):
         out += ["--tmpfs", "/tmp"]  # a private /tmp (nothing in use lives there)
-    writable = [cwd, tmp_dir] + [home / n for n in (".claude", ".claude.json", ".cache", ".config") if (home / n).exists()]
+    writable = [cwd, tmp_dir] + [home / n for n in CLAUDE_WRITABLE_HOME if (home / n).exists()]
+    home_claude = home / ".claude"
     # PIPELINE_TRIAL_RW: extra existing paths (os.pathsep-separated) the operator or the test suite
     # makes writable, e.g. the fake worker's call log. The worker cannot set its own launch environment.
     writable += [Path(x).resolve() for x in os.environ.get("PIPELINE_TRIAL_RW", "").split(os.pathsep)
                  if x and Path(x).exists()]
     for w in writable:
         out += ["--bind", str(w), str(w)]
+    # What configures or extends the CLI stays read-only even inside its own state directory: the
+    # user-level agents, skills, commands, hooks, plugins, settings and CLAUDE.md. (Mounted after
+    # the writable binds, so they win.) Everything else under $HOME, the global git config
+    # (~/.gitconfig, ~/.config/git) included, is read-only already.
+    for n in CLAUDE_READ_ONLY_IN_STATE:
+        p = home / ".claude" / n
+        if p.exists() and home_claude in writable:
+            out += ["--ro-bind", str(p), str(p)]
     return out + ["--"] + list(argv)
 
 
-def ensure_project_agent(role: str, cwd: Path, reg: dict) -> Path:
-    """A Claude trial arm runs on a project-level `pl-<role>` agent file with the trial
-    contract (no commits). A seat that is not on Claude has no user-level agent file at all:
-    those are rendered only for Claude seats, and the drift check forbids adding one; and the
-    user-level file carries the production contract, which tells workers to commit. Render it
-    project-level into the worker's cwd instead, where it takes precedence
-    (`<cwd>/.claude/agents/pl-<role>.md`, which the claude CLI reads); `--model` and `--effort`
-    in the argv supply what the seat's registry entry does not. ~/.claude/agents and the
-    registry stay untouched. The content is arm-independent and written atomically, so
-    concurrent arms can share it."""
-    dest = Path(cwd) / ".claude" / "agents"
-    dest.mkdir(parents=True, exist_ok=True)
-    path = dest / f"{roles_mod.AGENT_PREFIX}{role}.md"
-    text = roles_mod.render_agent(role, reg, pin_model=False, trial=True)
-    if not path.exists() or path.read_text() != text:
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
-        tmp.write_text(text)
-        os.replace(tmp, path)
-    return path
+def write_trial_agent(role: str, out_dir: Path, reg: dict) -> tuple:
+    """A Claude trial arm runs as a dispatch-scoped agent, `pl-trial-<role>`, carrying the trial
+    contract (no commits): the user-level `pl-<role>` file says to commit, and a seat that is not on
+    Claude has no such file at all (they are rendered only for Claude seats, and the drift check
+    forbids adding one). The definition is written into the arm's own output directory and handed
+    over with `--agents`; nothing goes into the working directory or ~/.claude/agents, so no later
+    dispatch of the same role in the same directory can find it, however the arm ended, and the
+    registry stays untouched. Returns (agent name, definition file)."""
+    name, definition = roles_mod.trial_agent(role, reg)
+    path = Path(out_dir) / "agents.json"
+    path.write_text(json.dumps({name: definition}, indent=1))
+    return name, path
 
 
 def worker_stdin(cli: str, role: str, brief: str, trial: bool = False) -> str:
@@ -401,15 +412,25 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     }, indent=1))
 
     cli = roles_mod.cli_of(model, reg)
+    if trial and (Path(cwd).resolve() / ".git").exists():
+        # The barriers rest on the arm's directory lying BELOW the repository: at a repository root
+        # the sandbox's writable cwd would include .git itself. Refuse, never run weaker.
+        result = DispatchResult(model=model, transcript=str(transcript), outcome="failed",
+                                error=f"trial arm refused: its working directory {Path(cwd).resolve()} is a repository "
+                                      "root (it contains .git); a trial arm must run in a directory below it")
+        (out_dir / "result.json").write_text(json.dumps(result.as_row(), indent=1))
+        return result
     perms = roles_mod.claude_permissions(role, reg, trial=trial) if cli == "claude" else None
+    agent, agents_file = s["agent"], None
     if cli == "claude" and trial:
-        ensure_project_agent(role, cwd, reg)  # trial arm: trial contract; the seat may be on Codex
+        agent, agents_file = write_trial_agent(role, out_dir, reg)  # trial contract; the seat may be on Codex
     stdin_path = out_dir / "stdin.md"
     stdin_text = worker_stdin(cli, role, brief, trial=trial)
     stdin_path.write_bytes(stdin_text.encode("utf-8"))
-    argv = build_argv(binary=worker_bin(cli), cli=cli, agent=s["agent"], model=model, effort=effective_effort,
+    argv = build_argv(binary=worker_bin(cli), cli=cli, agent=agent, model=model, effort=effective_effort,
                       cwd=Path(cwd).resolve(), out_dir=out_dir.resolve(), permissions=perms,
-                      sealed=bool(s.get("sealed")), trial=trial)
+                      sealed=bool(s.get("sealed")), trial=trial,
+                      agents_file=agents_file.resolve() if agents_file else None)
     full_env = dict(os.environ)
     if cli == "claude":
         full_env.update(CLAUDE_HEADLESS_ENV)

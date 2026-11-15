@@ -1,5 +1,5 @@
 {
- "min_tests": 303,
+ "min_tests": 306,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -161,6 +161,7 @@
   "surface_scorer_metrics",
   "surface_scoring_and_one_rewrite_with_specifics",
   "timeout_kills_worker_and_counts_as_attempt",
+  "trial_agent_is_dispatch_scoped_so_a_later_normal_dispatch_gets_the_production_contract",
   "trial_apply_never_seats_a_quota_fallback",
   "trial_apply_writes_effort",
   "trial_arm_briefs_forbid_committing_even_though_role_prompts_say_commit",
@@ -169,6 +170,7 @@
   "trial_briefs_carry_task_titles_and_scorers_get_task_specs_and_may_open_sources",
   "trial_claude_arm_cannot_write_the_repository_through_an_interpreter_and_an_absolute_git_path",
   "trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat",
+  "trial_claude_sandbox_keeps_user_level_agents_settings_and_git_config_read_only",
   "trial_decide_averages_two_reviewers_and_requires_both_files",
   "trial_decide_matches_dispatches_by_phase_when_arms_share_a_model",
   "trial_decide_rejects_incomplete_scores_instead_of_scoring_zero",
@@ -178,6 +180,7 @@
   "trial_mixed_family_plan_has_two_blind_scorer_phases",
   "trial_plan_demotes_rubric_and_task_headings_so_the_plan_parses",
   "trial_plans_from_the_real_016_materials_parse_for_both_roles",
+  "trial_protections_follow_the_trial_marker_not_a_model_pin_and_refuse_a_repository_root",
   "trial_repeats_each_get_their_own_output_directory_and_exit",
   "trial_single_family_plan_is_unchanged_one_scorer_scores_json",
   "tui_conversation_test_absent_db_file",

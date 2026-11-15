@@ -38,7 +38,9 @@ FAKE directives (in the brief task text):
   FAKE: quota-on-model <substr> same as `quota`, but only when --model contains substr
 
 Env FAKE_REQUIRE_AGENT=1: a claude invocation exits 1 with "--agent 'X' not found" unless
-$PIPELINE_AGENTS_DIR/X.md or <cwd>/.claude/agents/X.md exists.
+X is defined in the --agents file, or $PIPELINE_AGENTS_DIR/X.md or <cwd>/.claude/agents/X.md exists.
+The call log records where the agent resolved (agent_src) and whether its prompt carries the
+trial no-commit contract (agent_never_commit).
 """
 
 import json
@@ -139,12 +141,27 @@ def main():
             sys.exit(2)
         agent = args.get("agent", "")
         variant = args.get("effort")
-        if os.environ.get("FAKE_REQUIRE_AGENT"):  # like the real CLI: the agent file must exist
-            homes = [os.environ.get("PIPELINE_AGENTS_DIR", ""), os.path.join(cwd, ".claude", "agents")]
-            if not any(d and os.path.exists(os.path.join(d, agent + ".md")) for d in homes):
-                print(f"error: --agent '{agent}' not found", file=sys.stderr, flush=True)
-                sys.exit(1)
+        # Resolve the agent as the real CLI does: an `--agents` definition, else a project-level
+        # <cwd>/.claude/agents file, else the user-level one. Its prompt is what the model would be told.
+        agent_src, agent_prompt = None, ""
+        try:
+            defs = json.load(open(args["agents"])) if "agents" in args else {}
+        except (OSError, ValueError):
+            defs = {}
+        if agent in defs:
+            agent_src, agent_prompt = "--agents", defs[agent].get("prompt", "")
+        else:
+            for label, d in (("project", os.path.join(cwd, ".claude", "agents")),
+                             ("user", os.environ.get("PIPELINE_AGENTS_DIR", ""))):
+                f = os.path.join(d, agent + ".md") if d else ""
+                if f and os.path.exists(f):
+                    agent_src, agent_prompt = label, open(f).read()
+                    break
+        if os.environ.get("FAKE_REQUIRE_AGENT") and agent_src is None:  # like the real CLI
+            print(f"error: --agent '{agent}' not found", file=sys.stderr, flush=True)
+            sys.exit(1)
     elif MODE == "codex":
+        agent_src, agent_prompt = None, ""
         if argv[-1] != "-" or "--json" not in argv:
             print("error: codex exec needs --json and the prompt on stdin (-)", file=sys.stderr, flush=True)
             sys.exit(2)
@@ -180,7 +197,8 @@ def main():
                                 "argv": argv,
                                 "ITEM": env.get("ITEM"), "LANE": env.get("LANE"), "LANE_OUT": env.get("LANE_OUT"),
                                 "REVIEW_OUT": env.get("REVIEW_OUT"), "GIT_CEILING": env.get("GIT_CEILING_DIRECTORIES"), "PATH": env.get("PATH"), "retry": is_retry, "brief_len": len(brief),
-                                "brief": brief, "cli": MODE, "invocation": invocation}) + "\n")
+                                "brief": brief, "cli": MODE, "invocation": invocation,
+                                "agent_src": agent_src, "agent_never_commit": "NEVER commit" in agent_prompt}) + "\n")
 
     emit_start(model)
     directives = re.findall(r"^\s*(?:- )?FAKE:\s*(.+?)\s*$", brief, flags=re.M)

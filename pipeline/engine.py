@@ -380,7 +380,8 @@ class Engine:
         # (retried with the failure text); a usage-limit refusal surfaces as `quota`.
         res = dsp.run_dispatch(brief=brief, role=role, cwd=cwd or plan.workdir, out_dir=out_dir / "try-0",
                                timeout=timeout or ph.timeout, env=env, model=model, effort=effort_override,
-                               on_start=on_start, reg=self.reg, trial=pinned)
+                               on_start=on_start, reg=self.reg,
+                               trial=bool(pinned and ph.trial))
         self.journal.write("dispatch.end", id=did, phase=ph.key, role=role, **res.as_row())
         if res.outcome == "quota":
             # The subscription refused the run (usage limit). With no fallback seat there

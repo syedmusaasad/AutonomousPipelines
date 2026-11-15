@@ -12,6 +12,9 @@ does not run.
     GATE: <sentinel-path>          (gate phases) the file the operator must write
     ATTEMPTS: <n>                  worker attempts before the phase burns (default 2)
     MODEL: <provider/model>        pin the model (trials only; seats otherwise come from the registry)
+    TRIAL: arm                     (with MODEL) a trial arm: runs under the trial protections (never commits,
+                                    git writes refused, filesystem sandbox, dispatch-scoped agent); only
+                                    `pipeline trial` writes it. A MODEL pin alone is just a pinned model
     EFFORT: low|medium|high        override the seat's effort/reasoning variant for this phase
     ITERATE: on                    Ralph-loop: fresh session per iteration, no prompt/failure carryover;
                                     requires CEILING and at least one EXIT; forbids LANES
@@ -32,7 +35,7 @@ from pathlib import Path
 HEADING = re.compile(r"^##\s*Phase\s+(\d+)\s*:\s*(.+?)\s*\((\w[\w-]*)\)\s*$")
 DIRECTIVE = re.compile(r"^([A-Z][A-Z-]*):\s*(.*?)\s*$")
 KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL", "EFFORT",
-         "ITERATE", "PROGRESS", "COST-CEILING", "LANDING", "CAPTURE"}
+         "ITERATE", "PROGRESS", "COST-CEILING", "LANDING", "CAPTURE", "TRIAL"}
 
 DEFAULT_TIMEOUT = 1800
 DEFAULT_ATTEMPTS = 2
@@ -66,6 +69,7 @@ class Phase:
     attempts: int = DEFAULT_ATTEMPTS
     landing: bool = False
     model: str = None
+    trial: bool = False  # TRIAL: arm -- set only by trial_plan; selects the trial protections
     effort: str = None
     iterate: bool = False
     iterate_progress: str = None
@@ -204,6 +208,10 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
         if not val:
             raise PlanError(f"line {lineno}: MODEL wants provider/model")
         ph.model = val
+    elif key == "TRIAL":
+        if val != "arm":
+            raise PlanError(f"line {lineno}: TRIAL must be 'arm', got {val!r}")
+        ph.trial = True
     elif key == "EFFORT":
         if val not in ("low", "medium", "high"):
             raise PlanError(f"line {lineno}: EFFORT must be low|medium|high, got {val!r}")
@@ -261,6 +269,8 @@ def _resolve(plan: Plan) -> None:
         else:
             if p.gate:
                 raise PlanError(f"phase {p.number} (line {p.line}): GATE only applies to (gate) phases")
+            if p.trial and not p.model:
+                raise PlanError(f"phase {p.number} (line {p.line}): TRIAL: arm needs a MODEL: pin")
         if p.iterate:
             if p.lanes:
                 raise PlanError(f"phase {p.number} (line {p.line}): ITERATE and LANES cannot be combined on a phase")
