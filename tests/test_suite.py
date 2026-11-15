@@ -413,7 +413,7 @@ def registry_seats_match_operator_choice():
     want = {
         "interactive": ("claude-fable-5-2", "medium"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
-        "researcher": ("gpt-6.1-sol", "medium"), "document-writer": ("gpt-6.1-sol", "medium"),
+        "researcher": ("gpt-6.1-sol", "medium"), "document-writer": ("claude-sonnet-5-5", "high"),
         "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer-a": ("claude-opus-5-5", "high"), "reviewer-b": ("gpt-6.1-sol", "high"),
     }
     got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}

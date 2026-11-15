@@ -13,7 +13,7 @@ git clone <this repo> && cd pipeline
 ./bootstrap.sh
 export PATH="$HOME/.system/bin:$PATH"
 claude          # sign in once (Claude subscription)
-codex login     # sign in once (ChatGPT subscription; fast-worker, researcher, document-writer, reviewer-b)
+codex login     # sign in once (ChatGPT subscription; fast-worker, researcher, reviewer-b)
 pl              # the interactive seat
 ```
 
@@ -63,7 +63,7 @@ failing plan.
 | fast-worker | codex | gpt-6-luna | low |
 | lane-worker | claude | claude-haiku-5-5 | low |
 | researcher | codex | gpt-6.1-sol | medium |
-| document-writer | codex | gpt-6.1-sol | medium |
+| document-writer | claude | claude-sonnet-5-5 | high |
 | frontend-worker | claude | claude-sonnet-5-5 | high |
 | reviewer-a | claude | claude-opus-5-5 | high |
 | reviewer-b | codex | gpt-6.1-sol | high |

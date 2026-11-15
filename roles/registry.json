@@ -491,8 +491,8 @@
     },
     "document-writer": {
       "purpose": "Prose artifacts to a register standard; expects SURFACE scoring.",
-      "model": "gpt-6.1-sol",
-      "effort": "medium",
+      "model": "claude-sonnet-5-5",
+      "effort": "high",
       "band": "standard",
       "tools": {
         "read": true,
@@ -628,6 +628,18 @@
           },
           "at": "2026-11-14T18:00:00+00:00",
           "why": "DECISION operator-seats (2026-11-14): operator asked for the best balance of quality and speed for this seat. Artificial Analysis: gpt-6.1-sol medium scores 46 at 4.6 min per index task with first output after about 5 s; high scores 50 at 7.9 min with first output after about 42 s. Sol medium scores above gpt-6.1-terra high (42 at 4.4 min) and claude-sonnet-5-5 high (42 at 6.7 min). Its LiveBench summarization and research lead was measured at max effort."
+        },
+        {
+          "from": {
+            "model": "gpt-6.1-sol",
+            "effort": "medium"
+          },
+          "to": {
+            "model": "claude-sonnet-5-5",
+            "effort": "high"
+          },
+          "at": "2026-11-14T21:00:00+00:00",
+          "why": "DECISION document-writer-sonnet-high: operator applied the plan 016 trial outcome. All eight arms scored within about one point on quality (8.08 to 9.17); claude-sonnet-5-5 high scored 8.83 against 8.67 for the incumbent, ran about three times faster (22 s against 68 s per task), and was rated 8.67 or higher by both reviewers. Researcher kept on gpt-6.1-sol medium because the trial gap to gpt-6.1-terra high was within noise and published benchmarks favour sol."
         }
       ]
     },
