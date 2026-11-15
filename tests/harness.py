@@ -28,6 +28,7 @@ class Estate:
         self.estate.mkdir()
         self.local_cold.mkdir()
         self.log = self.tmp / "fake.log"
+        self.log.touch()  # bind-mounted writable into Claude trial arms (PIPELINE_TRIAL_RW)
         self.env = {
             "PIPELINE_ESTATE": str(self.estate),
             "PIPELINE_WORKER_BIN": str(FAKE),
@@ -46,6 +47,7 @@ class Estate:
             "PIPELINE_SENTRY_TICK_S": "1",
             "PIPELINE_CONVERSATION": "ses_test_conv",
             "FAKE_LOG": str(self.log),
+            "PIPELINE_TRIAL_RW": str(self.log),
             "PYTHONPATH": str(REPO),
         }
         self._saved = {}

@@ -215,6 +215,26 @@ def main():
                 r = subprocess.run(argv_, cwd=where, capture_output=True, text=True)
                 results.append(f"{name}: rc={r.returncode} {'refused' if 'refused' in r.stderr else r.stderr.strip()[:60]}")
             text_out = "ATTEMPTS\n" + "\n".join(results)
+        elif cmd == "try-abs-commit":
+            # what a worker does to walk around the PATH shim and the Bash patterns: run an
+            # interpreter that calls the real git by absolute path (explicit repository), or writes files.
+            import subprocess
+            real_git, repo = rest.split(None, 1)
+            ident = ["-c", "user.name=t", "-c", "user.email=t@t"]
+            attempts = [("abs add", [real_git, "-C", repo, "add", "-A"]),
+                        ("abs commit", [real_git, "-C", repo, *ident, "commit", "-q", "--allow-empty", "-m", "trial arm"]),
+                        ("abs update-ref", [real_git, "-C", repo, "update-ref", "refs/heads/leak", "HEAD"])]
+            results = []
+            for name, argv_ in attempts:
+                r = subprocess.run(argv_, capture_output=True, text=True)
+                results.append(f"{name}: rc={r.returncode} {r.stderr.strip()[:80]}")
+            try:
+                with open(os.path.join(repo, "leaked.txt"), "w") as f:
+                    f.write("x")
+                results.append("write: rc=0 wrote")
+            except OSError as e:
+                results.append(f"write: rc=1 {e.strerror}")
+            text_out = "ATTEMPTS\n" + "\n".join(results)
         elif cmd == "touch":
             p = path(rest)
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)

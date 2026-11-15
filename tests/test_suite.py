@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -2102,6 +2103,40 @@ def trial_arm_of_either_cli_cannot_stage_or_commit_into_the_repository_even_by_e
             r = subprocess.run(argv_, cwd=arm, env=genv, capture_output=True, text=True)
             assert r.returncode == 126 and "refused" in r.stderr, argv_
         assert not (E.tmp / "leak").exists()
+
+
+@test
+def trial_claude_arm_cannot_write_the_repository_through_an_interpreter_and_an_absolute_git_path():
+    """The Bash patterns and the git shim are string/PATH barriers; an interpreter calling the real git
+    by absolute path walks around both. The filesystem barrier (bubblewrap) must still refuse."""
+    reg = roles_mod.load()
+    assert dsp.bwrap_usable(), "bubblewrap is required for Claude trial arms"
+    real_git = shutil.which("git")
+    with Estate() as E:
+        repo, arm, g = _repo_with_arm_dir(E)
+        before = _repo_state(repo)
+        brief = f"FAKE: write trial/task1/A/out.md <<answer>>\nFAKE: try-abs-commit {real_git} {repo}\n"
+        res = dsp.run_dispatch(brief=brief, role="implementer", cwd=arm, out_dir=E.tmp / "o", timeout=30,
+                               model="claude-opus-5-5", effort="low", reg=reg, trial=True)
+        assert res.outcome == "ok", res.as_row()
+        assert E.fake_calls()[-1]["cli"] == "claude"
+        lines = [l for l in res.final_text.splitlines() if "rc=" in l]
+        assert len(lines) == 4 and all("rc=0" not in l for l in lines), res.final_text
+        assert _repo_state(repo) == before and not (repo / "leaked.txt").exists()
+        assert (arm / "trial" / "task1" / "A" / "out.md").read_text() == "answer\n"   # the arm dir stays writable
+        # the same absolute-path commit, unconfined, does land: the refusals are the sandbox's doing
+        r = subprocess.run([real_git, "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                            "--allow-empty", "-m", "unconfined"], capture_output=True, text=True)
+        assert r.returncode == 0 and _repo_state(repo) != before, r.stderr
+        # and a missing bubblewrap fails the arm closed, never runs it unconfined
+        orig = dsp.bwrap_usable
+        dsp.bwrap_usable = lambda: False
+        try:
+            res = dsp.run_dispatch(brief="FAKE: touch trial/x\n", role="implementer", cwd=arm, out_dir=E.tmp / "o2",
+                                   timeout=30, model="claude-opus-5-5", effort="low", reg=reg, trial=True)
+        finally:
+            dsp.bwrap_usable = orig
+        assert res.outcome == "failed" and "bwrap" in res.error and not (arm / "trial" / "x").exists()
 
 
 @test

@@ -154,6 +154,50 @@ def install_git_guard(dest: Path, path_env: str) -> Path:
     return dest
 
 
+_BWRAP_OK = {}
+
+
+def bwrap_usable() -> bool:
+    """True when bubblewrap exists and can build the mount namespace bwrap_argv asks for."""
+    exe = shutil.which("bwrap")
+    if not exe:
+        return False
+    if exe not in _BWRAP_OK:
+        try:
+            r = subprocess.run([exe, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "true"],
+                               capture_output=True, timeout=30)
+            _BWRAP_OK[exe] = r.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            _BWRAP_OK[exe] = False
+    return _BWRAP_OK[exe]
+
+
+def bwrap_argv(argv: list, *, cwd: Path, tmp_dir: Path, home: str = None) -> list:
+    """Wrap a Claude trial arm's argv in a bubblewrap mount namespace: the whole filesystem is
+    read-only except the arm's cwd, its private TMPDIR, and the Claude CLI's own state under the
+    home directory. The Bash and git denies are string patterns an interpreter walks around (Python
+    running an absolute-path git, say); this is the barrier that holds whatever the worker executes:
+    the enclosing repository's .git is read-only, so nothing can commit, stage or move a ref, and
+    no file outside the writable roots can be written. Reads, network and the process table are
+    untouched."""
+    home = Path(home or os.path.expanduser("~"))
+    cwd, tmp_dir = Path(cwd).resolve(), Path(tmp_dir).resolve()
+    out = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--die-with-parent", "--new-session"]
+    found = shutil.which(argv[0])
+    exe = Path(found).resolve() if found else Path(argv[0])
+    under_tmp = lambda p: str(p) == "/tmp" or str(p).startswith("/tmp/")
+    if not (under_tmp(cwd) or under_tmp(tmp_dir) or under_tmp(exe)):
+        out += ["--tmpfs", "/tmp"]  # a private /tmp (nothing in use lives there)
+    writable = [cwd, tmp_dir] + [home / n for n in (".claude", ".claude.json", ".cache", ".config") if (home / n).exists()]
+    # PIPELINE_TRIAL_RW: extra existing paths (os.pathsep-separated) the operator or the test suite
+    # makes writable, e.g. the fake worker's call log. The worker cannot set its own launch environment.
+    writable += [Path(x).resolve() for x in os.environ.get("PIPELINE_TRIAL_RW", "").split(os.pathsep)
+                 if x and Path(x).exists()]
+    for w in writable:
+        out += ["--bind", str(w), str(w)]
+    return out + ["--"] + list(argv)
+
+
 def ensure_project_agent(role: str, cwd: Path, reg: dict) -> Path:
     """A Claude trial arm runs on a project-level `pl-<role>` agent file with the trial
     contract (no commits). A seat that is not on Claude has no user-level agent file at all:
@@ -342,7 +386,7 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     """Blocking: runs one worker to completion (or timeout). `on_start(pid, transcript)`
     is called right after spawn so the caller can journal dispatch.start. trial=True marks a
     trial arm: it gets the trial contract (never commit), git write commands are refused (a git
-    shim first on PATH, Bash denies for Claude, a cwd-only sandbox for Codex), and git cannot discover
+    shim first on PATH; a cwd-only filesystem sandbox: bubblewrap for Claude, Codex's own for Codex), and git cannot discover
     a repository above the arm's cwd."""
     reg = reg or roles_mod.load()
     s = roles_mod.seat(role, reg)
@@ -370,6 +414,19 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     if cli == "claude":
         full_env.update(CLAUDE_HEADLESS_ENV)
     full_env.update(env or {})
+    if trial and cli == "claude":
+        # Filesystem barrier (see bwrap_argv). Fails closed: without it a Claude arm could write the
+        # repository through any interpreter, so the arm does not run.
+        if not bwrap_usable():
+            result = DispatchResult(model=model, transcript=str(transcript), outcome="failed",
+                                    error="Claude trial arm needs a working `bwrap` (bubblewrap) to keep "
+                                          "its writes inside the trial directory; none is usable here")
+            (out_dir / "result.json").write_text(json.dumps(result.as_row(), indent=1))
+            return result
+        tmp_dir = out_dir / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        full_env["TMPDIR"] = str(tmp_dir.resolve())
+        argv = bwrap_argv(argv, cwd=cwd, tmp_dir=tmp_dir)
     if trial:
         # Unqualified git finds no repository from the arm's cwd upward, and the git shim (first on
         # PATH) refuses every write subcommand, explicit repository path or not. Codex arms add a

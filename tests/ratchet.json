@@ -1,5 +1,5 @@
 {
- "min_tests": 302,
+ "min_tests": 303,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -167,6 +167,7 @@
   "trial_arm_of_either_cli_cannot_stage_or_commit_into_the_repository_even_by_explicit_path",
   "trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd",
   "trial_briefs_carry_task_titles_and_scorers_get_task_specs_and_may_open_sources",
+  "trial_claude_arm_cannot_write_the_repository_through_an_interpreter_and_an_absolute_git_path",
   "trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat",
   "trial_decide_averages_two_reviewers_and_requires_both_files",
   "trial_decide_matches_dispatches_by_phase_when_arms_share_a_model",
