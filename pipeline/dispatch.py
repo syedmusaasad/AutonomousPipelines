@@ -29,6 +29,7 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -85,6 +86,25 @@ def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cw
         argv.append("-")
         return argv
     raise ValueError(f"unknown worker cli {cli!r}")
+
+
+def ensure_project_agent(role: str, cwd: Path, reg: dict) -> Path:
+    """A Claude worker for a seat that is not on Claude (a trial arm) has no user-level
+    `pl-<role>` agent file: those are rendered only for Claude seats, and the drift check
+    forbids adding one. Render it project-level into the worker's cwd instead
+    (`<cwd>/.claude/agents/pl-<role>.md`, which the claude CLI reads); `--model` and `--effort`
+    in the argv supply what the seat's registry entry does not. ~/.claude/agents and the
+    registry stay untouched. The content is arm-independent and written atomically, so
+    concurrent arms can share it."""
+    dest = Path(cwd) / ".claude" / "agents"
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / f"{roles_mod.AGENT_PREFIX}{role}.md"
+    text = roles_mod.render_agent(role, reg, pin_model=False)
+    if not path.exists() or path.read_text() != text:
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(text)
+        os.replace(tmp, path)
+    return path
 
 
 def worker_stdin(cli: str, role: str, brief: str) -> str:
@@ -266,6 +286,8 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
 
     cli = roles_mod.cli_of(model, reg)
     perms = roles_mod.claude_permissions(role, reg) if cli == "claude" else None
+    if cli == "claude" and roles_mod.cli_of(s["model"], reg) != "claude":
+        ensure_project_agent(role, cwd, reg)  # trial arm on a Claude model, seat on Codex
     stdin_path = out_dir / "stdin.md"
     stdin_text = worker_stdin(cli, role, brief)
     stdin_path.write_bytes(stdin_text.encode("utf-8"))

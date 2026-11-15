@@ -37,6 +37,15 @@ BANDS = {"critical": 0.5, "standard": 1.5, "tolerant": 2.5}
 
 _ARM_LABELS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+# Every arm brief carries this. Role prompts and the worker contract tell workers to commit
+# their deliverable; a trial's output is scratch material and must never reach a branch.
+NO_COMMIT_NOTICE = (
+    "**Do NOT commit trial output.** Run no `git add`, `git commit`, `git push`, `git stash` or any other",
+    "git command that writes: leave your files uncommitted on disk. This overrides any instruction in your",
+    "role prompt or the worker contract to commit your deliverable or to report a commit hash: skip that",
+    "step, and name the deliverable's path in your final message instead.",
+)
+
 
 class TrialError(ValueError):
     """A trial's inputs are unusable (e.g. a missing second reviewer's scores)."""
@@ -177,7 +186,11 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
                 ]
                 if after_clause:
                     phase_lines.append(after_clause)
-                phase_lines += ["", f"Write your deliverable under `trial/task{i}/{label}/` only.", "",
+                out_dir = f"trial/task{i}/{label}"
+                # EXIT: the arm's deliverable exists and is non-empty in its own output directory
+                phase_lines.append(f'EXIT: test -n "$(find {out_dir} -type f -size +0c 2>/dev/null | head -n 1)"')
+                phase_lines += ["", f"Write your deliverable under `{out_dir}/` only.", "",
+                                *NO_COMMIT_NOTICE, "",
                                 f"**Task {i}: {name}**", "", task, ""]
                 lines += phase_lines
 

@@ -33,6 +33,9 @@ FAKE directives (in the brief task text):
   FAKE: fix-surface <path>      overwrite path with register-passing text (rewrite path)
   FAKE: quota                   emit a subscription usage-limit refusal; exit 1
   FAKE: quota-on-model <substr> same as `quota`, but only when --model contains substr
+
+Env FAKE_REQUIRE_AGENT=1: a claude invocation exits 1 with "--agent 'X' not found" unless
+$PIPELINE_AGENTS_DIR/X.md or <cwd>/.claude/agents/X.md exists.
 """
 
 import json
@@ -133,6 +136,11 @@ def main():
             sys.exit(2)
         agent = args.get("agent", "")
         variant = args.get("effort")
+        if os.environ.get("FAKE_REQUIRE_AGENT"):  # like the real CLI: the agent file must exist
+            homes = [os.environ.get("PIPELINE_AGENTS_DIR", ""), os.path.join(cwd, ".claude", "agents")]
+            if not any(d and os.path.exists(os.path.join(d, agent + ".md")) for d in homes):
+                print(f"error: --agent '{agent}' not found", file=sys.stderr, flush=True)
+                sys.exit(1)
     elif MODE == "codex":
         if argv[-1] != "-" or "--json" not in argv:
             print("error: codex exec needs --json and the prompt on stdin (-)", file=sys.stderr, flush=True)

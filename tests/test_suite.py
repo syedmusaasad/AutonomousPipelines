@@ -1890,6 +1890,106 @@ def capture_directive_parses_and_extracts_the_json_message():
 
 
 @test
+def trial_generated_plans_pass_plan_check_single_and_mixed_family():
+    from pipeline import workflows as wf
+    reg = roles_mod.load()
+    tasks = trial.parse_tasks("## t1\ndo one\n## t2\ndo two\n")
+    cases = [("implementer", ["claude-opus-5-5"]),                       # single family: one scorer
+             ("implementer", ["gpt-6.1-sol"]),                           # mixed family: two scorers
+             ("researcher", ["claude-sonnet-5-5@high", "gpt-6-luna@low", "claude-haiku-5-5@low"]),
+             ("document-writer", ["gpt-6.1-sol@high"])]
+    with Estate() as E:
+        for n, (role, cands) in enumerate(cases):
+            text = trial.trial_plan(role, cands, tasks, "score clarity 0-10", E.work, reg,
+                                    repeats={"A": 2})
+            p = E.work / f"plan{n}.md"
+            p.write_text(text)
+            assert wf.check_plan(p) == [], (role, cands, wf.check_plan(p))
+            pl = planmod.parse_text(text, p)
+            arms = [ph for ph in pl.phases if "-arm-" in ph.name]
+            assert arms and all(len(ph.exits) == 1 for ph in arms)
+            for ph in arms:
+                label, task = ph.name.split("-arm-")[1][0], ph.name.split("-arm-")[0].replace("task", "")
+                out = E.work / "trial" / f"task{task}" / label
+                exit_cmd = ph.exits[0]
+                run = lambda: subprocess.run(exit_cmd, shell=True, cwd=str(E.work)).returncode
+                shutil_rm = lambda: subprocess.run(["rm", "-rf", str(out)])
+                shutil_rm()
+                assert run() != 0  # no deliverable yet
+                out.mkdir(parents=True)
+                (out / "OUT.md").write_text("")
+                assert run() != 0  # empty deliverable
+                (out / "OUT.md").write_text("answer\n")
+                assert run() == 0
+                other = E.work / "trial" / f"task{task}" / ("Z" if label != "Z" else "Y")
+                assert str(other) not in exit_cmd  # checks only its own directory
+                shutil_rm()
+
+
+@test
+def trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat():
+    reg = roles_mod.load()
+    assert reg["roles"]["researcher"]["model"].startswith("gpt-")       # Codex seat
+    assert reg["roles"]["implementer"]["model"].startswith("claude-")   # Claude seat
+    reg_text = roles_mod.REGISTRY.read_text()
+    os.environ["FAKE_REQUIRE_AGENT"] = "1"
+    try:
+        with Estate() as E:
+            roles_mod.write_agents(E.agents)
+            before = {f.name: f.read_text() for f in E.agents.iterdir()}
+            assert "pl-researcher.md" not in before
+            # Claude arm for a seat on Codex: needs an agent file nobody rendered globally
+            res = dsp.run_dispatch(brief="FAKE: touch trial/a.txt\n", role="researcher", cwd=E.work,
+                                   out_dir=E.tmp / "d1", timeout=30, model="claude-sonnet-5-5", effort="high", reg=reg)
+            assert res.outcome == "ok", res.as_row()
+            call = E.fake_calls()[-1]
+            assert call["cli"] == "claude" and call["agent"] == "pl-researcher" and call["variant"] == "high"
+            agent_file = E.work / ".claude" / "agents" / "pl-researcher.md"
+            assert agent_file.exists() and "Headless worker contract" in agent_file.read_text()
+            assert "gpt-" not in agent_file.read_text()  # carries no model: the argv pins it
+            # a second arm on another model reuses the same arm-independent file
+            text1 = agent_file.read_text()
+            res = dsp.run_dispatch(brief="FAKE: say hi\n", role="researcher", cwd=E.work, out_dir=E.tmp / "d2",
+                                   timeout=30, model="claude-haiku-5-5", effort="low", reg=reg)
+            assert res.outcome == "ok" and agent_file.read_text() == text1
+            # Codex arm for a seat on Claude: no agent file involved at all
+            res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=E.work, out_dir=E.tmp / "d3",
+                                   timeout=30, model="gpt-6.1-sol", effort="medium", reg=reg)
+            assert res.outcome == "ok", res.as_row()
+            call = E.fake_calls()[-1]
+            assert call["cli"] == "codex" and call["agent"] == "pl-implementer" and call["variant"] == "medium"
+            assert not (E.work / ".claude" / "agents" / "pl-implementer.md").exists()
+            # a Claude seat's Claude arm never needs the project-level file
+            res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=E.work, out_dir=E.tmp / "d4",
+                                   timeout=30, model="claude-opus-5-5", effort="high", reg=reg)
+            assert res.outcome == "ok" and not (E.work / ".claude" / "agents" / "pl-implementer.md").exists()
+            # the user-level agents directory and the registry are untouched; no drift
+            assert {f.name: f.read_text() for f in E.agents.iterdir()} == before
+            assert roles_mod.drift(E.agents) == [] and roles_mod.REGISTRY.read_text() == reg_text
+    finally:
+        del os.environ["FAKE_REQUIRE_AGENT"]
+
+
+@test
+def trial_arm_briefs_forbid_committing_even_though_role_prompts_say_commit():
+    reg = roles_mod.load()
+    tasks = trial.parse_tasks("## t1\ndo one\n## t2\ndo two\n")
+    for role in ("implementer", "researcher"):
+        text = trial.trial_plan(role, ["claude-opus-5-5", "gpt-6.1-sol"], tasks, "r", Path("/w"), reg)
+        pl = planmod.parse_text(text, Path("/w/plan.md"))
+        arms = [ph for ph in pl.phases if "-arm-" in ph.name]
+        assert len(arms) == 6
+        for ph in arms:
+            full = dsp.build_brief(task=ph.brief, role=ph.role, cwd=pl.workdir, exits=ph.exits, preamble=pl.preamble)
+            assert "Do NOT commit trial output" in full and "git commit" in full
+            assert "overrides any instruction in your" in full and "uncommitted" in full
+            # the notice precedes the task text, so the task cannot be read as asking for a commit first
+            assert full.index("Do NOT commit") < full.index("**Task ")
+    # the contract the notice has to beat does tell workers to commit
+    assert "commit" in roles_mod.inline_prompt("implementer").lower()
+
+
+@test
 def trial_single_family_plan_is_unchanged_one_scorer_scores_json():
     reg = roles_mod.load()
     tasks = trial.parse_tasks("## t1\ndo one\n")

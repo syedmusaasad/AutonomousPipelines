@@ -221,7 +221,10 @@ def interactive_settings(reg: dict = None) -> dict:
     return {"permissions": {"defaultMode": "dontAsk", "allow": perms["allow"], "deny": perms["deny"]}}
 
 
-def render_agent(role: str, reg: dict) -> str:
+def render_agent(role: str, reg: dict, pin_model: bool = True) -> str:
+    """The Claude agent file for a seat. pin_model=False leaves model and effort out of the
+    front matter (the dispatch argv supplies them): the content then no longer depends on which
+    model or effort a trial arm runs, so concurrent arms can share one file."""
     s = seat(role, reg)
     body = role_prompt(role)
     if role != "interactive":
@@ -233,6 +236,8 @@ def render_agent(role: str, reg: dict) -> str:
         "effort": s["effort"],
         "tools": ", ".join(claude_tools(s)),
     }
+    if not pin_model:
+        del front["model"], front["effort"]
     return "---\n" + "".join(f"{k}: {json.dumps(v)}\n" for k, v in front.items()) + "---\n" + body.rstrip() + "\n"
 
 
