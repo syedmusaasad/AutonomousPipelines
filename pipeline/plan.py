@@ -15,7 +15,7 @@ does not run.
     TRIAL: arm                     (with MODEL) a trial arm: runs under the trial protections (never commits,
                                     git writes refused, filesystem sandbox, dispatch-scoped agent); only
                                     `pipeline trial` writes it. A MODEL pin alone is just a pinned model
-    EFFORT: low|medium|high        override the seat's effort/reasoning variant for this phase
+    EFFORT: low|medium|high|xhigh  override the seat's effort/reasoning variant for this phase
     ITERATE: on                    Ralph-loop: fresh session per iteration, no prompt/failure carryover;
                                     requires CEILING and at least one EXIT; forbids LANES
     PROGRESS: <shell predicate>    optional; exit 0 = iteration advanced (default: built-in signal)
@@ -36,6 +36,10 @@ HEADING = re.compile(r"^##\s*Phase\s+(\d+)\s*:\s*(.+?)\s*\((\w[\w-]*)\)\s*$")
 DIRECTIVE = re.compile(r"^([A-Z][A-Z-]*):\s*(.*?)\s*$")
 KNOWN = {"EXIT", "AFTER", "TIMEOUT", "LANES", "CEILING", "REVIEW", "SURFACE", "GATE", "ATTEMPTS", "MODEL", "EFFORT",
          "ITERATE", "PROGRESS", "COST-CEILING", "LANDING", "CAPTURE", "TRIAL"}
+
+# The effort levels a plan may name. The one definition; plan-check (workflows.check_plan)
+# then narrows it to the levels the phase's CLI accepts (roles.EFFORTS).
+PLAN_EFFORTS = ("low", "medium", "high", "xhigh")
 
 DEFAULT_TIMEOUT = 1800
 DEFAULT_ATTEMPTS = 2
@@ -213,8 +217,8 @@ def _apply(ph: Phase, key: str, val: str, lineno: int) -> None:
             raise PlanError(f"line {lineno}: TRIAL must be 'arm', got {val!r}")
         ph.trial = True
     elif key == "EFFORT":
-        if val not in ("low", "medium", "high"):
-            raise PlanError(f"line {lineno}: EFFORT must be low|medium|high, got {val!r}")
+        if val not in PLAN_EFFORTS:
+            raise PlanError(f"line {lineno}: EFFORT must be {'|'.join(PLAN_EFFORTS)}, got {val!r}")
         ph.effort = val
     elif key == "CAPTURE":
         if not val or Path(val).is_absolute() or ".." in Path(val).parts:

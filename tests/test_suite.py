@@ -1930,6 +1930,62 @@ def trial_generated_plans_pass_plan_check_single_and_mixed_family():
 
 
 @test
+def plan_effort_xhigh_passes_plan_check_and_unknown_effort_is_refused():
+    from pipeline import workflows as wf
+    with Estate() as E:
+        ok = E.work / "ok.md"
+        ok.write_text("## Phase 1: a (implementer)\nEFFORT: xhigh\nEXIT: true\n\n"
+                      "## Phase 2: b (implementer)\nMODEL: gpt-6.1-sol\nEFFORT: xhigh\nEXIT: true\n")
+        assert wf.check_plan(ok) == [], wf.check_plan(ok)
+        bad = E.work / "bad.md"
+        bad.write_text("## Phase 1: a (implementer)\nEFFORT: turbo\nEXIT: true\n")
+        fails = wf.check_plan(bad)
+        assert fails and "EFFORT must be low|medium|high|xhigh" in fails[0], fails
+
+
+@test
+def plan_effort_a_cli_lacks_is_refused_at_plan_check():
+    """A level the phase's CLI does not take fails plan-check, not dispatch."""
+    from pipeline import workflows as wf
+    saved = roles_mod.EFFORTS
+    roles_mod.EFFORTS = {**saved, "codex": tuple(e for e in saved["codex"] if e != "xhigh")}
+    try:
+        with Estate() as E:
+            p = E.work / "p.md"
+            p.write_text("## Phase 1: a (implementer)\nMODEL: gpt-6.1-sol\nEFFORT: xhigh\nEXIT: true\n")
+            fails = wf.check_plan(p)
+            assert len(fails) == 1 and "not accepted by codex" in fails[0], fails
+            p.write_text("## Phase 1: a (implementer)\nEFFORT: xhigh\nEXIT: true\n")
+            assert wf.check_plan(p) == []   # the implementer seat is Claude
+    finally:
+        roles_mod.EFFORTS = saved
+
+
+@test
+def trial_xhigh_arm_generates_plan_that_passes_plan_check():
+    from pipeline import workflows as wf
+    reg = roles_mod.load()
+    tasks = trial.parse_tasks("## t1\ndo one\n")
+    with Estate() as E:
+        for n, cands in enumerate((["claude-sonnet-5-5@xhigh"], ["gpt-6.1-sol@xhigh", "claude-sonnet-5-5@xhigh"])):
+            text = trial.trial_plan("implementer", cands, tasks, "score clarity 0-10", E.work, reg)
+            assert "EFFORT: xhigh" in text
+            p = E.work / f"x{n}.md"
+            p.write_text(text)
+            assert wf.check_plan(p) == [], wf.check_plan(p)
+            efforts = {ph.effort for ph in planmod.parse_text(text, p).phases if "-arm-" in ph.name}
+            assert "xhigh" in efforts, efforts
+
+
+@test
+def plan_xhigh_reaches_each_cli_argv():
+    c = dsp.build_argv(binary="claude", cli="claude", agent="pl-implementer", model="claude-sonnet-5-5", effort="xhigh")
+    assert c[c.index("--effort") + 1] == "xhigh"
+    x = dsp.build_argv(binary="codex", cli="codex", agent="pl-reviewer-b", model="gpt-6.1-sol", effort="xhigh")
+    assert x[x.index("-c") + 1] == 'model_reasoning_effort="xhigh"'
+
+
+@test
 def trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat():
     reg = roles_mod.load()
     assert reg["roles"]["researcher"]["model"].startswith("gpt-")       # Codex seat
@@ -2766,8 +2822,8 @@ def registry_bands_present():
 
 @test
 def effort_parses_and_rejects_bad_values():
-    """EFFORT: low|medium|high is accepted; anything else raises PlanError."""
-    for good in ("low", "medium", "high"):
+    """EFFORT: low|medium|high|xhigh is accepted; anything else raises PlanError."""
+    for good in ("low", "medium", "high", "xhigh"):
         pl = planmod.parse_text(f"## Phase 1: a (implementer)\nEFFORT: {good}\n")
         assert pl.by_number(1).effort == good, f"expected effort={good!r}"
     # Bad value
@@ -2777,6 +2833,12 @@ def effort_parses_and_rejects_bad_values():
         pass
     else:
         raise AssertionError("EFFORT: max should have raised PlanError")
+    for bad in ("ultra", "XHIGH", "minimal", ""):
+        try:
+            planmod.parse_text(f"## Phase 1: a (implementer)\nEFFORT: {bad}\n")
+        except planmod.PlanError:
+            continue
+        raise AssertionError(f"EFFORT: {bad!r} should have raised PlanError")
     # Absent effort defaults to None
     pl2 = planmod.parse_text("## Phase 1: a (implementer)\n")
     assert pl2.by_number(1).effort is None

@@ -68,6 +68,22 @@ def materialize(workflow: str, out_path: Path, *, workdir: str = ".", brief: str
     return out_path
 
 
+def effort_failures(pl) -> list:
+    """An EFFORT must be one the phase's CLI accepts (roles.EFFORTS), so a level one CLI or
+    model family lacks is refused at plan-check time instead of failing at dispatch."""
+    reg = roles_mod.load()
+    out = []
+    for p in pl.phases:
+        if p.is_gate or p.effort is None or p.role not in reg["roles"]:
+            continue
+        model = p.model or reg["roles"][p.role]["model"]
+        cli = roles_mod.cli_of(model, reg)
+        if p.effort not in roles_mod.EFFORTS[cli]:
+            out.append(f"phase {p.number} (line {p.line}): EFFORT {p.effort} is not accepted by {cli} "
+                       f"(model {model}); it takes {'|'.join(roles_mod.EFFORTS[cli])}")
+    return out
+
+
 def check_plan(path: Path) -> list:
     """Return a list of failure strings; empty means the plan passes."""
     path = Path(path)
@@ -91,6 +107,10 @@ def check_plan(path: Path) -> list:
         known = set(roles_mod.load()["roles"]) | {planmod.GATE_ROLE}
         planmod.validate_roles(pl, known)
     except (planmod.PlanError, roles_mod.RegistryError) as e:
+        failures.append(f"roles: {e}")
+    try:
+        failures.extend(effort_failures(pl))
+    except roles_mod.RegistryError as e:
         failures.append(f"roles: {e}")
     if len(pl.phases) != header_count:
         named = [p.number for p in pl.phases]
