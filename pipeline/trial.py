@@ -186,7 +186,9 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
                 ]
                 if after_clause:
                     phase_lines.append(after_clause)
-                out_dir = f"trial/task{i}/{label}"
+                # A repeated arm gives each repeat its own directory under the arm's, so one repeat's
+                # EXIT cannot pass on another's deliverable; the scorers read the arm folder as a whole.
+                out_dir = f"trial/task{i}/{label}" + (f"/rep{rep + 1}" if rep_count > 1 else "")
                 # EXIT: the arm's deliverable exists and is non-empty in its own output directory
                 phase_lines.append(f'EXIT: test -n "$(find {out_dir} -type f -size +0c 2>/dev/null | head -n 1)"')
                 phase_lines += ["", f"Write your deliverable under `{out_dir}/` only.", "",
@@ -214,7 +216,8 @@ def trial_plan(role: str, candidates, tasks: list, rubric: str, workdir: Path, r
             '{"task1": {"A": <0-10>, "B": <0-10>, ...}, "task2": {...}}: one key per task below, named',
             "task1, task2, ..., and one score for every arm label on every task.",
             "The arms are known only by their labels A, B, C...; read each arm's deliverable in its",
-            "trial/task<i>/<label>/ folder. You may also open the web sources and repository files an answer",
+            "trial/task<i>/<label>/ folder (an arm that was run more than once has rep1/, rep2/... inside it:",
+            "score the arm on all its runs together, one score per arm and task). You may also open the web sources and repository files an answer",
             "cites, or that a task names, to check claims. Never open trial/mapping.json, plan.md or the",
             "journal, and do not guess which arm is which.", "",
             "### Rubric", rubric, "",

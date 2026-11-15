@@ -29,6 +29,9 @@ FAKE directives (in the brief task text):
                                 (pl-reviewer-a -> a); each value is a verdict-seq by that agent's invocation
   FAKE: say <text>              final message is exactly this text (\\n escapes)
   FAKE: touch-if-retry <path>   create file only on retry
+  FAKE: try-commit <repo>       a trial arm's attempt to leave a commit: through the explicit path
+                                (`git -C <repo> add/commit`), from inside <repo> after a cd, and
+                                with --git-dir; the outcome of each is appended to the final message
   FAKE: record                  append argv+env facts to $FAKE_LOG
   FAKE: fix-surface <path>      overwrite path with register-passing text (rewrite path)
   FAKE: quota                   emit a subscription usage-limit refusal; exit 1
@@ -176,7 +179,7 @@ def main():
             f.write(json.dumps({"agent": agent, "model": model, "variant": variant or None, "cwd": cwd,
                                 "argv": argv,
                                 "ITEM": env.get("ITEM"), "LANE": env.get("LANE"), "LANE_OUT": env.get("LANE_OUT"),
-                                "REVIEW_OUT": env.get("REVIEW_OUT"), "GIT_CEILING": env.get("GIT_CEILING_DIRECTORIES"), "retry": is_retry, "brief_len": len(brief),
+                                "REVIEW_OUT": env.get("REVIEW_OUT"), "GIT_CEILING": env.get("GIT_CEILING_DIRECTORIES"), "PATH": env.get("PATH"), "retry": is_retry, "brief_len": len(brief),
                                 "brief": brief, "cli": MODE, "invocation": invocation}) + "\n")
 
     emit_start(model)
@@ -199,6 +202,19 @@ def main():
                 os.system("git add -- " + fence + " && git commit -q -m " + shlex.quote(subject))
             else:
                 os.system("git add -A && git commit -q -m " + shlex.quote(rest))
+        elif cmd == "try-commit":
+            import subprocess
+            repo = path(rest)
+            attempts = [("-C add", ["git", "-C", repo, "add", "-A"], None),
+                        ("-C commit", ["git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "trial arm"], None),
+                        ("cd commit", ["git", "commit", "-q", "--allow-empty", "-m", "trial arm"], repo),
+                        ("git-dir commit", ["git", "--git-dir", os.path.join(repo, ".git"), "--work-tree", repo,
+                                            "commit", "-q", "--allow-empty", "-m", "trial arm"], None)]
+            results = []
+            for name, argv_, where in attempts:
+                r = subprocess.run(argv_, cwd=where, capture_output=True, text=True)
+                results.append(f"{name}: rc={r.returncode} {'refused' if 'refused' in r.stderr else r.stderr.strip()[:60]}")
+            text_out = "ATTEMPTS\n" + "\n".join(results)
         elif cmd == "touch":
             p = path(rest)
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)

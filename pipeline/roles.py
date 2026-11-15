@@ -191,9 +191,18 @@ You are a candidate arm in a model trial. Your output is scored, then discarded.
 - Everything else in the contract and role prompt still applies.
 """
 
-TRIAL_GIT_DENY = ("git add *", "git commit *", "git push *", "git stash *", "git reset *", "git checkout *",
-                  "git rebase *", "git merge *", "git cherry-pick *", "git am *", "git tag *", "git -C *",
-                  "git * commit *", "git * push *")
+# git subcommands a trial arm never runs (anything that writes the index, refs, objects, worktree or
+# config). Claude arms have these denied as Bash rules, with or without global options before the
+# subcommand; the git shim (dispatch.install_git_guard) refuses everything outside its read-only
+# allowlist whatever -C or --git-dir says. Read-only git (log, show, diff, status...) still works.
+TRIAL_GIT_WRITE_SUBS = ("add", "commit", "push", "stash", "reset", "checkout", "rebase", "merge", "cherry-pick",
+                        "am", "tag", "rm", "mv", "restore", "switch", "clean", "apply", "update-ref", "commit-tree",
+                        "write-tree", "hash-object", "read-tree", "update-index", "fetch", "pull", "branch",
+                        "config", "init", "clone", "worktree", "submodule", "revert", "symbolic-ref", "gc",
+                        "prune", "filter-branch", "notes", "replace", "reflog")
+TRIAL_GIT_DENY = tuple(f"git {sub}{tail}" for sub in TRIAL_GIT_WRITE_SUBS for tail in (" *", "")) \
+    + tuple(f"git * {sub}{tail}" for sub in TRIAL_GIT_WRITE_SUBS for tail in (" *", "")) \
+    + ("*/git *", "*--git-dir*", "*--work-tree*", "*GIT_DIR=*", "*GIT_WORK_TREE=*", "*GIT_INDEX_FILE=*", "git -c *")
 
 
 def trial_contract() -> str:

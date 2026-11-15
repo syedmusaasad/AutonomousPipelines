@@ -3,6 +3,7 @@ ratchet forbids the count going down."""
 
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -1910,7 +1911,8 @@ def trial_generated_plans_pass_plan_check_single_and_mixed_family():
             assert arms and all(len(ph.exits) == 1 for ph in arms)
             for ph in arms:
                 label, task = ph.name.split("-arm-")[1][0], ph.name.split("-arm-")[0].replace("task", "")
-                out = E.work / "trial" / f"task{task}" / label
+                rep = ph.name.split("rep")[-1] if " rep" in ph.name else None
+                out = E.work / "trial" / f"task{task}" / label / (f"rep{rep}" if rep else "")
                 exit_cmd = ph.exits[0]
                 run = lambda: subprocess.run(exit_cmd, shell=True, cwd=str(E.work)).returncode
                 shutil_rm = lambda: subprocess.run(["rm", "-rf", str(out)])
@@ -1985,8 +1987,10 @@ def trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd
     plain = roles_mod.claude_permissions("implementer", reg)["deny"]
     trial_deny = roles_mod.claude_permissions("implementer", reg, trial=True)["deny"]
     assert not any("git commit" in d for d in plain)
-    for need in ("Bash(git commit *)", "Bash(git add *)", "Bash(git push *)", "Bash(git -C *)"):
+    for need in ("Bash(git commit *)", "Bash(git add *)", "Bash(git push *)", "Bash(git * commit *)",
+                 "Bash(git * add *)", "Bash(*/git *)", "Bash(*--git-dir*)"):
         assert need in trial_deny, need
+    assert "Bash(git -C *)" not in trial_deny and "Bash(git log *)" not in trial_deny  # reads stay possible
     with Estate() as E:
         repo = E.tmp / "repo"
         arm = repo / "plans" / "trial-x"
@@ -2000,6 +2004,14 @@ def trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd
             assert res.outcome == "ok", res.as_row()
             call = E.fake_calls()[-1]
             assert call["GIT_CEILING"] == str(arm.resolve().parent)
+            assert call["PATH"].split(os.pathsep)[0] == str((out / "guard-bin").resolve())  # git shim first
+            if call["cli"] == "codex":
+                argv = call["argv"]
+                assert "--dangerously-bypass-approvals-and-sandbox" not in argv
+                assert argv[argv.index("--sandbox") + 1] == "workspace-write"
+                assert "sandbox_workspace_write.network_access=true" in argv  # web access stays on
+                assert "sandbox_workspace_write.exclude_slash_tmp=true" in argv
+                assert argv[argv.index("--cd") + 1] == str(arm.resolve())     # the only writable root
             if call["cli"] == "claude":
                 argv = call["argv"]
                 denied = argv[argv.index("--disallowed-tools") + 1]
@@ -2016,8 +2028,171 @@ def trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd
                                timeout=30, reg=reg)
         call = E.fake_calls()[-1]
         assert res.outcome == "ok" and not call["GIT_CEILING"]
+        assert "guard-bin" not in call["PATH"] and not (E.tmp / "o-prod" / "guard-bin").exists()
+        res = dsp.run_dispatch(brief="FAKE: say hi\n", role="implementer", cwd=arm, out_dir=E.tmp / "o-prod-codex",
+                               timeout=30, model="gpt-6.1-sol", reg=reg)
+        argv = E.fake_calls()[-1]["argv"]
+        assert "--dangerously-bypass-approvals-and-sandbox" in argv and "--sandbox" not in argv
         assert "git commit" not in call["argv"][call["argv"].index("--disallowed-tools") + 1] \
             if "--disallowed-tools" in call["argv"] else True
+
+
+def _repo_with_arm_dir(E):
+    """A git repository with one commit and a trial-style arm directory inside it."""
+    repo = E.tmp / "repo"
+    arm = repo / "plans" / "trial-x"
+    arm.mkdir(parents=True)
+    (repo / "README").write_text("hello\n")
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                  check=True, capture_output=True, text=True).stdout
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    return repo, arm, g
+
+
+def _repo_state(repo):
+    """HEAD, branch refs, the index file's bytes and the worktree status: all that a commit or a stage touches."""
+    import hashlib
+    run = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout
+    idx = hashlib.sha256((repo / ".git" / "index").read_bytes()).hexdigest()
+    return (run("rev-parse", "HEAD"), run("for-each-ref"), run("log", "--oneline", "--all"), idx,
+            run("status", "--porcelain", "--", ".", ":!plans/trial-x"), run("ls-files", "--cached"))
+
+
+def _assert_attempts_refused(text, n=4):
+    lines = [l for l in text.splitlines() if "rc=" in l]
+    assert len(lines) == n and all("rc=126" in l and "refused" in l for l in lines), text
+
+
+@test
+def trial_arm_of_either_cli_cannot_stage_or_commit_into_the_repository_even_by_explicit_path():
+    reg = roles_mod.load()
+    with Estate() as E:
+        repo, arm, g = _repo_with_arm_dir(E)
+        before = _repo_state(repo)
+        for n, model in enumerate(("claude-opus-5-5", "gpt-6.1-sol")):
+            out = E.tmp / f"o{n}"
+            brief = (f"FAKE: write trial/task1/A/out.md <<answer>>\nFAKE: try-commit {repo}\n")
+            res = dsp.run_dispatch(brief=brief, role="implementer", cwd=arm, out_dir=out, timeout=30, model=model,
+                                   effort="low", reg=reg, trial=True)
+            assert res.outcome == "ok", res.as_row()
+            assert E.fake_calls()[-1]["cli"] == ("claude" if n == 0 else "codex")
+            _assert_attempts_refused(res.final_text)         # every attempt through the repo path was refused
+            assert _repo_state(repo) == before               # HEAD, refs, index and worktree unchanged
+            assert (arm / "trial" / "task1" / "A" / "out.md").read_text() == "answer\n"  # deliverable still written
+        # the same attempts, unguarded, do commit: the refusals above are the shim's doing
+        env = dict(os.environ)
+        env.pop("GIT_CEILING_DIRECTORIES", None)
+        r = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit",
+                            "-q", "--allow-empty", "-m", "unguarded"], env=env, capture_output=True, text=True)
+        assert r.returncode == 0 and _repo_state(repo) != before
+        # reads work through the shim: explicit path, and an unqualified `git log` from inside the arm dir
+        guard = dsp.install_git_guard(E.tmp / "guard", os.environ["PATH"])
+        genv = dict(os.environ, PATH=f"{guard}{os.pathsep}{os.environ['PATH']}",
+                    GIT_CEILING_DIRECTORIES=str(arm.resolve().parent))
+        for argv_, cwd in ((["git", "-C", str(repo), "log", "-1", "--format=%s"], arm),
+                           (["git", "log", "-1", "--format=%s"], arm), (["git", "status", "--short"], arm),
+                           (["git", "show", "HEAD:README"], arm)):
+            r = subprocess.run(argv_, cwd=cwd, env=genv, capture_output=True, text=True)
+            assert r.returncode == 0 and r.stdout.strip(), (argv_, r.stderr)
+        for argv_ in (["git", "-C", str(repo), "branch", "x"], ["git", "-c", "alias.l=!true", "l"],
+                      ["git", "log", "--output=" + str(E.tmp / "leak")], ["git", "-C", str(repo), "tag", "t"],
+                      ["git", "--git-dir=" + str(repo / ".git"), "update-ref", "HEAD", "HEAD"]):
+            r = subprocess.run(argv_, cwd=arm, env=genv, capture_output=True, text=True)
+            assert r.returncode == 126 and "refused" in r.stderr, argv_
+        assert not (E.tmp / "leak").exists()
+
+
+@test
+def engine_runs_a_model_pinned_phase_as_a_trial_arm_with_the_git_protections():
+    with Estate() as E:
+        repo, arm, g = _repo_with_arm_dir(E)
+        before = _repo_state(repo)
+        rid, p, r, st = run_plan(E, f"""WORKDIR: {arm}
+
+## Phase 1: arm-claude (implementer)
+MODEL: claude-opus-5-5
+EFFORT: low
+ATTEMPTS: 1
+EXIT: test -s trial/c.md
+FAKE: write trial/c.md <<c>>
+FAKE: try-commit {repo}
+
+## Phase 2: arm-codex (implementer)
+MODEL: gpt-6.1-sol
+EFFORT: low
+ATTEMPTS: 1
+AFTER: 1
+EXIT: test -s trial/g.md
+FAKE: write trial/g.md <<g>>
+FAKE: try-commit {repo}
+
+## Phase 3: not an arm (implementer)
+ATTEMPTS: 1
+AFTER: 2
+EXIT: test -s trial/n.md
+FAKE: write trial/n.md <<n>>
+""")
+        assert st["closed"] == "done", st
+        assert _repo_state(repo) == before
+        calls = {c["model"]: c for c in E.fake_calls()}
+        arm_resolved = str(arm.resolve().parent)
+        for model in ("claude-opus-5-5", "gpt-6.1-sol"):
+            c = calls[model]
+            assert c["GIT_CEILING"] == arm_resolved and "guard-bin" in c["PATH"].split(os.pathsep)[0], model
+            assert "NEVER commit" in c["brief"] or c["cli"] == "claude"
+        cl, cx = calls["claude-opus-5-5"], calls["gpt-6.1-sol"]
+        assert "Bash(git commit *)" in cl["argv"][cl["argv"].index("--disallowed-tools") + 1]
+        assert (arm / ".claude" / "agents" / "pl-implementer.md").read_text().count("NEVER commit") == 1
+        assert cx["argv"][cx["argv"].index("--sandbox") + 1] == "workspace-write"
+        # an unpinned phase is a production dispatch: no ceiling, no shim, no sandbox, no trial contract
+        prod = [c for c in E.fake_calls() if c["model"] not in calls or c is not calls[c["model"]]]
+        prod = [c for c in prod if not c["GIT_CEILING"]]
+        assert prod and all("guard-bin" not in c["PATH"] for c in prod)
+        for ph in ("1", "2"):  # the attempts' own transcripts show the refusals
+            tx = next((E.estate / "runs" / rid).glob(f"phase-{ph}/**/transcript.jsonl"))
+            assert tx.read_text().count("rc=126") >= 4
+
+
+@test
+def trial_repeats_each_get_their_own_output_directory_and_exit():
+    reg = roles_mod.load()
+    tasks = trial.parse_tasks("## t1\ndo one\n")
+    text = trial.trial_plan("implementer", ["claude-opus-5-5"], tasks, "r", Path("/w"), reg,
+                            repeats={"A": 2, "B": 3})
+    pl = planmod.parse_text(text, Path("/w/plan.md"))
+    arms = [ph for ph in pl.phases if "-arm-" in ph.name]
+    assert len(arms) == 5
+    dirs = {}
+    for ph in arms:
+        label = ph.name.split("-arm-")[1][0]
+        m = re.search(r"trial/task1/\S+?(?=[ \"])", ph.exits[0])
+        dirs.setdefault(label, []).append(m.group(0))
+        assert f"`{m.group(0)}/`" in ph.brief
+    for label, ds in dirs.items():
+        assert len(set(ds)) == len(ds), (label, ds)          # one directory per repeat
+        assert all(d.startswith(f"trial/task1/{label}") for d in ds)
+    assert sorted(len(v) for v in dirs.values()) == [2, 3]
+    with Estate() as E:
+        label = next(l for l, d in dirs.items() if len(d) == 2)
+        a_phases = [ph for ph in arms if ph.name.split("-arm-")[1][0] == label]
+        run = lambda ph: subprocess.run(ph.exits[0], shell=True, cwd=str(E.work)).returncode
+        d1 = E.work / dirs[label][0]
+        d1.mkdir(parents=True)
+        (d1 / "OUT.md").write_text("first\n")
+        assert run(a_phases[0]) == 0 and run(a_phases[1]) != 0   # the second repeat has not delivered
+        d2 = E.work / dirs[label][1]
+        d2.mkdir(parents=True)
+        (d2 / "OUT.md").write_text("second\n")
+        assert run(a_phases[1]) == 0
+    # scoring and the report still see one arm per label: phases map to labels, tasks are unchanged
+    with Estate() as E:
+        (E.work / "plan.md").write_text(text)
+        assert trial._arm_phases(E.work / "plan.md") == {str(i + 1): ph.name.split("-arm-")[1][0]
+                                                         for i, ph in enumerate(arms)}
+        assert trial._plan_tasks(E.work / "plan.md") == ["task1"]
+        assert "rep1/, rep2/" in text  # the scorers are told how repeats are laid out
 
 
 @test

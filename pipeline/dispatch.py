@@ -27,8 +27,10 @@ PIPELINE_CLAUDE_BIN / PIPELINE_CODEX_BIN override one."""
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -55,7 +57,8 @@ def model_arg(model: str, effort: str = None) -> str:
 
 
 def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cwd: Path = None,
-               out_dir: Path = None, permissions: dict = None, sealed: bool = False) -> list:
+               out_dir: Path = None, permissions: dict = None, sealed: bool = False,
+               trial: bool = False) -> list:
     if cli == "claude":
         argv = [binary, "-p", "--output-format", "stream-json", "--verbose",
                 "--agent", agent, "--model", model_arg(model)]
@@ -76,6 +79,15 @@ def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cw
             argv += ["-c", f'model_reasoning_effort="{effort}"']
         if sealed:
             argv += ["--sandbox", "read-only"]
+        elif trial:
+            # A trial arm's only writable root is its own directory (the --cd below), so it cannot
+            # stage or commit into the enclosing repository even with an explicit path, nor write
+            # anywhere else; /tmp and $TMPDIR are not writable roots either. Reads are unrestricted
+            # (repository files, read-only git) and network access stays on (researcher arms).
+            argv += ["--sandbox", "workspace-write",
+                     "-c", "sandbox_workspace_write.network_access=true",
+                     "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
+                     "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true"]
         else:
             argv += ["--dangerously-bypass-approvals-and-sandbox"]
         argv += ["--skip-git-repo-check", "--ephemeral"]
@@ -86,6 +98,60 @@ def build_argv(*, binary: str, cli: str, agent: str, model: str, effort: str, cw
         argv.append("-")
         return argv
     raise ValueError(f"unknown worker cli {cli!r}")
+
+
+GIT_READ_ONLY = ("log", "show", "diff", "status", "rev-parse", "rev-list", "ls-files", "ls-tree", "cat-file",
+                 "blame", "shortlog", "describe", "name-rev", "show-ref", "for-each-ref", "merge-base",
+                 "diff-tree", "diff-files", "diff-index", "count-objects", "whatchanged", "check-ignore",
+                 "ls-remote", "grep", "var", "version", "help", "show-branch", "range-diff", "cherry",
+                 "verify-commit", "verify-tag")
+
+# The shim every trial arm finds first on PATH as `git`. It reads the subcommand past git's global
+# options and refuses anything outside GIT_READ_ONLY, whatever -C, --git-dir or --work-tree point at
+# (also -c, --exec-path and --output=, which could run code or write files). A read-only command runs the
+# real git with optional locks off, so even `git status` leaves the index alone; GIT_CEILING_DIRECTORIES
+# (which stops an unqualified `git` finding the enclosing repository) is lifted for those reads, so
+# `git log` from the trial directory still reads the repository.
+_GIT_GUARD = """#!{python}
+import os, sys
+REAL = {real!r}
+READ_ONLY = {read_only!r}
+args = sys.argv[1:]
+i = 0
+while i < len(args):
+    a = args[i]
+    if a in ("-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix"):
+        i += 2
+    elif a.split("=")[0] in ("--git-dir", "--work-tree", "--namespace", "--super-prefix") or a in (
+            "--no-pager", "-p", "--paginate", "--bare", "--no-replace-objects", "--literal-pathspecs",
+            "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks"):
+        i += 1
+    else:
+        break
+sub = args[i] if i < len(args) else ""
+bad = [a for a in args[i + 1:] if a == "--output" or a.startswith("--output=") or a == "--no-index"]
+if sub not in READ_ONLY or bad:
+    sys.stderr.write("git: refused: this is a trial arm; only read-only git is allowed (%s), and nothing may be "
+                     "staged or committed, whatever repository path is given.\\n" % ", ".join(READ_ONLY[:8] + ("...",)))
+    sys.exit(126)
+env = dict(os.environ, GIT_OPTIONAL_LOCKS="0")
+env.pop("GIT_CEILING_DIRECTORIES", None)
+os.execve(REAL, [REAL] + args, env)
+"""
+
+
+def install_git_guard(dest: Path, path_env: str) -> Path:
+    """Write the git shim into `dest` and return `dest`: the directory a trial arm gets first on PATH.
+    Returns None when no real git is found on `path_env` (the arm then has no git at all)."""
+    real = shutil.which("git", path=path_env)
+    if not real:
+        return None
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    shim = dest / "git"
+    shim.write_text(_GIT_GUARD.format(python=sys.executable, real=real, read_only=GIT_READ_ONLY))
+    shim.chmod(0o755)
+    return dest
 
 
 def ensure_project_agent(role: str, cwd: Path, reg: dict) -> Path:
@@ -275,8 +341,9 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
                  trial: bool = False) -> DispatchResult:
     """Blocking: runs one worker to completion (or timeout). `on_start(pid, transcript)`
     is called right after spawn so the caller can journal dispatch.start. trial=True marks a
-    trial arm: it gets the trial contract (never commit), git write commands are refused for a
-    Claude arm, and git cannot discover a repository above the arm's cwd."""
+    trial arm: it gets the trial contract (never commit), git write commands are refused (a git
+    shim first on PATH, Bash denies for Claude, a cwd-only sandbox for Codex), and git cannot discover
+    a repository above the arm's cwd."""
     reg = reg or roles_mod.load()
     s = roles_mod.seat(role, reg)
     model = model or s["model_q"]
@@ -298,13 +365,21 @@ def run_dispatch(*, brief: str, role: str, cwd: Path, out_dir: Path, timeout: in
     stdin_path.write_bytes(stdin_text.encode("utf-8"))
     argv = build_argv(binary=worker_bin(cli), cli=cli, agent=s["agent"], model=model, effort=effective_effort,
                       cwd=Path(cwd).resolve(), out_dir=out_dir.resolve(), permissions=perms,
-                      sealed=bool(s.get("sealed")))
+                      sealed=bool(s.get("sealed")), trial=trial)
     full_env = dict(os.environ)
     if cli == "claude":
         full_env.update(CLAUDE_HEADLESS_ENV)
     full_env.update(env or {})
-    if trial:  # git finds no repository from the arm's cwd upward: its output cannot be committed
+    if trial:
+        # Unqualified git finds no repository from the arm's cwd upward, and the git shim (first on
+        # PATH) refuses every write subcommand, explicit repository path or not. Codex arms add a
+        # sandbox whose only writable root is the cwd (build_argv): the barrier for a git that is
+        # not the shim.
         full_env["GIT_CEILING_DIRECTORIES"] = str(Path(cwd).resolve().parent)
+        full_env["GIT_OPTIONAL_LOCKS"] = "0"
+        guard_dir = install_git_guard(out_dir / "guard-bin", full_env.get("PATH", os.defpath))
+        if guard_dir:
+            full_env["PATH"] = f"{guard_dir.resolve()}{os.pathsep}{full_env.get('PATH', os.defpath)}"
     full_env["PIPELINE_ROLE"] = role
     full_env["PIPELINE_HEADLESS"] = "1"
     start = now_ts()

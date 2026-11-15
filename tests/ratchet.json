@@ -1,5 +1,5 @@
 {
- "min_tests": 299,
+ "min_tests": 302,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -62,6 +62,7 @@
   "engine_pins_model_without_fallback_for_trial_arms",
   "engine_refuses_to_continue_a_deliberate_stop_until_cleared",
   "engine_resumes_idempotently_from_journal",
+  "engine_runs_a_model_pinned_phase_as_a_trial_arm_with_the_git_protections",
   "engine_runs_phase_and_engine_runs_exit",
   "evidence_gate_refuses_unverified_claims",
   "exit_failure_feeds_retry_with_failure_text_then_burns",
@@ -163,6 +164,7 @@
   "trial_apply_never_seats_a_quota_fallback",
   "trial_apply_writes_effort",
   "trial_arm_briefs_forbid_committing_even_though_role_prompts_say_commit",
+  "trial_arm_of_either_cli_cannot_stage_or_commit_into_the_repository_even_by_explicit_path",
   "trial_arms_get_a_trial_contract_git_write_denies_and_no_repo_above_their_cwd",
   "trial_briefs_carry_task_titles_and_scorers_get_task_specs_and_may_open_sources",
   "trial_claude_arm_runs_for_a_codex_seat_and_codex_arm_for_a_claude_seat",
@@ -175,6 +177,7 @@
   "trial_mixed_family_plan_has_two_blind_scorer_phases",
   "trial_plan_demotes_rubric_and_task_headings_so_the_plan_parses",
   "trial_plans_from_the_real_016_materials_parse_for_both_roles",
+  "trial_repeats_each_get_their_own_output_directory_and_exit",
   "trial_single_family_plan_is_unchanged_one_scorer_scores_json",
   "tui_conversation_test_absent_db_file",
   "tui_conversation_test_absent_session_in_existing_db",
