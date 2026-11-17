@@ -4270,6 +4270,41 @@ def interactive_seat_guard_refuses_writes():
 
 
 @test
+def interactive_seat_reads_public_pages_and_readonly_gh_only():
+    from pipeline import roles as rmod
+    reg = rmod.load()
+    settings = rmod.interactive_settings(reg)["permissions"]
+    readonly = ("gh pr view", "gh pr list", "gh pr diff", "gh pr checks", "gh pr status", "gh issue view",
+                "gh issue list", "gh issue status", "gh repo view", "gh release view", "gh release list",
+                "gh run view", "gh run list")
+    user = rmod.user_allow_rules()
+    for cmd in readonly:
+        assert f"Bash({cmd} *)" in settings["allow"] and f"Bash({cmd})" in settings["allow"], cmd
+        assert f"Bash({cmd} *)" in user, cmd
+        assert not any(d.startswith("Bash(" + cmd) for d in settings["deny"]), cmd
+    writes = ("gh pr create", "gh pr comment", "gh pr merge", "gh pr close", "gh pr edit", "gh pr review",
+              "gh issue create", "gh issue comment", "gh issue close", "gh issue edit", "gh release create",
+              "gh release delete", "gh release upload", "gh release edit", "gh api", "gh search",
+              "gh auth login", "gh config set", "gh repo create", "gh repo delete", "gh run rerun", "gh run cancel")
+    for cmd in writes:
+        # never allowed: not covered by any gh allow rule, so dontAsk refuses it
+        for rule in settings["allow"] + user:
+            if rule.startswith("Bash(gh "):
+                pat = rule[len("Bash("):-1]
+                head = pat.rstrip("*").strip()
+                assert not (cmd + " x").startswith(head + " ") and cmd != head, (cmd, rule)
+    # the writes that were explicitly denied before stay denied
+    for cmd in ("gh pr create", "gh pr comment", "gh issue create", "gh issue comment", "gh release create",
+                "gh release delete", "gh release upload", "gh release edit"):
+        assert f"Bash({cmd}*)" in settings["deny"], cmd
+    assert "Bash(gh api *)" not in settings["allow"] and "Bash(gh search *)" not in settings["allow"]
+    prompt = rmod.render_agent("interactive", reg)
+    assert "read-only `gh`" in prompt and "public page at a known URL" in prompt
+    assert "web search" in prompt.lower() and "a fetch" not in prompt
+    assert "read it before presenting the draft" in prompt
+
+
+@test
 def tui_parity_fixtures():
     import json as _json
     from pipeline.tui import conversation as conv, model as tmodel

@@ -43,14 +43,23 @@ READONLY_SHELL = (
     "ps *", "ps", "which *", "which", "df *", "df", "du *", "du", "readlink *", "readlink", "type *", "type",
     "date", "date *", "codex login status",
 )
+# Read-only gh for the seat: view and list only. Not `gh api`, `gh search`, or anything that
+# creates, edits, comments, merges, closes, deletes, uploads or changes auth or config.
+READONLY_GH = tuple(
+    v for sub in ("pr view", "pr list", "pr diff", "pr checks", "pr status", "issue view", "issue list",
+                  "issue status", "repo view", "release view", "release list", "run view", "run list")
+    for v in (f"gh {sub} *", f"gh {sub}")
+)
 INTERACTIVE_DENY_BASH = ("pipeline gc *--sweep*", "pipeline engine *", "pipeline render-agents*", "pipeline trial-apply *")
 
-INTERACTIVE_ALLOWED_BASH = PIPELINE_COMMANDS + READONLY_SHELL + ("find *", "find", "echo *", "echo")
+INTERACTIVE_ALLOWED_BASH = PIPELINE_COMMANDS + READONLY_SHELL + READONLY_GH + ("find *", "find", "echo *", "echo")
 
 EXTERNAL_CHANNEL_PATTERNS = (
     # No role can post to external channels. Denied at the bash-permission level and
     # restated in every role prompt.
-    "gh pr comment*", "gh issue comment*", "gh pr create*", "gh issue create*", "gh release*",
+    "gh pr comment*", "gh issue comment*", "gh pr create*", "gh issue create*",
+    "gh release create*", "gh release delete*", "gh release delete-asset*", "gh release edit*",
+    "gh release upload*", "gh release download*",
     "curl -X POST*", "curl --data*", "curl -d*", "curl -F*", "wget --post*",
     "slack*", "tweet*", "mail *", "sendmail*", "twilio*",
 )
@@ -389,7 +398,7 @@ def drift(dest: Path = None, reg: dict = None) -> list:
 # the user's Claude settings so the seat can still see and steer the engine. Deny rules and the write guard stay in the seat's own settings.
 
 def user_allow_rules() -> list:
-    return [f"Bash({v})" for v in PIPELINE_COMMANDS + READONLY_SHELL]
+    return [f"Bash({v})" for v in PIPELINE_COMMANDS + READONLY_SHELL + READONLY_GH]
 
 
 def user_settings_path() -> Path:

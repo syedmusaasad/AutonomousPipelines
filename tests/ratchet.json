@@ -1,5 +1,5 @@
 {
- "min_tests": 310,
+ "min_tests": 311,
  "required": [
   "adopt_does_not_touch_execution_state",
   "adopt_refusals",
@@ -78,6 +78,7 @@
   "gc_sweep_deletes_artifacts_keeps_journal_and_stopped_writes_manifest_first",
   "hygiene_gates_fail_on_poisoned_fixtures",
   "interactive_seat_guard_refuses_writes",
+  "interactive_seat_reads_public_pages_and_readonly_gh_only",
   "interrupted_attempt_is_not_charged_against_budget",
   "irreconcilable_usage_is_clamped_and_marked_incomplete",
   "iterate_and_lanes_together_is_rejected",
