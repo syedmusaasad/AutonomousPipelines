@@ -348,7 +348,7 @@
     },
     "researcher": {
       "purpose": "Reads, fetches, compares; writes findings to files with sources. Never edits code.",
-      "model": "gpt-6.1-sol",
+      "model": "gpt-6.2-sol",
       "effort": "medium",
       "band": "critical",
       "tools": {
@@ -486,6 +486,18 @@
           },
           "at": "2026-11-14T18:00:00+00:00",
           "why": "DECISION operator-seats (2026-11-14): operator asked for the best balance of quality and speed for this seat. Artificial Analysis: gpt-6.1-sol medium scores 46 at 4.6 min per index task with first output after about 5 s; high scores 50 at 7.9 min with first output after about 42 s. Sol medium scores above gpt-6.1-terra high (42 at 4.4 min) and claude-sonnet-5-5 high (42 at 6.7 min). Its LiveBench summarization and research lead was measured at max effort."
+        },
+        {
+          "from": {
+            "model": "gpt-6.1-sol",
+            "effort": "medium"
+          },
+          "to": {
+            "model": "gpt-6.2-sol",
+            "effort": "medium"
+          },
+          "at": "2026-11-18T12:00:00+00:00",
+          "why": "DECISION gpt-6.2-sol: operator asked to move GPT seats to their latest counterparts. gpt-6.2-sol is the current Sol model; availability on the Codex account confirmed by a live call. Not trialled: the plan 016 researcher trial ran on gpt-6.1-sol."
         }
       ]
     },
@@ -734,7 +746,7 @@
     },
     "reviewer-b": {
       "purpose": "Sealed reviewer: a headless session reads the work and returns a verdict; never edits.",
-      "model": "gpt-6.1-sol",
+      "model": "gpt-6.2-sol",
       "effort": "high",
       "band": "critical",
       "sealed": true,
@@ -846,6 +858,18 @@
           },
           "at": "2026-11-14T00:00:00+00:00",
           "why": "DECISION two-reviewers (2026-11-14): operator restored a second reviewer. reviewer-a (claude-opus-5-5 high) and reviewer-b (gpt-6.1-sol high) both review every reviewed phase; either BLOCKING verdict blocks. Every piece of work is therefore seen by at least one reviewer outside its author's model family."
+        },
+        {
+          "from": {
+            "model": "gpt-6.1-sol",
+            "effort": "high"
+          },
+          "to": {
+            "model": "gpt-6.2-sol",
+            "effort": "high"
+          },
+          "at": "2026-11-18T12:00:00+00:00",
+          "why": "DECISION gpt-6.2-sol: operator asked to move GPT seats to their latest counterparts. gpt-6.2-sol is the current Sol model; availability on the Codex account confirmed by a live call. Not trialled: the plan 016 researcher trial ran on gpt-6.1-sol."
         }
       ]
     }

@@ -415,8 +415,8 @@ def registry_seats_match_operator_choice():
     want = {
         "interactive": ("claude-fable-5-2", "medium"), "implementer": ("claude-sonnet-5-5", "high"),
         "fast-worker": ("gpt-6-luna", "low"), "lane-worker": ("claude-haiku-5-5", "low"),
-        "researcher": ("gpt-6.1-sol", "medium"), "document-writer": ("claude-sonnet-5-5", "high"),
-        "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer-a": ("claude-opus-5-5", "high"), "reviewer-b": ("gpt-6.1-sol", "high"),
+        "researcher": ("gpt-6.2-sol", "medium"), "document-writer": ("claude-sonnet-5-5", "high"),
+        "frontend-worker": ("claude-sonnet-5-5", "high"), "reviewer-a": ("claude-opus-5-5", "high"), "reviewer-b": ("gpt-6.2-sol", "high"),
     }
     got = {k: (v["model"], v["effort"]) for k, v in reg["roles"].items()}
     assert got == want, got
@@ -978,7 +978,7 @@ FAKE: verdict-by-agent a=PASS b=CONCERNS
         v = {x["reviewer"]: x for x in _review_verdicts(rid)}
         assert set(v) == {"reviewer-a", "reviewer-b"} and len(_review_verdicts(rid)) == 2
         assert (v["reviewer-a"]["verdict"], v["reviewer-a"]["model"]) == ("PASS", "claude-opus-5-5")
-        assert (v["reviewer-b"]["verdict"], v["reviewer-b"]["model"]) == ("CONCERNS", "gpt-6.1-sol")
+        assert (v["reviewer-b"]["verdict"], v["reviewer-b"]["model"]) == ("CONCERNS", "gpt-6.2-sol")
         calls = _reviewer_calls(E)
         assert len(calls) == 2
         by = {c["agent"]: c for c in calls}
@@ -1058,7 +1058,7 @@ FAKE: verdict PASS
 
 @test
 def one_reviewer_unavailable_fails_the_attempt():
-    for model in ("claude-opus-5-5", "gpt-6.1-sol"):
+    for model in ("claude-opus-5-5", "gpt-6.2-sol"):
         with Estate() as E:
             rid, p, r, st = run_plan(E, f"""## Phase 1: work (implementer)
 REVIEW: cross
@@ -1307,7 +1307,7 @@ def codex_reviewer_argv_is_sealed_read_only_on_stdin():
         out = E.tmp / "d"
         res = dsp.run_dispatch(brief="FAKE: verdict PASS\n", role="reviewer-b", cwd=E.work, out_dir=out, timeout=30)
         assert res.outcome == "ok" and res.final_text.startswith("VERDICT: PASS"), res.as_row()
-        assert res.tokens["total"] == 1234 and res.model == "gpt-6.1-sol"
+        assert res.tokens["total"] == 1234 and res.model == "gpt-6.2-sol"
         call = E.fake_calls()[-1]
         assert call["cli"] == "codex" and call["agent"] == "pl-reviewer-b" and call["variant"] == "high"
         assert "Headless worker contract" in call["brief"] and call["brief"].rstrip().endswith("FAKE: verdict PASS")
@@ -3275,7 +3275,7 @@ def codex_researcher_seat_inlines_contract_and_reports_quota():
         out = E.tmp / "researcher"
         res = dsp.run_dispatch(brief="FAKE: ran grep -r x .\nFAKE: touch notes.md\n", role="researcher",
                                cwd=E.work, out_dir=out, timeout=30)
-        assert res.outcome == "ok" and res.model == "gpt-6.1-sol", res.as_row()
+        assert res.outcome == "ok" and res.model == "gpt-6.2-sol", res.as_row()
         assert res.tokens == {"input": 1000, "output": 200, "reasoning": 34, "total": 1234}
         assert res.session_id == "ses_fake" and (E.work / "notes.md").exists()
         assert engine.ran_commands(out / "transcript.jsonl") == ["grep -r x ."]

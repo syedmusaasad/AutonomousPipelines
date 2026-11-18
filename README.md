@@ -62,11 +62,11 @@ failing plan.
 | implementer | claude | claude-sonnet-5-5 | high |
 | fast-worker | codex | gpt-6-luna | low |
 | lane-worker | claude | claude-haiku-5-5 | low |
-| researcher | codex | gpt-6.1-sol | medium |
+| researcher | codex | gpt-6.2-sol | medium |
 | document-writer | claude | claude-sonnet-5-5 | high |
 | frontend-worker | claude | claude-sonnet-5-5 | high |
 | reviewer-a | claude | claude-opus-5-5 | high |
-| reviewer-b | codex | gpt-6.1-sol | high |
+| reviewer-b | codex | gpt-6.2-sol | high |
 
 A seat's model family picks its CLI (`clis` in roles/registry.json). There are no
 fallback models: a failed dispatch is retried on the same seat as a phase attempt, and a
